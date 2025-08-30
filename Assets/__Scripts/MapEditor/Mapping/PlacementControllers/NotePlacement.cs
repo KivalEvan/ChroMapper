@@ -57,8 +57,6 @@ public class NotePlacement : PlacementController<BaseNote, NoteContainer, NoteGr
         }
     }
 
-    public override int PlacementXMin => base.PlacementXMax * -1;
-
     private void LateUpdate()
     {
         if (flagDirectionsUpdate)

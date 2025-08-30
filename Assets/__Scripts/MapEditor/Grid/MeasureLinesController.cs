@@ -14,7 +14,6 @@ public class MeasureLinesController : MonoBehaviour
     [SerializeField] private TextMeshProUGUI measureLinePrefab;
     [SerializeField] private AudioTimeSyncController atsc;
     [SerializeField] private RectTransform parent;
-    [SerializeField] private Transform noteGrid;
     [SerializeField] private Transform frontNoteGridScaling;
     [SerializeField] private Transform measureLineGrid;
     [SerializeField] private BPMChangeGridContainer bpmChangeGridContainer;

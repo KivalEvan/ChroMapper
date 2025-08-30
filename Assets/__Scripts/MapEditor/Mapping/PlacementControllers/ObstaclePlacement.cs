@@ -39,8 +39,6 @@ public class ObstaclePlacement : PlacementController<BaseObstacle, ObstacleConta
 
     public static bool IsPlacing { get; private set; }
 
-    public override int PlacementXMin => base.PlacementXMax * -1;
-
     private float SmallestRankableWallDuration => Atsc.GetBeatFromSeconds(0.016f);
 
     public override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> container) =>

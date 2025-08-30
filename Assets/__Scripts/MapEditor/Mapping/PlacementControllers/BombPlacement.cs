@@ -31,8 +31,6 @@ public class BombPlacement : PlacementController<BaseNote, NoteContainer, NoteGr
         }
     }
 
-    public override int PlacementXMin => base.PlacementXMax * -1;
-
     public override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> container) =>
         new BeatmapObjectPlacementAction(spawned, container, "Placed a Bomb.");
 

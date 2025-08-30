@@ -1,18 +1,41 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Serialization;
 
 public class GridChild : MonoBehaviour
 {
-    public bool RegisterChildOnStart = true;
-
-    private void OnEnable()
-    {
-        if (!RegisterChildOnStart) return;
-        GridOrderController.RegisterChild(this);
-    }
-
-    private void OnDisable() => GridOrderController.DeregisterChild(this);
+    private void Awake() => GridViewController.RegisterChild(this);
+    private void OnDestroy() => GridViewController.DeregisterChild(this);
 
     #region GridChild Properties
+
+    public List<GridTransformData> Transforms
+    {
+        get => transforms;
+        set
+        {
+            transforms = value;
+            GridViewController.NotifyChanged();
+        }
+    }
+
+    [SerializeField] private List<GridTransformData> transforms;
+
+    /// <summary>
+    ///     Flag which editing mode is allowed to view.
+    /// </summary>
+    public EditingMode ViewableMode
+    {
+        get => viewableMode;
+        set
+        {
+            viewableMode = value;
+            GridViewController.NotifyChanged();
+        }
+    }
+
+    [SerializeField] private EditingMode viewableMode = (EditingMode)short.MaxValue;
 
     /// <summary>
     ///     Order that determines its original position. Each child with the same Order will be at the same position
@@ -23,26 +46,11 @@ public class GridChild : MonoBehaviour
         set
         {
             order = value;
-            GridOrderController.MarkDirty();
+            GridViewController.NotifyChanged();
         }
     }
 
     [SerializeField] private int order;
-
-    /// <summary>
-    ///     Local offset that each individual child will be offset by.
-    /// </summary>
-    public Vector3 LocalOffset
-    {
-        get => localOffset;
-        set
-        {
-            localOffset = value;
-            GridOrderController.MarkDirty();
-        }
-    }
-
-    [SerializeField] private Vector3 localOffset = Vector3.zero;
 
     /// <summary>
     ///     How large this object is, to the largest integer.
@@ -53,11 +61,18 @@ public class GridChild : MonoBehaviour
         set
         {
             size = value;
-            GridOrderController.MarkDirty();
+            GridViewController.NotifyChanged();
         }
     }
 
     [SerializeField] private int size;
 
     #endregion
+}
+
+[Serializable]
+public struct GridTransformData
+{
+    [SerializeField] public Transform Transform;
+    [SerializeField] public Vector3 LocalOffset;
 }

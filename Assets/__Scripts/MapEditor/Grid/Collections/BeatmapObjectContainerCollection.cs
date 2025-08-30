@@ -42,7 +42,6 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
     public BeatmapObjectCallbackController DespawnCallbackController;
 
     public Transform GridTransform;
-    public Transform PoolTransform;
     public bool UseChunkLoadingWhenPlaying;
     public int ChunksLoadedWhilePlaying = 2;
     public bool IgnoreTrackFilter;

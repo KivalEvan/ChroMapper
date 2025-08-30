@@ -18,8 +18,6 @@ public class ChainIndicatorPlacement : PlacementController<BaseChain, ChainIndic
     [SerializeField] private PrecisionPlacementGridController precisionPlacement;
     [SerializeField] private LaserSpeedController laserSpeedController;
 
-    public override int PlacementXMin => PlacementXMax * -1;
-
     public override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicting) =>
         new BeatmapObjectPlacementAction(spawned, conflicting, "Edited a chain.");
 
