@@ -379,6 +379,7 @@ namespace Beatmap.Animations
             {
                 AnimationTrack.UpdateTime(time);
             }
+            AnimationTrack.UpdateAuxTime(time);
         }
 
         public void LateUpdate()

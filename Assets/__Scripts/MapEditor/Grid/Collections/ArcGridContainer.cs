@@ -25,7 +25,10 @@ public class ArcGridContainer : BeatmapObjectContainerCollection<BaseArc>
 
     public override ObjectContainer CreateContainer()
     {
-        return ArcContainer.SpawnArc(null, ref arcPrefab);
+        var con = ArcContainer.SpawnArc(null, ref arcPrefab);
+        con.Animator.Atsc = AudioTimeSyncController;
+        con.Animator.TracksManager = tracksManager;
+        return con;
     }
 
     protected override void OnObjectSpawned(BaseObject _, bool __ = false) =>
@@ -37,11 +40,13 @@ public class ArcGridContainer : BeatmapObjectContainerCollection<BaseArc>
     internal override void SubscribeToCallbacks()
     {
         AudioTimeSyncController.PlayToggle += OnPlayToggle;
+        UIMode.PreviewModeSwitched += OnUIPreviewModeSwitch;
     }
 
     internal override void UnsubscribeToCallbacks()
     {
         AudioTimeSyncController.PlayToggle -= OnPlayToggle;
+        UIMode.PreviewModeSwitched -= OnUIPreviewModeSwitch;
     }
 
     internal override void LateUpdate()
@@ -60,6 +65,8 @@ public class ArcGridContainer : BeatmapObjectContainerCollection<BaseArc>
         if (LoadedContainers.ContainsKey(objectData)) RecycleContainer(objectData);
     }
 
+    private void OnUIPreviewModeSwitch() => RefreshPool(true);
+    
     /// <summary>
     /// When playing, disable all indicator blocks
     /// </summary>
@@ -84,8 +91,12 @@ public class ArcGridContainer : BeatmapObjectContainerCollection<BaseArc>
         arcAppearanceSO.SetArcAppearance(arc);
         arc.Setup();
         arc.SetIndicatorBlocksActive(false);
-        var track = tracksManager.GetTrackAtTime(arcData.SongBpmTime);
-        track.AttachContainer(con);
+
+        if (!arc.Animator.AnimatedTrack)
+        {
+            var track = tracksManager.GetTrackAtTime(arcData.SongBpmTime);
+            track.AttachContainer(con);
+        }
     }
 
     /// <summary>
