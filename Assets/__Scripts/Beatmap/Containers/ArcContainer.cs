@@ -31,6 +31,10 @@ namespace Beatmap.Containers
 
         public Vector3[] SplinePoints;
 
+        // for now we just use bool instead of ref object
+        public bool HasHeadNote;
+        public bool HasTailNote;
+
         public Vector3 p0()
         {
             var position = ArcData.GetPosition();
@@ -108,6 +112,10 @@ namespace Beatmap.Containers
         public override void Setup()
         {
             base.Setup();
+
+            HasHeadNote = false;
+            HasTailNote = false;
+
             MaterialPropertyBlock.SetFloat(lit, 1);
             MaterialPropertyBlock.SetFloat(translucentAlpha, 1f);
             foreach (var gameObj in indicators) gameObj.GetComponent<ArcIndicatorContainer>().Setup();
@@ -117,6 +125,7 @@ namespace Beatmap.Containers
 
         public override void UpdateGridPosition()
         {
+            DetectConnectedNote();
             RecomputePosition();
             foreach (var gameObj in indicators) gameObj.GetComponent<ArcIndicatorContainer>().UpdateGridPosition();
             UpdateCollisionGroups();
@@ -246,6 +255,43 @@ namespace Beatmap.Containers
         private void ResetIndicatorsPosition()
         {
             foreach (var gameObj in indicators) gameObj.GetComponent<ArcIndicatorContainer>().UpdateGridPosition();
+        }
+
+        public void DetectConnectedNote()
+        {
+            if (ArcData == null) return;
+            var collection =
+                BeatmapObjectContainerCollection.GetCollectionForType<NoteGridContainer>(ObjectType.Note);
+
+            HasHeadNote = false;
+            HasTailNote = false;
+
+            var notes = collection.GetBetween(
+                ArcData.JsonTime - ArcGridContainer.ViewEpsilon,
+                ArcData.JsonTime + ArcGridContainer.ViewEpsilon);
+            foreach (var note in notes)
+            {
+                if (ArcData.Color != note.Color
+                    || !(Mathf.Abs(note.SongBpmTime - ArcData.SongBpmTime) < BeatmapObjectContainerCollection.Epsilon)
+                    || !(Vector2.Distance(ArcData.GetPosition(), note.GetPosition()) < 0.1f))
+                    continue;
+                HasHeadNote = true;
+                break;
+            }   
+
+            notes = collection.GetBetween(
+                ArcData.TailJsonTime - ArcGridContainer.ViewEpsilon,
+                ArcData.TailJsonTime + ArcGridContainer.ViewEpsilon);
+            foreach (var note in notes)
+            {
+                if (ArcData.Color != note.Color
+                    || !(Mathf.Abs(note.SongBpmTime - ArcData.TailSongBpmTime)
+                        < BeatmapObjectContainerCollection.Epsilon)
+                    || !(Vector2.Distance(ArcData.GetTailPosition(), note.GetPosition()) < 0.1f))
+                    continue;
+                HasTailNote = true;
+                break;
+            }
         }
 
         public void SetColor(Color c)

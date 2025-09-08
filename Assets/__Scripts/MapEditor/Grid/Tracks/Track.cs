@@ -148,7 +148,7 @@ public class Track : MonoBehaviour
                             Object.SpawnSongBpmTime,
                             time));
                     var spawnLifetime = Mathf.Clamp01(1 - ((normalizedLifetime - 0.5f) * 2));
-                    var jumpT = Easing.Quadratic.Out(spawnLifetime);
+                    var jumpT = arcContainer.HasHeadNote ? Easing.Quadratic.Out(spawnLifetime) : 1f;
                     var headY = Mathf.Lerp(0, arc.GetPosition().y, jumpT) - arc.GetPosition().y;
 
                     var tailOffset = arc.TailSongBpmTime - arc.SongBpmTime;
@@ -158,7 +158,7 @@ public class Track : MonoBehaviour
                             Object.SpawnSongBpmTime + tailOffset,
                             time));
                     var tailSpawnLifetime = Mathf.Clamp01(1 - ((tailNormalizedLifetime - 0.5f) * 2));
-                    var tailJumpT = Easing.Quadratic.Out(tailSpawnLifetime);
+                    var tailJumpT = arcContainer.HasTailNote ? Easing.Quadratic.Out(tailSpawnLifetime) : 1f;
                     var tailY = Mathf.Lerp(0, arc.GetTailPosition().y, tailJumpT) - arc.GetTailPosition().y;
 
                     // yoink from polandball
@@ -188,7 +188,7 @@ public class Track : MonoBehaviour
 
                         newPositions[i] = point;
                     }
-                    
+
                     var splineRenderer = arcContainer.SplineRenderer;
                     splineRenderer.SetPositions(newPositions);
                     break;
