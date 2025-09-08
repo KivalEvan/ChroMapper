@@ -13,7 +13,7 @@ namespace Beatmap.Containers
                 2.5f / 0.6f; // 2.5 multiplier used by game, divide by 0.6 to scale to cm units
 
         internal const float arcEmissionIntensity = 6;
-        private const int numSamples = 31;
+        public const int NumSamples = 30;
 
         private static readonly int emissionColor = Shader.PropertyToID("_ColorTint");
         private static readonly int lit = Shader.PropertyToID("_Lit");
@@ -29,7 +29,7 @@ namespace Beatmap.Containers
         [FormerlySerializedAs("splineRenderer")] [SerializeField]
         public LineRenderer SplineRenderer;
 
-        public Vector3[] SplinePoints;
+        public readonly Vector3[] SplinePoints = new Vector3[NumSamples + 1];
 
         // for now we just use bool instead of ref object
         public bool HasHeadNote;
@@ -150,7 +150,7 @@ namespace Beatmap.Containers
             if (!(Animator != null && Animator.AnimatedTrack))
                 transform.localPosition = new Vector3(0, 0, ArcData.SongBpmTime * EditorScaleController.EditorScale);
 
-            SplineRenderer.positionCount = numSamples + 1;
+            SplineRenderer.positionCount = NumSamples + 1;
 
             var p0 = this.p0();
             var p1 = this.p1();
@@ -170,27 +170,25 @@ namespace Beatmap.Containers
             {
                 var (headToMidControl, midPoint, midToTailControl) = GetMidAnchorPoints(p0, p1, p2, p3);
 
-                for (int i = 0; i <= numSamples; i++)
+                for (int i = 0; i <= NumSamples; i++)
                 {
                     SplineRenderer.SetPosition(
                         i,
-                        i <= numSamples / 2
-                            ? SampleCubicBezierPoint(p0, p1, headToMidControl, midPoint, (float)i / numSamples * 2)
+                        i <= NumSamples / 2
+                            ? SampleCubicBezierPoint(p0, p1, headToMidControl, midPoint, (float)i / NumSamples * 2)
                             : SampleCubicBezierPoint(
                                 midPoint,
                                 midToTailControl,
                                 p2,
                                 p3,
-                                ((float)i / numSamples * 2) - 1));
+                                ((float)i / NumSamples * 2) - 1));
                 }
             }
             else
-                for (int i = 0; i <= numSamples; i++)
-                    SplineRenderer.SetPosition(i, SampleCubicBezierPoint(p0, p1, p2, p3, (float)i / numSamples));
+                for (int i = 0; i <= NumSamples; i++)
+                    SplineRenderer.SetPosition(i, SampleCubicBezierPoint(p0, p1, p2, p3, (float)i / NumSamples));
 
             SplineRenderer.enabled = true;
-            SplinePoints =
-                new Vector3[numSamples + 1]; // TODO: I should be able to reuse this but I couldn't for whatever reason
             SplineRenderer.GetPositions(SplinePoints);
             ResetIndicatorsPosition();
         }

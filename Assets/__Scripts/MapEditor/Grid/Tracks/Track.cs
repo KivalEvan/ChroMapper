@@ -18,6 +18,7 @@ public class Track : MonoBehaviour
     public BaseGrid Object;
     public ObjectContainer ObjectContainer;
     private (Transform, Vector3, Quaternion)[] nodesTarget;
+    private readonly Vector3[] newSplinePosition = new Vector3[ArcContainer.NumSamples + 1];
     private float spawnPosition;
     private float despawnPosition;
     private float despawnTime;
@@ -149,7 +150,8 @@ public class Track : MonoBehaviour
                             time));
                     var spawnLifetime = Mathf.Clamp01(1 - ((normalizedLifetime - 0.5f) * 2));
                     var jumpT = arcContainer.HasHeadNote ? Easing.Quadratic.Out(spawnLifetime) : 1f;
-                    var headY = Mathf.Lerp(0, arc.GetPosition().y, jumpT) - arc.GetPosition().y;
+                    var headPosY = arc.GetPosition().y;
+                    var headY = Mathf.Lerp(0, headPosY, jumpT) - headPosY;
 
                     var tailOffset = arc.TailSongBpmTime - arc.SongBpmTime;
                     var tailNormalizedLifetime = Mathf.Clamp01(
@@ -159,11 +161,12 @@ public class Track : MonoBehaviour
                             time));
                     var tailSpawnLifetime = Mathf.Clamp01(1 - ((tailNormalizedLifetime - 0.5f) * 2));
                     var tailJumpT = arcContainer.HasTailNote ? Easing.Quadratic.Out(tailSpawnLifetime) : 1f;
-                    var tailY = Mathf.Lerp(0, arc.GetTailPosition().y, tailJumpT) - arc.GetTailPosition().y;
+                    var tailPosY = arc.GetTailPosition().y;
+                    var tailY = Mathf.Lerp(0, tailPosY, tailJumpT) - tailPosY;
 
                     // yoink from polandball
+                    // https://github.com/AllPoland/ArcViewer/blob/main/Assets/__Scripts/Previewer/MapControl/Objects/ArcManager.cs#L362
                     var basePositions = arcContainer.SplinePoints;
-                    var newPositions = new Vector3[basePositions.Length];
                     var arcLength = basePositions.Last().z;
                     for (var i = 0; i < basePositions.Length; i++)
                     {
@@ -186,11 +189,11 @@ public class Track : MonoBehaviour
                         //Squish the arc if needed
                         // point.z *= njs; // vnjs not a thing here yet
 
-                        newPositions[i] = point;
+                        newSplinePosition[i] = point;
                     }
 
                     var splineRenderer = arcContainer.SplineRenderer;
-                    splineRenderer.SetPositions(newPositions);
+                    splineRenderer.SetPositions(newSplinePosition);
                     break;
                 }
         }
