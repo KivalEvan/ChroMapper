@@ -54,6 +54,7 @@ public class MeasureLinesController : MonoBehaviour
         init = false;
         var existing = new Queue<TextMeshProUGUI>(measureTextsByBeat.Select(x => x.tmp));
         measureTextsByBeat.Clear();
+        activeMeasureTexts.Clear();
 
         var songContainer = BeatSaberSongContainer.Instance;
 
@@ -111,9 +112,6 @@ public class MeasureLinesController : MonoBehaviour
             tmp.gameObject.SetActive(true);
             activeMeasureTexts.Add(time, tmp);
         }
-
-        // why the hell are you here?
-        bookmarkRenderingController.RefreshVisibility(currentSongBpmBeat, songBpmBeatsAhead, songBpmBeatsBehind);
     }
 
     private void RefreshPositions()

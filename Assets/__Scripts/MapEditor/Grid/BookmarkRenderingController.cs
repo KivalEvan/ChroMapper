@@ -7,6 +7,8 @@ using UnityEngine;
 
 public class BookmarkRenderingController : MonoBehaviour
 {
+    [SerializeField] private AudioTimeSyncController atsc;
+    [SerializeField] private Transform frontNoteGridScaling;
     [SerializeField] private BookmarkManager manager;
     [SerializeField] private Transform gridBookmarksParent;
 
@@ -31,14 +33,32 @@ public class BookmarkRenderingController : MonoBehaviour
 
     private void Start()
     {
+        atsc.TimeChanged += UpdateTime;
         manager.BookmarksUpdated += UpdateRenderedBookmarks;
         EditorScaleController.EditorScaleChangedEvent += OnEditorScaleChange;
         Settings.NotifyBySettingName(nameof(Settings.DisplayGridBookmarks), DisplayRenderedBookmarks);
         Settings.NotifyBySettingName(nameof(Settings.GridBookmarksHasLine), RefreshBookmarkGridLine);
     }
 
+
+    private void OnDestroy()
+    {
+        atsc.TimeChanged -= UpdateTime;
+        manager.BookmarksUpdated -= UpdateRenderedBookmarks;
+        EditorScaleController.EditorScaleChangedEvent -= OnEditorScaleChange;
+        Settings.ClearSettingNotifications(nameof(Settings.DisplayGridBookmarks));
+        Settings.ClearSettingNotifications(nameof(Settings.GridBookmarksHasLine));
+    }
+
+    private void UpdateTime()
+    {
+        if (UIMode.PreviewMode) return;
+        RefreshVisibility();
+    }
+
     public void ClearCachedBookmarks()
     {
+        activeBookmarks.Clear();
         for (var i = renderedBookmarks.Count - 1; i >= 0; i--)
         {
             var bookmark = renderedBookmarks[i];
@@ -61,6 +81,7 @@ public class BookmarkRenderingController : MonoBehaviour
                 {
                     Destroy(bookmark.Text.gameObject);
                     renderedBookmarks.Remove(bookmark);
+                    activeBookmarks.Remove(bookmark);
                     return;
                 }
             }
@@ -94,6 +115,8 @@ public class BookmarkRenderingController : MonoBehaviour
         }
 
         renderedBookmarks.Sort((a, b) => a.MapBookmark.SongBpmTime.CompareTo(b.MapBookmark.SongBpmTime));
+
+        RefreshVisibility();
     }
 
     private void OnEditorScaleChange(float newScale)
@@ -167,8 +190,12 @@ public class BookmarkRenderingController : MonoBehaviour
             ? $"#{ColorUtility.ToHtmlStringRGBA(color)}"
             : $"#{ColorUtility.ToHtmlStringRGB(color)}";
 
-    public void RefreshVisibility(float currentSongBpmBeat, float songBpmBeatsAhead, float songBpmBeatsBehind)
+    public void RefreshVisibility()
     {
+        var currentSongBpmBeat = atsc.CurrentSongBpmTime;
+        var songBpmBeatsAhead = frontNoteGridScaling.localScale.z / EditorScaleController.EditorScale;
+        var songBpmBeatsBehind = songBpmBeatsAhead / 4f;
+
         // if only i can skip
         foreach (var bookmarkDisplay in renderedBookmarks)
         {
@@ -193,13 +220,5 @@ public class BookmarkRenderingController : MonoBehaviour
             bookmarkDisplay.Text.gameObject.SetActive(false);
             activeBookmarks.Remove(bookmarkDisplay);
         }
-    }
-
-    private void OnDestroy()
-    {
-        manager.BookmarksUpdated -= UpdateRenderedBookmarks;
-        EditorScaleController.EditorScaleChangedEvent -= OnEditorScaleChange;
-        Settings.ClearSettingNotifications(nameof(Settings.DisplayGridBookmarks));
-        Settings.ClearSettingNotifications(nameof(Settings.GridBookmarksHasLine));
     }
 }
