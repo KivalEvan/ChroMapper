@@ -32,12 +32,14 @@ public class MeasureLinesController : MonoBehaviour
 
         atsc.TimeChanged += UpdateTime;
         EditorScaleController.EditorScaleChangedEvent += EditorScaleUpdated;
+        BPMChangeGridContainer.OnBPMChangeRefreshed += RefreshMeasureLines;
     }
 
     private void OnDestroy()
     {
         atsc.TimeChanged -= UpdateTime;
         EditorScaleController.EditorScaleChangedEvent -= EditorScaleUpdated;
+        BPMChangeGridContainer.OnBPMChangeRefreshed -= RefreshMeasureLines;
     }
 
     private void UpdateTime()

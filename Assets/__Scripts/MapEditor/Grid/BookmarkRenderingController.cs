@@ -35,17 +35,18 @@ public class BookmarkRenderingController : MonoBehaviour
     {
         atsc.TimeChanged += UpdateTime;
         manager.BookmarksUpdated += UpdateRenderedBookmarks;
-        EditorScaleController.EditorScaleChangedEvent += OnEditorScaleChange;
+        EditorScaleController.EditorScaleChangedEvent += HandleEditorScaleChanged;
+        BPMChangeGridContainer.OnBPMChangeRefreshed += HandleBPMChangeRefreshed;
         Settings.NotifyBySettingName(nameof(Settings.DisplayGridBookmarks), DisplayRenderedBookmarks);
         Settings.NotifyBySettingName(nameof(Settings.GridBookmarksHasLine), RefreshBookmarkGridLine);
     }
-
 
     private void OnDestroy()
     {
         atsc.TimeChanged -= UpdateTime;
         manager.BookmarksUpdated -= UpdateRenderedBookmarks;
-        EditorScaleController.EditorScaleChangedEvent -= OnEditorScaleChange;
+        EditorScaleController.EditorScaleChangedEvent -= HandleEditorScaleChanged;
+        BPMChangeGridContainer.OnBPMChangeRefreshed -= HandleBPMChangeRefreshed;
         Settings.ClearSettingNotifications(nameof(Settings.DisplayGridBookmarks));
         Settings.ClearSettingNotifications(nameof(Settings.GridBookmarksHasLine));
     }
@@ -119,10 +120,16 @@ public class BookmarkRenderingController : MonoBehaviour
         RefreshVisibility();
     }
 
-    private void OnEditorScaleChange(float newScale)
+    private void HandleEditorScaleChanged(float _)
     {
         foreach (var bookmarkDisplay in renderedBookmarks)
             SetBookmarkPos(bookmarkDisplay.Text.rectTransform, bookmarkDisplay.MapBookmark.SongBpmTime);
+    }
+
+    private void HandleBPMChangeRefreshed()
+    {
+        HandleEditorScaleChanged(0f);
+        RefreshVisibility();
     }
 
     private void SetBookmarkPos(RectTransform rect, float songBpmTime)
@@ -196,6 +203,16 @@ public class BookmarkRenderingController : MonoBehaviour
         var songBpmBeatsAhead = frontNoteGridScaling.localScale.z / EditorScaleController.EditorScale;
         var songBpmBeatsBehind = songBpmBeatsAhead / 4f;
 
+        foreach (var bookmarkDisplay in activeBookmarks.ToArray())
+        {
+            var time = bookmarkDisplay.MapBookmark.SongBpmTime;
+            if (time >= currentSongBpmBeat - songBpmBeatsBehind && time <= currentSongBpmBeat + songBpmBeatsAhead)
+                continue;
+
+            bookmarkDisplay.Text.gameObject.SetActive(false);
+            activeBookmarks.Remove(bookmarkDisplay);
+        }
+
         // if only i can skip
         foreach (var bookmarkDisplay in renderedBookmarks)
         {
@@ -206,19 +223,6 @@ public class BookmarkRenderingController : MonoBehaviour
 
             bookmarkDisplay.Text.gameObject.SetActive(true);
             activeBookmarks.Add(bookmarkDisplay);
-        }
-
-        foreach (var bookmarkDisplay in activeBookmarks.ToArray())
-        {
-            var time = bookmarkDisplay.MapBookmark.SongBpmTime;
-            if (time >= currentSongBpmBeat - songBpmBeatsBehind && time <= currentSongBpmBeat + songBpmBeatsAhead)
-            {
-                SetBookmarkPos((RectTransform)bookmarkDisplay.Text.transform, time);
-                continue;
-            }
-
-            bookmarkDisplay.Text.gameObject.SetActive(false);
-            activeBookmarks.Remove(bookmarkDisplay);
         }
     }
 }
