@@ -20,30 +20,31 @@ public class MeasureLinesController : MonoBehaviour
     [SerializeField] private BPMChangeGridContainer bpmChangeGridContainer;
     [SerializeField] private GridChild measureLinesGridChild;
     [SerializeField] private BookmarkRenderingController bookmarkRenderingController;
-    private readonly List<(float, TextMeshProUGUI)> measureTextsByBeat = new List<(float, TextMeshProUGUI)>();
+
+    private readonly List<(float time, TextMeshProUGUI tmp)> measureTextsByBeat = new();
+    private readonly Dictionary<float, TextMeshProUGUI> activeMeasureTexts = new();
 
     private bool init;
 
-    private float previousAtscBeat = -1;
-
     private void Start()
     {
-        if (!measureTextsByBeat.Any())
-        {
-            measureTextsByBeat.Add((0, measureLinePrefab));
-        }
+        if (!measureTextsByBeat.Any()) measureTextsByBeat.Add((0, measureLinePrefab));
 
+        atsc.TimeChanged += UpdateTime;
         EditorScaleController.EditorScaleChangedEvent += EditorScaleUpdated;
     }
 
-    private void LateUpdate()
+    private void OnDestroy()
     {
-        if (atsc.CurrentSongBpmTime == previousAtscBeat || !init) return;
-        previousAtscBeat = atsc.CurrentSongBpmTime;
-        RefreshVisibility();
+        atsc.TimeChanged -= UpdateTime;
+        EditorScaleController.EditorScaleChangedEvent -= EditorScaleUpdated;
     }
 
-    private void OnDestroy() => EditorScaleController.EditorScaleChangedEvent -= EditorScaleUpdated;
+    private void UpdateTime()
+    {
+        if (UIMode.PreviewMode || !init) return;
+        RefreshVisibility();
+    }
 
     private void EditorScaleUpdated(float obj) => RefreshPositions();
 
@@ -51,7 +52,7 @@ public class MeasureLinesController : MonoBehaviour
     {
         Debug.Log("Refreshing measure lines...");
         init = false;
-        var existing = new Queue<TextMeshProUGUI>(measureTextsByBeat.Select(x => x.Item2));
+        var existing = new Queue<TextMeshProUGUI>(measureTextsByBeat.Select(x => x.tmp));
         measureTextsByBeat.Clear();
 
         var songContainer = BeatSaberSongContainer.Instance;
@@ -69,11 +70,11 @@ public class MeasureLinesController : MonoBehaviour
         while (jsonBeat <= modifiedBeatsInSong)
         {
             var text = existing.Count > 0 ? existing.Dequeue() : Instantiate(measureLinePrefab, parent);
+            text.gameObject.SetActive(false);
             text.text = $"{jsonBeat}";
             var jsonBeatPosition = (float)songContainer.Map.JsonTimeToSongBpmTime(jsonBeat);
             text.transform.localPosition = new Vector3(0, jsonBeatPosition * EditorScaleController.EditorScale, 0);
             measureTextsByBeat.Add((jsonBeatPosition, text));
-
             jsonBeat++;
         }
 
@@ -91,21 +92,33 @@ public class MeasureLinesController : MonoBehaviour
         var songBpmBeatsAhead = frontNoteGridScaling.localScale.z / EditorScaleController.EditorScale;
         var songBpmBeatsBehind = songBpmBeatsAhead / 4f;
 
-        foreach (var kvp in measureTextsByBeat)
+        foreach (var (time, tmp) in activeMeasureTexts.ToArray())
         {
-            var time = kvp.Item1;
-            var text = kvp.Item2;
-            var enabled = time >= currentSongBpmBeat - songBpmBeatsBehind && time <= currentSongBpmBeat + songBpmBeatsAhead;
+            if (time >= currentSongBpmBeat - songBpmBeatsBehind && time <= currentSongBpmBeat + songBpmBeatsAhead)
+                continue;
 
-            text.gameObject.SetActive(enabled);
+            tmp.gameObject.SetActive(false);
+            activeMeasureTexts.Remove(time);
         }
 
+        // if only i can skip
+        foreach (var (time, tmp) in measureTextsByBeat)
+        {
+            if (time < currentSongBpmBeat - songBpmBeatsBehind) continue;
+            if (time > currentSongBpmBeat + songBpmBeatsAhead) break;
+            if (activeMeasureTexts.ContainsKey(time)) continue;
+
+            tmp.gameObject.SetActive(true);
+            activeMeasureTexts.Add(time, tmp);
+        }
+
+        // why the hell are you here?
         bookmarkRenderingController.RefreshVisibility(currentSongBpmBeat, songBpmBeatsAhead, songBpmBeatsBehind);
     }
 
     private void RefreshPositions()
     {
         foreach (var kvp in measureTextsByBeat)
-            kvp.Item2.transform.localPosition = new Vector3(0, kvp.Item1 * EditorScaleController.EditorScale, 0);
+            kvp.tmp.transform.localPosition = new Vector3(0, kvp.time * EditorScaleController.EditorScale, 0);
     }
 }
