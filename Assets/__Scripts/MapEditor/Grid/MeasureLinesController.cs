@@ -97,22 +97,22 @@ public class MeasureLinesController : MonoBehaviour
 
         foreach (var (time, tmp) in activeMeasureTexts.ToArray())
         {
-            if (time >= currentSongBpmBeat - songBpmBeatsBehind && time <= currentSongBpmBeat + songBpmBeatsAhead)
+            if (currentSongBpmBeat - songBpmBeatsBehind <= time && time <= currentSongBpmBeat + songBpmBeatsAhead)
                 continue;
 
             tmp.gameObject.SetActive(false);
             activeMeasureTexts.Remove(time);
         }
 
-        // if only i can skip
-        foreach (var (time, tmp) in measureTextsByBeat)
+        var songContainer = BeatSaberSongContainer.Instance;
+        foreach (var (time, tmp) in measureTextsByBeat.Skip(
+            Mathf.CeilToInt((float)songContainer.Map.SongBpmTimeToJsonTime(currentSongBpmBeat - songBpmBeatsBehind))))
         {
-            if (time < currentSongBpmBeat - songBpmBeatsBehind) continue;
             if (time > currentSongBpmBeat + songBpmBeatsAhead) break;
             if (activeMeasureTexts.ContainsKey(time)) continue;
 
             tmp.gameObject.SetActive(true);
-            activeMeasureTexts.Add(time, tmp);
+            activeMeasureTexts[time] = tmp;
         }
     }
 
