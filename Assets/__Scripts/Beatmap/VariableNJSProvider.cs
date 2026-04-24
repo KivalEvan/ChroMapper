@@ -27,7 +27,7 @@ public class VariableNJSProvider : StateManager<VariableNJSStateData, BaseNJSEve
 
     public event Action OnChanged;
 
-    private readonly VariableNJSStateChunksContainer container = new();
+    private readonly StateChunksContainer<VariableNJSStateData, BaseNJSEvent> container = new();
 
     public override void Initialize()
     {
@@ -168,4 +168,15 @@ public class VariableNJSProvider : StateManager<VariableNJSStateData, BaseNJSEve
     public override void Refresh() => UpdateState();
 
     protected override VariableNJSStateData CreateState(BaseNJSEvent data) => new(data);
+}
+
+public class VariableNJSStateData : StateData<BaseNJSEvent>
+{
+    public Func<float, float> Easing = global::Easing.Linear;
+    public float RelativeNjs;
+    public float NextRelativeNjs;
+
+    public VariableNJSStateData(BaseNJSEvent @base) : base(@base)
+    {
+    }
 }

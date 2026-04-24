@@ -67,7 +67,7 @@ public class AudioTimeSyncController : MonoBehaviour,
     private float playStartTime;
     private bool preciselyControlSnap;
 
-    private float songSpeed = 10f;
+    public float SongSpeed = 10f;
 
     public int GridMeasureSnapping
     {
@@ -211,7 +211,7 @@ public class AudioTimeSyncController : MonoBehaviour,
             if (!levelLoaded) return;
             if (IsPlaying)
             {
-                var time = currentSeconds + (audioLatencyCompensationSeconds * (songSpeed / 10f));
+                var time = currentSeconds + (audioLatencyCompensationSeconds * (SongSpeed / 10f));
 
                 // Slightly more accurate than songAudioSource.time
                 var trackTime = CurrentAudioSeconds;
@@ -223,7 +223,7 @@ public class AudioTimeSyncController : MonoBehaviour,
                 {
                     // Snap forward if we are more than a 2 frames out of sync as we're trying to make it one frame out?
                     var frameTime = Mathf.Max(0.04f, Time.smoothDeltaTime * 2);
-                    if (Mathf.Abs(trackTime - time) >= frameTime * (songSpeed / 10f))
+                    if (Mathf.Abs(trackTime - time) >= frameTime * (SongSpeed / 10f))
                     {
                         time = trackTime;
                         correction = 1;
@@ -238,8 +238,8 @@ public class AudioTimeSyncController : MonoBehaviour,
                 // Add frame time to current time
                 CurrentSeconds =
                     time
-                    + (correction * (Time.deltaTime * (songSpeed / 10f)))
-                    - (audioLatencyCompensationSeconds * (songSpeed / 10f));
+                    + (correction * (Time.deltaTime * (SongSpeed / 10f)))
+                    - (audioLatencyCompensationSeconds * (SongSpeed / 10f));
             }
         }
         catch (Exception e)
@@ -411,7 +411,7 @@ public class AudioTimeSyncController : MonoBehaviour,
 
     private void UpdateSongVolume(object obj) => SongAudioSource.volume = (float)obj;
 
-    private void UpdateSongSpeed(object obj) => songSpeed = (float)obj;
+    private void UpdateSongSpeed(object obj) => SongSpeed = (float)obj;
 
     private void UpdateTrackLength(object _) => UpdateMovables();
 
@@ -476,7 +476,7 @@ public class AudioTimeSyncController : MonoBehaviour,
             SongAudioSource.Play();
 
             audioLatencyCompensationSeconds = Settings.Instance.AudioLatencyCompensation / 1000f;
-            CurrentSeconds -= audioLatencyCompensationSeconds * (songSpeed / 10f);
+            CurrentSeconds -= audioLatencyCompensationSeconds * (SongSpeed / 10f);
         }
         else
         {
