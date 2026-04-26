@@ -57,7 +57,7 @@ namespace Beatmap.Containers
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         TrackModelState.Kind.BurstSliderElement,
                         ChainData.CustomTrack);
-                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    if (result.HasOverride) vm = result.OverrideModel;
                     foreach (var cpf in Nodes)
                     {
                         cpf.ModelController.Set(vm);
@@ -73,7 +73,7 @@ namespace Beatmap.Containers
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         TrackModelState.Kind.BurstSliderElement,
                         ChainData.CustomTrack.Children.Select(x => (string)x).ToArray());
-                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    if (result.HasOverride) vm = result.OverrideModel;
                     foreach (var cpf in Nodes)
                     {
                         cpf.ModelController.Set(vm);

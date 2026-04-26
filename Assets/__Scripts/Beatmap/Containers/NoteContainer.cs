@@ -110,7 +110,7 @@ namespace Beatmap.Containers
                 if (NoteData.CustomTrack.IsString)
                 {
                     var result = AssignObjectPrefabManager.GetCurrentModels(kind, NoteData.CustomTrack);
-                    if (result.OverrideModel != null)
+                    if (result.HasOverride)
                     {
                         vm = result.OverrideModel;
                         ArrowMpbController.gameObject.SetActive(false);
@@ -130,7 +130,7 @@ namespace Beatmap.Containers
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         kind,
                         NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
-                    if (result.OverrideModel != null)
+                    if (result.HasOverride)
                     {
                         vm = result.OverrideModel;
                         ArrowMpbController.gameObject.SetActive(false);
@@ -162,8 +162,10 @@ namespace Beatmap.Containers
             {
                 if (NoteData.CustomTrack.IsString)
                 {
-                    var result = AssignObjectPrefabManager.GetCurrentModels(TrackModelState.Kind.Bomb, NoteData.CustomTrack);
-                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    var result = AssignObjectPrefabManager.GetCurrentModels(
+                        TrackModelState.Kind.Bomb,
+                        NoteData.CustomTrack);
+                    if (result.HasOverride) vm = result.OverrideModel;
                     ModelController.Set(vm);
                     foreach (var model in result.AdditiveModels) ModelController.Add(model);
                 }
@@ -172,7 +174,7 @@ namespace Beatmap.Containers
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         TrackModelState.Kind.Bomb,
                         NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
-                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    if (result.HasOverride) vm = result.OverrideModel;
                     ModelController.Set(vm);
                     foreach (var model in result.AdditiveModels) ModelController.Add(model);
                 }

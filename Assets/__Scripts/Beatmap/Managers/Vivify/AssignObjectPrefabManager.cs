@@ -1,7 +1,5 @@
-using System;
 using System.Collections.Generic;
 using SimpleJSON;
-using UnityEngine;
 using ZLinq;
 
 public class AssignObjectPrefabManager
@@ -13,62 +11,72 @@ public class AssignObjectPrefabManager
     public struct ActiveModelResult
     {
         public VisualModelSO OverrideModel;
-        public List<VisualModelSO> AdditiveModels;
+        public readonly List<VisualModelSO> AdditiveModels;
+        public bool HasOverride;
 
         public ActiveModelResult(List<VisualModelSO> list)
         {
             OverrideModel = null;
             AdditiveModels = list;
+            HasOverride = false;
         }
     }
 
     // TODO: actually cache them so we dont keep doing the search
-    private List<TrackModelState.ModelContainer.PriorityModel> cachedSet = new();
-    private List<TrackModelState.ModelContainer.PriorityModel> cachedAdditive = new();
+    private TrackModelState.ModelContainer.PriorityModel cachedSet;
+    private readonly List<TrackModelState.ModelContainer.PriorityModel> cachedAdditive = new();
     private ActiveModelResult cachedResult = new(new());
 
-    public ActiveModelResult GetCurrentModels(TrackModelState.Kind kind, string track)
+    public ref ActiveModelResult GetCurrentModels(TrackModelState.Kind kind, string track)
     {
-        cachedResult.OverrideModel = null;
+        cachedResult.HasOverride = false;
 
-        if (!trackToTrackModelState.TryGetValue(track, out var trackModel)) return cachedResult;
+        if (!trackToTrackModelState.TryGetValue(track, out var trackModel)) return ref cachedResult;
         var model = trackModel.GetModel(kind);
-        if (model.HasSet) cachedResult.OverrideModel = model.Model.Model;
+        if (model.HasSet)
+        {
+            cachedResult.OverrideModel = model.Model.Model;
+            cachedResult.HasOverride = true;
+        }
+
         model.Models.AsValueEnumerable().Select(x => x.Model).CopyTo(cachedResult.AdditiveModels);
 
-        return cachedResult;
+        return ref cachedResult;
     }
 
-    public ActiveModelResult GetCurrentModels(TrackModelState.Kind kind, string[] tracks)
+    public ref ActiveModelResult GetCurrentModels(TrackModelState.Kind kind, string[] tracks)
     {
-        cachedResult.OverrideModel = null;
-        
-        cachedSet.Clear();
+        cachedResult.HasOverride = false;
+        cachedSet.Priority = -1;
         cachedAdditive.Clear();
 
         foreach (var track in tracks)
         {
             if (!trackToTrackModelState.TryGetValue(track, out var trackModel)) continue;
             var model = trackModel.GetModel(kind);
-            if (model.HasSet) cachedSet.Add(model.Model);
+            if (model.HasSet && model.Model.Priority >= cachedSet.Priority)
+            {
+                cachedSet = model.Model;
+                cachedResult.HasOverride = true;
+            }
+
             cachedAdditive.AddRange(model.Models);
         }
 
-        var lastSet = cachedSet.AsValueEnumerable().FirstOrDefault();
-        if (lastSet.Model != null)
+        if (cachedResult.HasOverride)
         {
             cachedAdditive
                 .AsValueEnumerable()
-                .Where(x => x.Priority >= lastSet.Priority)
+                .Where(x => x.Priority >= cachedSet.Priority)
                 .Select(x => x.Model)
                 .CopyTo(cachedResult.AdditiveModels);
         }
         else
             cachedAdditive.AsValueEnumerable().Select(x => x.Model).CopyTo(cachedResult.AdditiveModels);
 
-        cachedResult.OverrideModel = lastSet.Model;
+        cachedResult.OverrideModel = cachedSet.Model;
 
-        return cachedResult;
+        return ref cachedResult;
     }
 
     public void Assign(CustomEventStateData state, int index)
