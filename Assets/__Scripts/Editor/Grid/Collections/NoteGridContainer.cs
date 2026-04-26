@@ -4,13 +4,13 @@ using Beatmap.Base;
 using Beatmap.Containers;
 using Beatmap.Enums;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
 {
     [SerializeField] private GameObject notePrefab;
     [SerializeField] private GameObject bombPrefab;
-    [FormerlySerializedAs("noteAppearanceSO")] [SerializeField] private NoteAppearanceSO noteAppearanceSo;
+    [SerializeField] private NoteAppearanceSO noteAppearance;
+    [SerializeField] private CustomEventStateManager customEventStateManager;
     [SerializeField] private TracksManager tracksManager;
 
     [SerializeField] private CountersPlusController countersPlus;
@@ -78,7 +78,7 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
 
     private void OnRecursiveCheckFinished(bool natural, int lastPassedIndex) => RefreshPool();
 
-    public void UpdateColor(Color red, Color blue) => noteAppearanceSo.UpdateColor(red, blue);
+    public void UpdateColor(Color red, Color blue) => noteAppearance.UpdateColor(red, blue);
 
     public override ObjectContainer CreateContainer()
     {
@@ -92,7 +92,8 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
     {
         var note = con as NoteContainer;
         var noteData = obj as BaseNote;
-        noteAppearanceSo.SetNoteAppearance(note);
+        note.AssignObjectPrefabManager = customEventStateManager.AssignObjectPrefabManager;
+        noteAppearance.SetNoteAppearance(note);
         note.Setup();
         note.DirectionTargetEuler = NoteContainer.Directionalize(noteData);
 

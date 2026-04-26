@@ -82,7 +82,7 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
         if (BeatmapContext.Atsc.IsPlaying)
         {
             while (spawnIndex < SpawnSortedObjects.Length
-                && time + Track.JUMP_TIME
+                && time + Track.JumpTime
                 >= SpawnSortedObjects[spawnIndex].SongBpmTime
                 - Mathf.Max(SpawnSortedObjects[spawnIndex].HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats))
             {

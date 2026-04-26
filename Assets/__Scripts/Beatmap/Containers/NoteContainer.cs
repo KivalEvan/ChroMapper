@@ -3,6 +3,7 @@ using Beatmap.Base;
 using Beatmap.Enums;
 using UnityEngine;
 using System;
+using System.Linq;
 
 namespace Beatmap.Containers
 {
@@ -25,6 +26,7 @@ namespace Beatmap.Containers
         [Header("Others")] [SerializeField] public Transform DirectionTarget;
         [SerializeField] private SpriteRenderer swingArcRenderer;
 
+        public AssignObjectPrefabManager AssignObjectPrefabManager;
         public BaseNote NoteData;
 
         [NonSerialized] public Vector3 DirectionTargetEuler = Vector3.zero;
@@ -61,8 +63,7 @@ namespace Beatmap.Containers
             SetArcVisible(NoteGridContainer.ShowArcVisualizer);
         }
 
-        // TODO: have proper model swapper instead of convoluting the container
-        public void HandleModelChanged()
+        public override void HandleModelChanged()
         {
             if (NoteData == null) return;
             if (NoteData.Type == (int)NoteType.Bomb)
@@ -96,16 +97,88 @@ namespace Beatmap.Containers
                         : VisualSettings.GetNoteLeftModel();
             }
 
-            ModelController.Set(vm);
-
             ArrowMpbController.gameObject.SetActive(!vm.DisableAux);
-            ArrowMpbController.ShowRenderer(true);
+
+            var kind = NoteData.Chains.Count > 0
+                ? TrackModelState.Kind.BurstSlider
+                : NoteData.CutDirection == (int)NoteCutDirection.Any
+                    ? TrackModelState.Kind.AnyNote
+                    : TrackModelState.Kind.DirectionalNote;
+
+            if (NoteData.CustomTrack != null && AssignObjectPrefabManager != null)
+            {
+                if (NoteData.CustomTrack.IsString)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(kind, NoteData.CustomTrack);
+                    if (result.OverrideModel != null)
+                    {
+                        vm = result.OverrideModel;
+                        ArrowMpbController.gameObject.SetActive(false);
+                        ArrowMpbController.ShowRenderer(false);
+                    }
+                    else
+                    {
+                        ArrowMpbController.gameObject.SetActive(!vm.DisableAux);
+                        ArrowMpbController.ShowRenderer(true);
+                    }
+
+                    ModelController.Set(vm);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                }
+                else if (NoteData.CustomTrack.IsArray)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(
+                        kind,
+                        NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
+                    if (result.OverrideModel != null)
+                    {
+                        vm = result.OverrideModel;
+                        ArrowMpbController.gameObject.SetActive(false);
+                        ArrowMpbController.ShowRenderer(false);
+                    }
+                    else
+                    {
+                        ArrowMpbController.gameObject.SetActive(!vm.DisableAux);
+                        ArrowMpbController.ShowRenderer(true);
+                    }
+
+                    ModelController.Set(vm);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                }
+            }
+            else
+            {
+                ModelController.Set(vm);
+                ArrowMpbController.ShowRenderer(true);
+            }
         }
 
         public void SetBombModel()
         {
-            ModelController.Set(VisualSettings.GetBombModel());
             ArrowMpbController.ShowRenderer(false);
+            var vm = VisualSettings.GetBombModel();
+
+            if (NoteData.CustomTrack != null)
+            {
+                if (NoteData.CustomTrack.IsString)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(TrackModelState.Kind.Bomb, NoteData.CustomTrack);
+                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    ModelController.Set(vm);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                }
+                else if (NoteData.CustomTrack.IsArray)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(
+                        TrackModelState.Kind.Bomb,
+                        NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
+                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    ModelController.Set(vm);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                }
+            }
+            else
+                ModelController.Set(vm);
         }
 
         internal static Vector3 Directionalize(BaseNote noteData)

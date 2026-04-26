@@ -118,5 +118,7 @@ namespace Beatmap.Containers
                 highlighted | dragged ? DeleteToolController.IsActive ? Color.red : Color.white : currentOutlineColor);
             SelectionMpbController.ApplyChanges();
         }
+
+        public virtual void HandleModelChanged() { }
     }
 }

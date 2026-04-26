@@ -2,15 +2,19 @@ using Beatmap.Base.Customs;
 
 public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCustomEvent>
 {
+    public VisualRepositorySO VisualRepository;
     public VivifyAssetBundleManager VivifyAssetBundleManager;
     public TracksManager TracksManager;
 
-    private readonly ObjectPrefabManager objectPrefabManager = new();
+    private readonly InstantiateObjectPrefabManager instantiateObjectPrefabManager = new();
+    public readonly AssignObjectPrefabManager AssignObjectPrefabManager = new();
     private readonly StateChunksContainer<CustomEventStateData, BaseCustomEvent> container = new();
 
     public override void Initialize()
     {
-        objectPrefabManager.VivifyAssetBundleManager = VivifyAssetBundleManager;
+        instantiateObjectPrefabManager.VivifyAssetBundleManager = VivifyAssetBundleManager;
+        AssignObjectPrefabManager.VisualRepository = VisualRepository;
+        AssignObjectPrefabManager.TracksManager = TracksManager;
         InitializeStates(
             container,
             CreateState(new() { songBpmTime = short.MinValue, JsonTime = short.MinValue }),
@@ -37,14 +41,16 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
 
     private void FireEvent(CustomEventStateData state)
     {
-        var data = state.Base.Data;
         switch (state.Base.Type)
         {
             case "InstantiatePrefab":
-                objectPrefabManager.InstantiateVivifyObject(state);
+                instantiateObjectPrefabManager.InstantiateVivifyObject(state);
                 break;
             case "DestroyObject":
-                objectPrefabManager.RemoveVivifyObjectById(state);
+                instantiateObjectPrefabManager.RemoveVivifyObjectById(state);
+                break;
+            case "AssignObjectPrefab":
+                AssignObjectPrefabManager.Assign(state, container.Collection.IndexOf(state));
                 break;
         }
     }
@@ -54,10 +60,13 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
         switch (state.Base.Type)
         {
             case "InstantiatePrefab":
-                objectPrefabManager.RemoveVivifyObjectByState(state);
+                instantiateObjectPrefabManager.RemoveVivifyObjectByState(state);
                 break;
             case "DestroyObject":
-                objectPrefabManager.ReinstantiateVivifyObject(state);
+                instantiateObjectPrefabManager.ReinstantiateVivifyObject(state);
+                break;
+            case "AssignObjectPrefab":
+                AssignObjectPrefabManager.Remove(state);
                 break;
         }
     }

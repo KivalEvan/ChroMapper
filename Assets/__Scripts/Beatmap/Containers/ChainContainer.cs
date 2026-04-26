@@ -21,6 +21,7 @@ namespace Beatmap.Containers
         [Header("Indicator")] [SerializeField] private List<ChainIndicatorContainer> indicators;
         public List<ChainComponentsFetcher> Nodes = new();
 
+        public AssignObjectPrefabManager AssignObjectPrefabManager;
         public BaseChain ChainData;
 
         public GameObject TailObject;
@@ -41,15 +42,56 @@ namespace Beatmap.Containers
         protected override void RegisterCallback() => VisualSettings.OnChainLinkModelChanged += HandleModelChanged;
         protected override void UnregisterCallback() => VisualSettings.OnChainLinkModelChanged -= HandleModelChanged;
 
-        private void HandleModelChanged()
+        public override void HandleModelChanged()
         {
+            if (ChainData == null) return;
+
             var vm = ChainData is { Color: (int)NoteColor.Blue }
                 ? VisualSettings.GetBurstSliderRightModel()
                 : VisualSettings.GetBurstSliderLeftModel();
-            foreach (var cpf in Nodes)
+
+            if (ChainData.CustomTrack != null && AssignObjectPrefabManager != null)
             {
-                cpf.ModelController.Set(vm);
-                cpf.DotMpbController.gameObject.SetActive(!vm.DisableAux);
+                if (ChainData.CustomTrack.IsString)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(
+                        TrackModelState.Kind.BurstSliderElement,
+                        ChainData.CustomTrack);
+                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    foreach (var cpf in Nodes)
+                    {
+                        cpf.ModelController.Set(vm);
+                        cpf.DotMpbController.gameObject.SetActive(!vm.DisableAux);
+                    }
+
+                    foreach (var model in result.AdditiveModels)
+                    foreach (var cpf in Nodes)
+                        cpf.ModelController.Add(model);
+                }
+                else if (ChainData.CustomTrack.IsArray)
+                {
+                    var result = AssignObjectPrefabManager.GetCurrentModels(
+                        TrackModelState.Kind.BurstSliderElement,
+                        ChainData.CustomTrack.Children.Select(x => (string)x).ToArray());
+                    if (result.OverrideModel != null) vm = result.OverrideModel;
+                    foreach (var cpf in Nodes)
+                    {
+                        cpf.ModelController.Set(vm);
+                        cpf.DotMpbController.gameObject.SetActive(!vm.DisableAux);
+                    }
+
+                    foreach (var model in result.AdditiveModels)
+                    foreach (var cpf in Nodes)
+                        cpf.ModelController.Add(model);
+                }
+            }
+            else
+            {
+                foreach (var cpf in Nodes)
+                {
+                    cpf.ModelController.Set(vm);
+                    cpf.DotMpbController.gameObject.SetActive(!vm.DisableAux);
+                }
             }
         }
 
