@@ -30,6 +30,7 @@ public class AssignObjectPrefabManager
     public ref ActiveModelResult GetCurrentModels(TrackModelState.Kind kind, string track)
     {
         cachedResult.HasOverride = false;
+        cachedResult.AdditiveModels.Clear();
 
         if (!trackToTrackModelState.TryGetValue(track, out var trackModel)) return ref cachedResult;
         var model = trackModel.GetModel(kind);
