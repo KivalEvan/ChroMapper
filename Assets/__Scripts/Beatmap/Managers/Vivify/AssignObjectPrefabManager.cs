@@ -6,7 +6,6 @@ public class AssignObjectPrefabManager
 {
     public VisualRepositorySO VisualRepository;
     public TracksManager TracksManager;
-    private readonly Dictionary<string, TrackModelState> trackToTrackModelState = new();
 
     public struct ActiveModelResult
     {
@@ -21,6 +20,8 @@ public class AssignObjectPrefabManager
             HasOverride = false;
         }
     }
+
+    private readonly Dictionary<string, TrackModelState> trackToTrackModelState = new();
 
     // TODO: actually cache them so we dont keep doing the search
     private TrackModelState.ModelContainer.PriorityModel cachedSet;
@@ -140,8 +141,7 @@ public class AssignObjectPrefabManager
         else
             trackModel.SetModel(kind, asset, index);
 
-        if (!TracksManager.AnimationTracks.TryGetValue(track, out var animationTrack)) return;
-        foreach (var child in animationTrack.Children) child.AnimationTrack.NotifyModelChanged();
+        TracksManager.NotifyModelChanged(track);
     }
 
     public void Remove(CustomEventStateData state)
@@ -194,7 +194,6 @@ public class AssignObjectPrefabManager
         else
             trackModel.UnsetModel(kind);
 
-        if (!TracksManager.AnimationTracks.TryGetValue(track, out var animationTrack)) return;
-        foreach (var child in animationTrack.Children) child.AnimationTrack.NotifyModelChanged();
+        TracksManager.NotifyModelChanged(track);
     }
 }
