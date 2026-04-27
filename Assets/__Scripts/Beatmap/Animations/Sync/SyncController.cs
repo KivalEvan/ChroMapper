@@ -21,12 +21,11 @@ public abstract class SyncController : MonoBehaviour, ISync
         var deltaTime = Time.deltaTime;
         var songTime = Atsc.CurrentSeconds;
         var deltaSongTime = songTime - SongTime;
-        var prevTime = SongTime;
         SongTime = songTime;
 
         if (deltaTime > 0 && deltaSongTime > 0)
             Sync(deltaSongTime / deltaTime);
-        else if (!Atsc.IsPlaying && !Mathf.Approximately(songTime, prevTime))
+        else if (!Atsc.IsPlaying && deltaSongTime < 0)
             ResetTime();
         else
             Sync(0);
