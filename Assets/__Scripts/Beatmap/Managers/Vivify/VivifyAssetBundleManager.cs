@@ -16,6 +16,7 @@ public class VivifyAssetBundleManager : MonoBehaviour
     public AssetBundle Bundle;
     public readonly Dictionary<string, VivifyObject> AssetPathToPrefab = new();
     public readonly Dictionary<string, Material> AssetPathToMaterial = new();
+    public readonly Dictionary<string, Texture> AssetPathToTexture = new();
     public readonly Dictionary<string, Object> AssetPathToObject = new();
 
     public void Start()
@@ -48,10 +49,14 @@ public class VivifyAssetBundleManager : MonoBehaviour
 
             AssetPathToObject.Add(assetPath, asset);
 
-            if (asset is Material material)
+            switch (asset)
             {
-                AssetPathToMaterial.Add(assetPath, material);
-                continue;
+                case Material material:
+                    AssetPathToMaterial.Add(assetPath, material);
+                    continue;
+                case Texture texture:
+                    AssetPathToTexture.Add(assetPath, texture);
+                    continue;
             }
 
             if (asset is not GameObject prefab) continue;
@@ -119,6 +124,7 @@ public class VivifyAssetBundleManager : MonoBehaviour
 
         AssetPathToPrefab.Clear();
         AssetPathToMaterial.Clear();
+        AssetPathToTexture.Clear();
         AssetPathToObject.Clear();
         if (Bundle != null) Bundle.Unload(true);
     }

@@ -6,9 +6,18 @@ public class InstantiateObjectPrefabManager
     public VivifyAssetBundleManager VivifyAssetBundleManager;
 
     private readonly Dictionary<string, Stack<VivifyObject>> prefabPool = new();
-    private readonly Dictionary<CustomEventStateData, Object> ownerToObject = new();
+    private readonly Dictionary<CustomEventStateData, VivifyObject> ownerToObject = new();
     private readonly Dictionary<string, List<CustomEventStateData>> idToOwner = new();
     private readonly Dictionary<CustomEventStateData, List<CustomEventStateData>> deletedObjectToRevert = new();
+
+    public IEnumerable<VivifyObject> GetObjectById(string id)
+    {
+        if (!idToOwner.TryGetValue(id, out var l)) yield break;
+        foreach (var s in l)
+        {
+            if (ownerToObject.TryGetValue(s, out var v)) yield return v;
+        }
+    }
 
     private VivifyObject GetOrCreateObject(string prefabName)
     {
@@ -18,14 +27,8 @@ public class InstantiateObjectPrefabManager
         return prefab == null ? null : Object.Instantiate(prefab);
     }
 
-    private void RemoveObject(Object obj)
+    private void RemoveObject(VivifyObject vivifyObject)
     {
-        if (obj is not VivifyObject vivifyObject)
-        {
-            Object.Destroy(obj);
-            return;
-        }
-
         prefabPool.TryAdd(vivifyObject.AssetPath, new Stack<VivifyObject>());
         vivifyObject.Deactivate();
         prefabPool[vivifyObject.AssetPath].Push(vivifyObject);

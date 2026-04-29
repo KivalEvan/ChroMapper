@@ -8,13 +8,26 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
 
     private readonly InstantiateObjectPrefabManager instantiateObjectPrefabManager = new();
     public readonly AssignObjectPrefabManager AssignObjectPrefabManager = new();
+    private readonly ObjectPropertyManager objectPropertyManager = new();
     private readonly StateChunksContainer<CustomEventStateData, BaseCustomEvent> container = new();
+    private readonly TweenManager tweenManager = new();
 
     public override void Initialize()
     {
+        if (BeatSaberSongContainer.Instance.Map.CustomData["pointDefinitions"] != null
+            && BeatSaberSongContainer.Instance.Map.CustomData["pointDefinitions"].IsObject)
+        {
+            foreach (var (n, pd) in BeatSaberSongContainer.Instance.Map.CustomData["pointDefinitions"])
+                PointDefinitionParser.Get(n, pd);
+        }
+
         instantiateObjectPrefabManager.VivifyAssetBundleManager = VivifyAssetBundleManager;
         AssignObjectPrefabManager.VisualRepository = VisualRepository;
         AssignObjectPrefabManager.TracksManager = TracksManager;
+        objectPropertyManager.InstantiateObjectPrefabManager = instantiateObjectPrefabManager;
+        objectPropertyManager.VivifyAssetBundleManager = VivifyAssetBundleManager;
+        objectPropertyManager.TweenManager = tweenManager;
+
         InitializeStates(
             container,
             CreateState(new() { songBpmTime = short.MinValue, JsonTime = short.MinValue }),
@@ -25,7 +38,7 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     {
     }
 
-    public override void UpdateTime(bool _, float time)
+    public override void UpdateTime(bool isPlaying, float time)
     {
         var isNext = container.IsNextDirection(time);
         var enumerator = container.EnumerateTo(time);
@@ -37,12 +50,26 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
             else
                 RevertEvent(state);
         }
+
+        if (isPlaying)
+            tweenManager.UpdateForward(time);
+        else
+            tweenManager.UpdateJump(time);
     }
 
     private void FireEvent(CustomEventStateData state)
     {
         switch (state.Base.Type)
         {
+            case "SetMaterialProperty":
+                objectPropertyManager.AssignMaterial(state);
+                break;
+            case "SetGlobalProperty":
+                objectPropertyManager.AssignGlobal(state);
+                break;
+            case "SetAnimatorProperty":
+                objectPropertyManager.AssignAnimator(state);
+                break;
             case "InstantiatePrefab":
                 instantiateObjectPrefabManager.InstantiateVivifyObject(state);
                 break;
@@ -59,6 +86,15 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     {
         switch (state.Base.Type)
         {
+            case "SetMaterialProperty":
+                objectPropertyManager.RevertMaterial(state);
+                break;
+            case "SetGlobalProperty":
+                objectPropertyManager.RevertGlobal(state);
+                break;
+            case "SetAnimatorProperty":
+                objectPropertyManager.RevertAnimator(state);
+                break;
             case "InstantiatePrefab":
                 instantiateObjectPrefabManager.RemoveVivifyObjectByState(state);
                 break;

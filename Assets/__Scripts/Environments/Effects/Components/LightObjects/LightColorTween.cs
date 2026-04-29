@@ -65,7 +65,7 @@ public class LightColorTween
         return true;
     }
 
-    private static Color LerpHSV(Color start, Color end, float t)
+    public static Color LerpHSV(Color start, Color end, float t)
     {
         Color.RGBToHSV(start, out var sH, out var sS, out var sV);
         Color.RGBToHSV(end, out var eH, out var eS, out var eV);
