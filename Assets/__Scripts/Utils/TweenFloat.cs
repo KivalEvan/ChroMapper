@@ -58,7 +58,4 @@ public sealed class TweenFloat
         Easing = global::Easing.Linear;
         Callback = callback;
     }
-
-    public override int GetHashCode() =>
-        HashCode.Combine(StartTime, EndTime, StartValue, EndValue, Current, Easing, Callback);
 }

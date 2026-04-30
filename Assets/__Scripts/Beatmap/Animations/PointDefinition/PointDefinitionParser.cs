@@ -43,14 +43,13 @@ public static class PointDefinitionParser
             return pd;
         }
 
-        using (ListPool<PointDefinitionValue>.Get(out var values))
+        using (ListPool<IPointDefinitionValue>.Get(out var values))
         {
             foreach (var point in node.Children)
             {
                 if (!point.IsArray) return null; // bruh
 
-                var value = new PointDefinitionValue();
-                values.Add(value);
+                var value = new PointDefinitionValueBuilder();
                 var children = point.Children.ToArray();
 
                 var valueIndex = 0;
@@ -89,13 +88,16 @@ public static class PointDefinitionParser
                     }
 
                     if (child.IsString)
-                        foreach (var func in GetBaseGetter(child))
-                            value.SetGetter(valueIndex++, func);
+                    {
+                        foreach (var func in GetBaseGetter(child)) value.SetGetter(valueIndex++, func);
+                    }
                     else if (child.IsNumber)
                         value.SetGetter(valueIndex++, child);
                     else
                         value.SetGetter(valueIndex++, 0f);
                 }
+
+                values.Add(value.Build());
             }
 
             var pd = new PointDefinitionInterpolator(values.AsValueEnumerable().OrderBy(x => x.T).ToArray());
@@ -105,7 +107,7 @@ public static class PointDefinitionParser
 
     public static PointOperation ParseOperation(JSONNode node)
     {
-        var value = new PointDefinitionValue();
+        var value = new PointDefinitionValueBuilder();
         PointOperation valueOp = null;
         var valueIndex = 0;
         var reachedEnd = false;
@@ -153,7 +155,9 @@ public static class PointDefinitionParser
                 value.SetGetter(valueIndex++, 0f);
         }
 
-        return valueOp ?? new PointOperationNone(value);
+        valueOp ??= new PointOperationNone(value);
+        valueOp.Rhs = value.Build();
+        return valueOp;
     }
 
     private static readonly Dictionary<char, int> swizzleToIndex = new()
@@ -303,341 +307,5 @@ public static class PointDefinitionParser
     }
 }
 
-public sealed class PointDefinitionInterpolator
-{
-    private readonly PointDefinitionValue[] points;
-
-    private (int index, PointDefinitionValue value) a;
-    private (int index, PointDefinitionValue value) b;
-
-    public PointDefinitionInterpolator(PointDefinitionValue value)
-    {
-        points = new[] { value };
-        a = b = (0, value);
-    }
-
-    public PointDefinitionInterpolator(PointDefinitionValue[] values)
-    {
-        points = values;
-        if (points.Length == 0) throw new ArgumentException("Point definition must contain at least 1 point");
-        a = (0, points[0]);
-        b = points.Length > 1 ? (1, points[1]) : a;
-    }
-
-    public float GetFloat(float normalized)
-    {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Float;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Mathf.LerpUnclamped(a.value.Float, b.value.Float, t);
-    }
-
-    public Vector3 GetVector3(float normalized)
-    {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Vector3;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        if (!b.value.SplineCatmullRom) return Vector3.LerpUnclamped(a.value.Vector3, b.value.Vector3, t);
-
-        // Catmull-Rom Spline
-        var p0 = a.index - 1 < 0 ? points[a.index].Vector3 : points[a.index - 1].Vector3;
-        var p1 = points[a.index].Vector3;
-        var p2 = points[b.index].Vector3;
-        var p3 = b.index + 1 > points.Length - 1
-            ? points[b.index].Vector3
-            : points[b.index + 1].Vector3;
-
-        var tt = t * t;
-        var ttt = tt * t;
-
-        var q0 = -ttt + (2.0f * tt) - t;
-        var q1 = (3.0f * ttt) - (5.0f * tt) + 2.0f;
-        var q2 = (-3.0f * ttt) + (4.0f * tt) + t;
-        var q3 = ttt - tt;
-
-        var c = 0.5f * ((p0 * q0) + (p1 * q1) + (p2 * q2) + (p3 * q3));
-
-        return c;
-    }
-
-    public Vector4 GetVector4(float normalized)
-    {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Vector4;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Vector4.LerpUnclamped(a.value.Vector4, b.value.Vector4, t);
-    }
-
-    public Quaternion GetQuaternion(float normalized)
-    {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Quaternion;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Quaternion.SlerpUnclamped(a.value.Quaternion, b.value.Quaternion, t);
-    }
-
-    public Color GetColor(float normalized)
-    {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Color;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        var p = a.value.Color;
-        var q = b.value.Color;
-
-        return b.value.LerpHSV ? LightColorTween.LerpHSV(p, q, t) : Color.LerpUnclamped(p, q, t);
-    }
-
-    private void SearchIfNeeded(float normalized)
-    {
-        if (points.Length < 3) return;
-        if (a.value.T <= normalized && normalized < b.value.T) return;
-
-        var prev = 0;
-        var next = points.Length - 1;
-
-        while (prev < next - 1)
-        {
-            var m = (prev + next) / 2;
-            var t = points[m].T;
-
-            if (t < normalized)
-                prev = m;
-            else
-                next = m;
-        }
-
-        a.index = prev;
-        a.value = points[prev];
-        b.index = next;
-        b.value = points[next];
-    }
-}
-
 // unity cant use c# expression tree without runnin into exception for unsupported platform :(
 // also i need to clean this up with better structure, just throwing ideas out first
-public sealed class PointDefinitionValue
-{
-    private float x;
-    private float y;
-    private float z;
-    private float w;
-
-    public float T;
-    public Func<float, float> Easing = global::Easing.Linear;
-
-    public bool SplineCatmullRom;
-    public bool LerpHSV;
-
-    private PointOperation[] pointOperations = Array.Empty<PointOperation>();
-
-    private Func<float> getterX;
-    private Func<float> getterY;
-    private Func<float> getterZ;
-    private Func<float> getterW;
-
-    public float X
-    {
-        get
-        {
-            var val = getterX();
-            return pointOperations
-                .AsValueEnumerable()
-                .Aggregate(val, (current, pointOperation) => pointOperation.EvaluateX(current));
-        }
-        set => x = value;
-    }
-
-    public float Y
-    {
-        get
-        {
-            var val = getterY();
-            return pointOperations
-                .AsValueEnumerable()
-                .Aggregate(val, (current, pointOperation) => pointOperation.EvaluateY(current));
-        }
-        set => y = value;
-    }
-
-    public float Z
-    {
-        get
-        {
-            var val = getterZ();
-            return pointOperations
-                .AsValueEnumerable()
-                .Aggregate(val, (current, pointOperation) => pointOperation.EvaluateZ(current));
-        }
-        set => z = value;
-    }
-
-    public float W
-    {
-        get
-        {
-            var val = getterW();
-            return pointOperations
-                .AsValueEnumerable()
-                .Aggregate(val, (current, pointOperation) => pointOperation.EvaluateW(current));
-        }
-        set => w = value;
-    }
-
-    public PointDefinitionValue()
-    {
-        getterX = () => x;
-        getterY = () => y;
-        getterZ = () => z;
-        getterW = () => w;
-    }
-
-    public void SetGetter(int index, float val)
-    {
-        switch (index)
-        {
-            case 0:
-                x = val;
-                break;
-            case 1:
-                y = val;
-                break;
-            case 2:
-                z = val;
-                break;
-            case 3:
-                w = val;
-                break;
-        }
-    }
-
-    public void SetGetter(int index, Func<float> getter)
-    {
-        switch (index)
-        {
-            case 0:
-                getterX = getter;
-                break;
-            case 1:
-                getterY = getter;
-                break;
-            case 2:
-                getterZ = getter;
-                break;
-            case 3:
-                getterW = getter;
-                break;
-        }
-    }
-
-    public void AddOperation(PointOperation operation) => pointOperations = pointOperations.Append(operation).ToArray();
-
-    // maybe if i decide expression is nicer
-    // public void CompileExpression(){}
-
-    public float Float => X;
-    public Vector3 Vector2 => new(X, Y);
-    public Vector3 Vector3 => new(X, Y, Z);
-    public Vector4 Vector4 => new(X, Y, Z, W);
-    public Quaternion Quaternion => Quaternion.Euler(X, Y, Z);
-    public Color Color => new(X, Y, Z, W);
-}
-
-public abstract class PointOperation
-{
-    public readonly PointDefinitionValue Rhs;
-    public abstract float EvaluateX(float lhs);
-    public abstract float EvaluateY(float lhs);
-    public abstract float EvaluateZ(float lhs);
-    public abstract float EvaluateW(float lhs);
-
-    protected PointOperation(PointDefinitionValue rhs) => Rhs = rhs;
-}
-
-public class PointOperationNone : PointOperation
-{
-    public override float EvaluateX(float lhs) => lhs;
-    public override float EvaluateY(float lhs) => lhs;
-    public override float EvaluateZ(float lhs) => lhs;
-    public override float EvaluateW(float lhs) => lhs;
-
-    public PointOperationNone(PointDefinitionValue rhs) : base(rhs) { }
-}
-
-public class PointOperationAdd : PointOperation
-{
-    public override float EvaluateX(float lhs) => lhs + Rhs.X;
-    public override float EvaluateY(float lhs) => lhs + Rhs.Y;
-    public override float EvaluateZ(float lhs) => lhs + Rhs.Z;
-    public override float EvaluateW(float lhs) => lhs + Rhs.W;
-
-    public PointOperationAdd(PointDefinitionValue rhs) : base(rhs) { }
-}
-
-public class PointOperationSub : PointOperation
-{
-    public override float EvaluateX(float lhs) => lhs - Rhs.X;
-    public override float EvaluateY(float lhs) => lhs - Rhs.Y;
-    public override float EvaluateZ(float lhs) => lhs - Rhs.Z;
-    public override float EvaluateW(float lhs) => lhs - Rhs.W;
-
-    public PointOperationSub(PointDefinitionValue rhs) : base(rhs) { }
-}
-
-public class PointOperationMul : PointOperation
-{
-    public override float EvaluateX(float lhs) => lhs * Rhs.X;
-    public override float EvaluateY(float lhs) => lhs * Rhs.Y;
-    public override float EvaluateZ(float lhs) => lhs * Rhs.Z;
-    public override float EvaluateW(float lhs) => lhs * Rhs.W;
-
-    public PointOperationMul(PointDefinitionValue rhs) : base(rhs) { }
-}
-
-public class PointOperationDiv : PointOperation
-{
-    public override float EvaluateX(float lhs) => SafeDivide(lhs, Rhs.X);
-    public override float EvaluateY(float lhs) => SafeDivide(lhs, Rhs.Y);
-    public override float EvaluateZ(float lhs) => SafeDivide(lhs, Rhs.Z);
-    public override float EvaluateW(float lhs) => SafeDivide(lhs, Rhs.W);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float SafeDivide(float lhs, float rhs) => rhs == 0f ? 0f : lhs / rhs;
-
-    public PointOperationDiv(PointDefinitionValue rhs) : base(rhs) { }
-}
-
-public class PointGetterSmoothing
-{
-    private float previous;
-    private readonly float smoothFactor;
-    private readonly Func<float> getter;
-
-    public float Value => previous = Mathf.Lerp(previous, getter(), smoothFactor * TimeHelper.DeltaTime);
-    public float GetValue() => Value;
-
-    public PointGetterSmoothing(Func<float> getter, float smoothFactor)
-    {
-        this.getter = getter;
-        this.smoothFactor = smoothFactor;
-    }
-}

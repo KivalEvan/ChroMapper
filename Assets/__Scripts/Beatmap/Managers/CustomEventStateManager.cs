@@ -1,4 +1,5 @@
 using Beatmap.Base.Customs;
+using UnityEngine;
 
 public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCustomEvent>
 {
@@ -40,10 +41,11 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
 
     public override void UpdateTime(bool isPlaying, float time)
     {
-        var isNext = container.IsNextDirection(time);
         if (!container.CurrentState.IsWithinRange(time))
         {
-            // yea we have to fire these event outside of loop
+            var isNext = container.IsNextDirection(time);
+
+            // yea we have to fire this event outside of loop
             if (!isNext) RevertEvent(container.CurrentState);
             while (container.EnumerateTo(time, isNext))
             {
@@ -92,13 +94,9 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
         switch (state.Base.Type)
         {
             case "SetMaterialProperty":
-                objectPropertyManager.RevertMaterial(state);
-                break;
             case "SetGlobalProperty":
-                objectPropertyManager.RevertGlobal(state);
-                break;
             case "SetAnimatorProperty":
-                objectPropertyManager.RevertAnimator(state);
+                objectPropertyManager.Revert(state);
                 break;
             case "InstantiatePrefab":
                 instantiateObjectPrefabManager.RemoveVivifyObjectByState(state);
@@ -116,18 +114,18 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     {
         var state = CreateState(data);
         state.StartTime = data.SongBpmTime;
+        state.StartSecondTime = Atsc.GetSecondsFromBeat(data.SongBpmTime);
         HandleInsertState(container, state);
     }
 
     public override void RemoveData(BaseCustomEvent reference, BaseCustomEvent original) =>
         HandleRemoveState(container, reference, original);
 
-    protected override CustomEventStateData CreateState(BaseCustomEvent data) =>
-        new(data, Atsc.GetSecondsFromBeat(data.SongBpmTime));
+    protected override CustomEventStateData CreateState(BaseCustomEvent data) => new(data);
 }
 
 public class CustomEventStateData : StateData<BaseCustomEvent>
 {
     public float StartSecondTime;
-    public CustomEventStateData(BaseCustomEvent data, float secondTime) : base(data) => StartSecondTime = secondTime;
+    public CustomEventStateData(BaseCustomEvent data) : base(data) { }
 }

@@ -14,6 +14,7 @@ public class TweenManager
             if (!(tweens[index].EndTime < beatTime)) continue;
             removedTweens.Add(tweens[index]);
             tweens.RemoveAtSwapBack(index);
+            index--;
         }
     }
 
@@ -24,17 +25,15 @@ public class TweenManager
             if (!(removedTweens[index].EndTime > beatTime)) continue;
             tweens.Add(removedTweens[index]);
             removedTweens.RemoveAtSwapBack(index);
+            index--;
         }
 
         for (var index = 0; index < tweens.Count; index++) tweens[index].UpdateWithCallback(beatTime);
     }
 
-    public void AddTween(TweenFloat tween)
-    {
-        tweens.Add(tween);
-    }
+    public void Add(TweenFloat tween) => tweens.Add(tween);
 
-    public void RemoveTween(TweenFloat tween)
+    public void Remove(TweenFloat tween)
     {
         tweens.RemoveSwapBack(tween);
         removedTweens.RemoveSwapBack(tween);

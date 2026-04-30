@@ -39,6 +39,8 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
             currBucketIdx++;
         }
 
+        currLocalIdx = currBucket.Count - 1;
+        currBucketIdx = Collection.Buckets.Count - 1;
         return false;
     }
 
@@ -58,6 +60,8 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
             currLocalIdx = Collection.Buckets[currBucketIdx].Count - 1;
         }
 
+        currLocalIdx = 0;
+        currBucketIdx = 0;
         return false;
     }
 

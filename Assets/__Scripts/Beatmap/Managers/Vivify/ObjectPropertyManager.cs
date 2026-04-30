@@ -1,27 +1,32 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Pool;
 using ZLinq;
 
-// TODO: group tween, because each state has their own duration, it can be simplified
 public class ObjectPropertyManager
 {
     public InstantiateObjectPrefabManager InstantiateObjectPrefabManager;
     public VivifyAssetBundleManager VivifyAssetBundleManager;
     public TweenManager TweenManager;
 
-    private readonly Dictionary<CustomEventStateData, List<TweenFloat>> stateToTween = new();
+    private readonly Dictionary<CustomEventStateData, (TweenFloat tween, List<Action<float>> pooledList)> stateToTween =
+        new();
+
     private readonly Dictionary<CustomEventStateData, List<ObjectPropertyStateHistory>> stateHistory = new();
 
     public void AssignMaterial(CustomEventStateData state)
     {
         var data = state.Base.Data;
         var asset = data["asset"];
-        var material = VivifyAssetBundleManager.AssetPathToMaterial.GetValueOrDefault(asset);
-        if (material == null) return;
+        if (!VivifyAssetBundleManager.AssetPathToMaterial.TryGetValue(asset, out var material)) return;
 
         var duration = data["duration"] ?? 0;
         var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
+
+        stateHistory.Add(state, ListPool<ObjectPropertyStateHistory>.Get());
+        var funcs = ListPool<Action<float>>.Get();
 
         var properties = data["properties"];
         foreach (var child in properties.Children)
@@ -36,7 +41,6 @@ public class ObjectPropertyManager
                 case "Texture":
                     {
                         var history = new MaterialHistoryTexture(material, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
@@ -46,7 +50,6 @@ public class ObjectPropertyManager
                 case "Keyword":
                     {
                         var history = new MaterialHistoryKeyword(material, id, value);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         material.EnableKeyword(value);
@@ -55,7 +58,6 @@ public class ObjectPropertyManager
                 case "Float":
                     {
                         var history = new MaterialHistoryFloat(material, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         if (value.IsNumber)
@@ -64,73 +66,62 @@ public class ObjectPropertyManager
                         {
                             var pd = PointDefinitionParser.Get(value);
                             if (pd == null) break;
-                            var tween = new TweenFloat(
-                                state.StartTime,
-                                state.StartTime + duration,
-                                0,
-                                1,
-                                easing,
-                                t =>
-                                {
-                                    var v = pd.GetFloat(t);
-                                    material.SetFloat(propertyId, v);
-                                });
-                            stateToTween.TryAdd(state, new());
-                            stateToTween[state].Add(tween);
-                            TweenManager.AddTween(tween);
+                            funcs.Add(t =>
+                            {
+                                var v = pd.GetFloat(t);
+                                material.SetFloat(propertyId, v);
+                            });
                         }
                     }
                     break;
                 case "Vector":
                     {
                         var history = new MaterialHistoryVector(material, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var pd = PointDefinitionParser.Get(value);
                         if (pd == null) break;
-                        var tween = new TweenFloat(
-                            state.StartTime,
-                            state.StartTime + duration,
-                            0,
-                            1,
-                            easing,
-                            t =>
-                            {
-                                var v = pd.GetVector4(t);
-                                material.SetVector(propertyId, v);
-                            });
-                        stateToTween.TryAdd(state, new());
-                        stateToTween[state].Add(tween);
-                        TweenManager.AddTween(tween);
+                        funcs.Add(t =>
+                        {
+                            var v = pd.GetVector4(t);
+                            material.SetVector(propertyId, v);
+                        });
                     }
                     break;
                 case "Color":
                     {
                         var history = new MaterialHistoryColor(material, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var pd = PointDefinitionParser.Get(value);
                         if (pd == null) break;
-                        var tween = new TweenFloat(
-                            state.StartTime,
-                            state.StartTime + duration,
-                            0,
-                            1,
-                            easing,
-                            t =>
-                            {
-                                var v = pd.GetColor(t);
-                                material.SetColor(propertyId, v);
-                            });
-                        stateToTween.TryAdd(state, new());
-                        stateToTween[state].Add(tween);
-                        TweenManager.AddTween(tween);
+                        funcs.Add(t =>
+                        {
+                            var v = pd.GetColor(t);
+                            material.SetColor(propertyId, v);
+                        });
                     }
                     break;
             }
         }
+
+        if (funcs.Count > 0)
+        {
+            var tween = new TweenFloat(
+                state.StartTime,
+                state.StartTime + duration,
+                0,
+                1,
+                easing,
+                t =>
+                {
+                    for (var i = 0; i < funcs.Count; i++) funcs[i](t);
+                });
+            stateToTween.Add(state, (tween, funcs));
+            TweenManager.Add(tween);
+        }
+        else
+            ListPool<Action<float>>.Release(funcs);
     }
 
     public void AssignGlobal(CustomEventStateData state)
@@ -139,6 +130,9 @@ public class ObjectPropertyManager
 
         var duration = data["duration"] ?? 0;
         var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
+
+        stateHistory.Add(state, ListPool<ObjectPropertyStateHistory>.Get());
+        var funcs = ListPool<Action<float>>.Get();
 
         var properties = data["properties"];
         foreach (var child in properties.Children)
@@ -153,7 +147,6 @@ public class ObjectPropertyManager
                 case "Texture":
                     {
                         var history = new GlobalHistoryTexture(id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
@@ -163,7 +156,6 @@ public class ObjectPropertyManager
                 case "Keyword":
                     {
                         var history = new GlobalHistoryKeyword(id, value);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         Shader.EnableKeyword(value);
@@ -172,7 +164,6 @@ public class ObjectPropertyManager
                 case "Float":
                     {
                         var history = new GlobalHistoryFloat(id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         if (value.IsNumber)
@@ -181,73 +172,62 @@ public class ObjectPropertyManager
                         {
                             var pd = PointDefinitionParser.Get(value);
                             if (pd == null) break;
-                            var tween = new TweenFloat(
-                                state.StartTime,
-                                state.StartTime + duration,
-                                0,
-                                1,
-                                easing,
-                                t =>
-                                {
-                                    var v = pd.GetFloat(t);
-                                    Shader.SetGlobalFloat(propertyId, v);
-                                });
-                            stateToTween.TryAdd(state, new());
-                            stateToTween[state].Add(tween);
-                            TweenManager.AddTween(tween);
+                            funcs.Add(t =>
+                            {
+                                var v = pd.GetFloat(t);
+                                Shader.SetGlobalFloat(propertyId, v);
+                            });
                         }
                     }
                     break;
                 case "Vector":
                     {
                         var history = new GlobalHistoryVector(id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var pd = PointDefinitionParser.Get(value);
                         if (pd == null) break;
-                        var tween = new TweenFloat(
-                            state.StartTime,
-                            state.StartTime + duration,
-                            0,
-                            1,
-                            easing,
-                            t =>
-                            {
-                                var v = pd.GetVector4(t);
-                                Shader.SetGlobalVector(propertyId, v);
-                            });
-                        stateToTween.TryAdd(state, new());
-                        stateToTween[state].Add(tween);
-                        TweenManager.AddTween(tween);
+                        funcs.Add(t =>
+                        {
+                            var v = pd.GetVector4(t);
+                            Shader.SetGlobalVector(propertyId, v);
+                        });
                     }
                     break;
                 case "Color":
                     {
                         var history = new GlobalHistoryColor(id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         var pd = PointDefinitionParser.Get(value);
                         if (pd == null) break;
-                        var tween = new TweenFloat(
-                            state.StartTime,
-                            state.StartTime + duration,
-                            0,
-                            1,
-                            easing,
-                            t =>
-                            {
-                                var v = pd.GetColor(t);
-                                Shader.SetGlobalColor(propertyId, v);
-                            });
-                        stateToTween.TryAdd(state, new());
-                        stateToTween[state].Add(tween);
-                        TweenManager.AddTween(tween);
+                        funcs.Add(t =>
+                        {
+                            var v = pd.GetColor(t);
+                            Shader.SetGlobalColor(propertyId, v);
+                        });
                     }
                     break;
             }
         }
+
+        if (funcs.Count > 0)
+        {
+            var tween = new TweenFloat(
+                state.StartTime,
+                state.StartTime + duration,
+                0,
+                1,
+                easing,
+                t =>
+                {
+                    for (var i = 0; i < funcs.Count; i++) funcs[i](t);
+                });
+            stateToTween.Add(state, (tween, funcs));
+            TweenManager.Add(tween);
+        }
+        else
+            ListPool<Action<float>>.Release(funcs);
     }
 
     public void AssignAnimator(CustomEventStateData state)
@@ -258,6 +238,9 @@ public class ObjectPropertyManager
 
         var duration = data["duration"] ?? 0;
         var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
+
+        stateHistory.Add(state, ListPool<ObjectPropertyStateHistory>.Get());
+        var funcs = ListPool<Action<float>>.Get();
 
         var properties = data["properties"];
         foreach (var child in properties.Children)
@@ -276,7 +259,6 @@ public class ObjectPropertyManager
                 case "Trigger":
                     {
                         var history = new AnimatorHistoryTrigger(animators, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         foreach (var a in animators)
@@ -291,7 +273,6 @@ public class ObjectPropertyManager
                 case "Float":
                     {
                         var history = new AnimatorHistoryFloat(animators, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         if (value.IsNumber)
@@ -302,31 +283,21 @@ public class ObjectPropertyManager
                         {
                             var pd = PointDefinitionParser.Get(value);
                             if (pd == null) break;
-                            var tween = new TweenFloat(
-                                state.StartTime,
-                                state.StartTime + duration,
-                                0,
-                                1,
-                                easing,
-                                t =>
-                                {
-                                    var v = pd.GetFloat(t);
-                                    foreach (var a in InstantiateObjectPrefabManager
-                                        .GetObjectById(objectId)
-                                        .AsValueEnumerable()
-                                        .SelectMany(x => x.Animators))
-                                        a.SetFloat(id, v);
-                                });
-                            stateToTween.TryAdd(state, new());
-                            stateToTween[state].Add(tween);
-                            TweenManager.AddTween(tween);
+                            funcs.Add(t =>
+                            {
+                                var v = pd.GetFloat(t);
+                                foreach (var a in InstantiateObjectPrefabManager
+                                    .GetObjectById(objectId)
+                                    .AsValueEnumerable()
+                                    .SelectMany(x => x.Animators))
+                                    a.SetFloat(id, v);
+                            });
                         }
                     }
                     break;
                 case "Integer":
                     {
                         var history = new AnimatorHistoryInt(animators, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         if (value.IsNumber)
@@ -337,31 +308,21 @@ public class ObjectPropertyManager
                         {
                             var pd = PointDefinitionParser.Get(value);
                             if (pd == null) break;
-                            var tween = new TweenFloat(
-                                state.StartTime,
-                                state.StartTime + duration,
-                                0,
-                                1,
-                                easing,
-                                t =>
-                                {
-                                    var v = pd.GetFloat(t);
-                                    foreach (var a in InstantiateObjectPrefabManager
-                                        .GetObjectById(objectId)
-                                        .AsValueEnumerable()
-                                        .SelectMany(x => x.Animators))
-                                        a.SetInteger(id, (int)v);
-                                });
-                            stateToTween.TryAdd(state, new());
-                            stateToTween[state].Add(tween);
-                            TweenManager.AddTween(tween);
+                            funcs.Add(t =>
+                            {
+                                var v = pd.GetFloat(t);
+                                foreach (var a in InstantiateObjectPrefabManager
+                                    .GetObjectById(objectId)
+                                    .AsValueEnumerable()
+                                    .SelectMany(x => x.Animators))
+                                    a.SetInteger(id, (int)v);
+                            });
                         }
                     }
                     break;
                 case "Bool":
                     {
                         var history = new AnimatorHistoryBool(animators, id);
-                        stateHistory.TryAdd(state, new());
                         stateHistory[state].Add(history);
 
                         if (value.IsBoolean)
@@ -372,68 +333,53 @@ public class ObjectPropertyManager
                         {
                             var pd = PointDefinitionParser.Get(value);
                             if (pd == null) break;
-                            var tween = new TweenFloat(
-                                state.StartTime,
-                                state.StartTime + duration,
-                                0,
-                                1,
-                                easing,
-                                t =>
-                                {
-                                    var v = pd.GetFloat(t);
-                                    foreach (var a in InstantiateObjectPrefabManager
-                                        .GetObjectById(objectId)
-                                        .AsValueEnumerable()
-                                        .SelectMany(x => x.Animators))
-                                        a.SetBool(id, v >= 1);
-                                });
-                            stateToTween.TryAdd(state, new());
-                            stateToTween[state].Add(tween);
-                            TweenManager.AddTween(tween);
+                            funcs.Add(t =>
+                            {
+                                var v = pd.GetFloat(t);
+                                foreach (var a in InstantiateObjectPrefabManager
+                                    .GetObjectById(objectId)
+                                    .AsValueEnumerable()
+                                    .SelectMany(x => x.Animators))
+                                    a.SetBool(id, v >= 1);
+                            });
                         }
                     }
                     break;
             }
+
+            if (funcs.Count > 0)
+            {
+                var tween = new TweenFloat(
+                    state.StartTime,
+                    state.StartTime + duration,
+                    0,
+                    1,
+                    easing,
+                    t =>
+                    {
+                        for (var i = 0; i < funcs.Count; i++) funcs[i](t);
+                    });
+                stateToTween.Add(state, (tween, funcs));
+                TweenManager.Add(tween);
+            }
+            else
+                ListPool<Action<float>>.Release(funcs);
         }
     }
 
-    public void RevertMaterial(CustomEventStateData state)
+    public void Revert(CustomEventStateData state)
     {
-        if (stateHistory.TryGetValue(state, out var history))
+        if (stateHistory.Remove(state, out var history))
         {
             foreach (var h in history) h.Revert();
-            stateHistory.Remove(state);
+            ListPool<ObjectPropertyStateHistory>.Release(history);
         }
 
-        if (!stateToTween.TryGetValue(state, out var tweens)) return;
-        foreach (var tween in tweens) TweenManager.RemoveTween(tween);
-        stateToTween.Remove(state);
-    }
-
-    public void RevertGlobal(CustomEventStateData state)
-    {
-        if (stateHistory.TryGetValue(state, out var history))
+        if (stateToTween.Remove(state, out var p))
         {
-            foreach (var h in history) h.Revert();
-            stateHistory.Remove(state);
+            TweenManager.Remove(p.tween);
+            ListPool<Action<float>>.Release(p.pooledList);
         }
-
-        if (!stateToTween.TryGetValue(state, out var tweens)) return;
-        foreach (var tween in tweens) TweenManager.RemoveTween(tween);
-        stateToTween.Remove(state);
-    }
-
-    public void RevertAnimator(CustomEventStateData state)
-    {
-        if (stateHistory.TryGetValue(state, out var history))
-        {
-            foreach (var h in history) h.Revert();
-            stateHistory.Remove(state);
-        }
-
-        if (!stateToTween.TryGetValue(state, out var tweens)) return;
-        foreach (var tween in tweens) TweenManager.RemoveTween(tween);
-        stateToTween.Remove(state);
     }
 }
 
