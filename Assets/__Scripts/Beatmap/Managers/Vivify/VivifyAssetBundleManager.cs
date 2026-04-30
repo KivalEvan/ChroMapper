@@ -97,6 +97,7 @@ public class VivifyAssetBundleManager : MonoBehaviour
             var vivifyObject = go.AddComponent<VivifyObject>();
             vivifyObject.AssetPath = assetPath;
             vivifyObject.Atsc = atsc;
+            vivifyObject.Animators = go.GetComponentsInChildren<Animator>();
             vivifyObject.SetDefault();
             vivifyObject.SongSynchronize(0);
 

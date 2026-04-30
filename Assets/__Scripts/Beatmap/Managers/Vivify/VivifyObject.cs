@@ -7,6 +7,7 @@ public class VivifyObject : MonoBehaviour
     public string AssetPath;
     public AudioTimeSyncController Atsc;
     public ObjectAnimator Animator;
+    public Animator[] Animators;
 
     private ISync[] syncs = Array.Empty<ISync>();
 
@@ -36,11 +37,11 @@ public class VivifyObject : MonoBehaviour
 
     public void SetAnimatorDefault()
     {
-        Animator.OffsetPosition._default = InitialPosition;
-        Animator.WorldPosition._default = InitialPosition;
-        Animator.LocalRotation._default = transform.localRotation;
-        Animator.WorldRotation._default = transform.rotation;
-        Animator.Scale._default = InitialScale;
+        Animator.OffsetPosition.Default = InitialPosition;
+        Animator.WorldPosition.Default = InitialPosition;
+        Animator.LocalRotation.Default = transform.localRotation;
+        Animator.WorldRotation.Default = transform.rotation;
+        Animator.Scale.Default = InitialScale;
     }
 
     public void Activate() => gameObject.SetActive(true);

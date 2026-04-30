@@ -8,16 +8,11 @@ public class InstantiateObjectPrefabManager
     private readonly Dictionary<string, Stack<VivifyObject>> prefabPool = new();
     private readonly Dictionary<CustomEventStateData, VivifyObject> ownerToObject = new();
     private readonly Dictionary<string, List<CustomEventStateData>> idToOwner = new();
+    private readonly Dictionary<string, List<VivifyObject>> idToObjects = new();
     private readonly Dictionary<CustomEventStateData, List<CustomEventStateData>> deletedObjectToRevert = new();
+    private readonly List<VivifyObject> emptyObjects = new();
 
-    public IEnumerable<VivifyObject> GetObjectById(string id)
-    {
-        if (!idToOwner.TryGetValue(id, out var l)) yield break;
-        foreach (var s in l)
-        {
-            if (ownerToObject.TryGetValue(s, out var v)) yield return v;
-        }
-    }
+    public List<VivifyObject> GetObjectById(string id) => idToObjects.GetValueOrDefault(id, emptyObjects);
 
     private VivifyObject GetOrCreateObject(string prefabName)
     {
@@ -62,6 +57,9 @@ public class InstantiateObjectPrefabManager
         var id = data["id"];
         idToOwner.TryAdd(id, new());
         idToOwner[id].Add(state);
+
+        idToObjects.TryAdd(id, new());
+        idToObjects[id].Add(vivifyObject);
     }
 
     public void ReinstantiateVivifyObject(CustomEventStateData state)
@@ -80,9 +78,17 @@ public class InstantiateObjectPrefabManager
 
         if (!state.Base.Data.HasKey("id")) return;
         var id = state.Base.Data["id"];
-        if (!idToOwner.TryGetValue(id, out var v)) return;
-        v.Remove(state);
-        if (v.Count == 0) idToOwner.Remove(id);
+        if (idToOwner.TryGetValue(id, out var v))
+        {
+            v.Remove(state);
+            if (v.Count == 0) idToOwner.Remove(id);
+        }
+
+        if (idToObjects.TryGetValue(id, out var l))
+        {
+            l.Remove(val);
+            if (l.Count == 0) idToObjects.Remove(id);
+        }
     }
 
     public void RemoveVivifyObjectById(CustomEventStateData state)
@@ -94,6 +100,7 @@ public class InstantiateObjectPrefabManager
         {
             foreach (var s in l1) RemoveVivifyObject(s, state);
             idToOwner.Remove(state.Base.Data["id"]);
+            idToObjects.Remove(state.Base.Data["id"]);
         }
         else if (state.Base.Data["id"].IsArray)
         {
@@ -102,6 +109,7 @@ public class InstantiateObjectPrefabManager
                 if (!id.IsString || !idToOwner.TryGetValue(id, out var l2)) continue;
                 foreach (var s in l2) RemoveVivifyObject(s, state);
                 idToOwner.Remove(id);
+                idToObjects.Remove(id);
             }
         }
     }

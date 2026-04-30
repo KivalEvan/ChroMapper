@@ -266,10 +266,10 @@ public class ObjectPropertyManager
             var type = (string)child["type"];
             var value = child["value"];
 
-            var objects = InstantiateObjectPrefabManager.GetObjectById(id);
+            var objects = InstantiateObjectPrefabManager.GetObjectById(objectId);
             var animators = objects
                 .AsValueEnumerable()
-                .SelectMany(x => x.GetComponentsInChildren<Animator>())
+                .SelectMany(x => x.Animators)
                 .ToArray();
             switch (type)
             {
@@ -311,7 +311,11 @@ public class ObjectPropertyManager
                                 t =>
                                 {
                                     var v = pd.GetFloat(t);
-                                    foreach (var a in animators) a.SetFloat(id, v);
+                                    foreach (var a in InstantiateObjectPrefabManager
+                                        .GetObjectById(objectId)
+                                        .AsValueEnumerable()
+                                        .SelectMany(x => x.Animators))
+                                        a.SetFloat(id, v);
                                 });
                             stateToTween.TryAdd(state, new());
                             stateToTween[state].Add(tween);
@@ -342,7 +346,11 @@ public class ObjectPropertyManager
                                 t =>
                                 {
                                     var v = pd.GetFloat(t);
-                                    foreach (var a in animators) a.SetInteger(id, (int)v);
+                                    foreach (var a in InstantiateObjectPrefabManager
+                                        .GetObjectById(objectId)
+                                        .AsValueEnumerable()
+                                        .SelectMany(x => x.Animators))
+                                        a.SetInteger(id, (int)v);
                                 });
                             stateToTween.TryAdd(state, new());
                             stateToTween[state].Add(tween);
@@ -373,7 +381,11 @@ public class ObjectPropertyManager
                                 t =>
                                 {
                                     var v = pd.GetFloat(t);
-                                    foreach (var a in animators) a.SetBool(id, v >= 1);
+                                    foreach (var a in InstantiateObjectPrefabManager
+                                        .GetObjectById(objectId)
+                                        .AsValueEnumerable()
+                                        .SelectMany(x => x.Animators))
+                                        a.SetBool(id, v >= 1);
                                 });
                             stateToTween.TryAdd(state, new());
                             stateToTween[state].Add(tween);
