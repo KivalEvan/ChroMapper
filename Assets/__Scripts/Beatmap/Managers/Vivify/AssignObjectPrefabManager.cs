@@ -140,8 +140,6 @@ public class AssignObjectPrefabManager
             trackModel.AddModel(kind, asset, index);
         else
             trackModel.SetModel(kind, asset, index);
-
-        TracksManager.NotifyModelChanged(track);
     }
 
     public void Remove(CustomEventStateData state)
@@ -193,7 +191,5 @@ public class AssignObjectPrefabManager
             trackModel.RemoveModel(kind, asset);
         else
             trackModel.UnsetModel(kind);
-
-        TracksManager.NotifyModelChanged(track);
     }
 }

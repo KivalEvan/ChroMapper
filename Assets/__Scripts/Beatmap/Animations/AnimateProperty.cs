@@ -1,18 +1,17 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-
 using Beatmap.Base.Customs;
 
 namespace Beatmap.Animations
 {
     public interface IAnimateProperty
     {
-        public float StartTime { get; }
-        public bool IsEmpty();
-        public void UpdateProperty(float time);
-        public void Sort();
-        public void RemoveEvent(BaseCustomEvent ev);
+        float StartTime { get; }
+        bool IsEmpty();
+        void UpdateProperty(float time);
+        void Sort();
+        void RemoveEvent(BaseCustomEvent ev);
     }
 
     public class AnimateProperty<T> : IAnimateProperty
@@ -33,22 +32,19 @@ namespace Beatmap.Animations
             count = 0;
         }
 
-        public bool IsEmpty()
-        {
-            return PointDefinitions.Count == 0;
-        }
+        public bool IsEmpty() => PointDefinitions.Count == 0;
 
-        public void AddPointDef(PointDefinition<T>.Parser parser, IPointDefinition.UntypedParams p, BaseCustomEvent source)
+        public void AddPointDef(
+            PointDefinition<T>.Parser parser,
+            IPointDefinition.UntypedParams p,
+            BaseCustomEvent source)
         {
             for (var i = 0; i <= p.Repeat; ++i)
             {
                 var pp = p;
                 pp.TimeBegin = p.TimeBegin + (i * p.Duration);
                 pp.TimeEnd = p.TimeEnd + (i * p.Duration);
-                if (i > 0)
-                {
-                    pp.Time = pp.TimeBegin;
-                }
+                if (i > 0) pp.Time = pp.TimeBegin;
 
                 PointDefinitions.Add(new PointDefinition<T>(parser, pp, source));
             }
@@ -56,40 +52,37 @@ namespace Beatmap.Animations
 
         public T GetLerpedValue(float time)
         {
-            GetIndexes(time, out var current, out var _);
+            GetIndexes(time, out var current, out _);
 
-            if (current < 0) {
-                return Default;
-            }
+            if (current < 0) return Default;
 
             var cpd = PointDefinitions[current];
 
             // AnimateTrack
-            if (cpd.StartTime < time && time < (cpd.StartTime + cpd.Duration))
+            if (cpd.StartTime < time && time < cpd.StartTime + cpd.Duration)
             {
                 var elapsedTime = time - cpd.StartTime;
-                float normalizedTime = cpd.Easing(Mathf.Min(elapsedTime / cpd.Duration, 1));
-                float learpedTime = cpd.StartTime + (normalizedTime * cpd.Duration);
+                var normalizedTime = cpd.Easing(Mathf.Min(elapsedTime / cpd.Duration, 1));
+                var learpedTime = cpd.StartTime + (normalizedTime * cpd.Duration);
                 return cpd.Interpolate(learpedTime);
             }
 
             // AssignPathAnimation
             // Only one active definition, no interpolate
-            if (time > (cpd.StartTime + cpd.Transition)) {
-                return cpd.Interpolate(time);
-            }
-            else
+            if (time > cpd.StartTime + cpd.Transition) return cpd.Interpolate(time);
             {
                 var elapsedTime = time - cpd.StartTime;
-                float normalizedTime = cpd.Easing(Mathf.Min(elapsedTime / cpd.Transition, 1));
-                return PointDefinitionInterpolation.Lerp<T>(current == 0 ? null : PointDefinitions[current - 1], PointDefinitions[current], normalizedTime, time, Default);
+                var normalizedTime = cpd.Easing(Mathf.Min(elapsedTime / cpd.Transition, 1));
+                return PointDefinitionInterpolation.Lerp<T>(
+                    current == 0 ? null : PointDefinitions[current - 1],
+                    PointDefinitions[current],
+                    normalizedTime,
+                    time,
+                    Default);
             }
         }
 
-        public void UpdateProperty(float time)
-        {
-            Setter(GetLerpedValue(time));
-        }
+        public void UpdateProperty(float time) => Setter(GetLerpedValue(time));
 
         public void Sort()
         {
@@ -98,10 +91,7 @@ namespace Beatmap.Animations
             count = PointDefinitions.Count;
         }
 
-        public void RemoveEvent(BaseCustomEvent ev)
-        {
-            PointDefinitions.RemoveAll((pd) => pd.Source == ev);
-        }
+        public void RemoveEvent(BaseCustomEvent ev) => PointDefinitions.RemoveAll((pd) => pd.Source == ev);
 
         private void GetIndexes(float time, out int prev, out int next)
         {
@@ -110,17 +100,13 @@ namespace Beatmap.Animations
 
             while (prev < next - 1)
             {
-                int m = (prev + next) / 2;
-                float pointTime = PointDefinitions[m].StartTime;
+                var m = (prev + next) / 2;
+                var pointTime = PointDefinitions[m].StartTime;
 
                 if (pointTime < time)
-                {
                     prev = m;
-                }
                 else
-                {
                     next = m;
-                }
             }
         }
     }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-
 using Beatmap.Base;
 using Beatmap.Base.Customs;
 using Beatmap.Containers;
@@ -17,12 +16,12 @@ namespace Beatmap.Animations
         public Track Track;
         public ObjectAnimator Animator;
 
-        public Dictionary<string, IAnimateProperty> AnimatedProperties = new Dictionary<string, IAnimateProperty>();
+        public Dictionary<string, IAnimateProperty> AnimatedProperties = new();
         private IAnimateProperty[] properties = new IAnimateProperty[0];
 
-        public List<TrackAnimator> Parents = new List<TrackAnimator>();
-        public List<ObjectAnimator> Children = new List<ObjectAnimator>();
-        public ObjectAnimator[] CachedChildren = new ObjectAnimator[] {};
+        public List<TrackAnimator> Parents = new();
+        public List<ObjectAnimator> Children = new();
+        public ObjectAnimator[] CachedChildren = new ObjectAnimator[] { };
 
         public void AddEvent(BaseCustomEvent ev)
         {
@@ -50,11 +49,9 @@ namespace Beatmap.Animations
             foreach (var prop in AnimatedProperties.Keys.ToList())
             {
                 AnimatedProperties[prop].RemoveEvent(ev);
-                if (AnimatedProperties[prop].IsEmpty())
-                {
-                    AnimatedProperties.Remove(prop);
-                }
+                if (AnimatedProperties[prop].IsEmpty()) AnimatedProperties.Remove(prop);
             }
+
             RefreshProperties();
         }
 
@@ -82,13 +79,11 @@ namespace Beatmap.Animations
                 if (Animator != null) Animator.enabled = false;
                 return;
             }
+
             for (var i = 0; i < properties.Length; ++i)
             {
                 var prop = properties[i];
-                if (time >= prop.StartTime)
-                {
-                    prop.UpdateProperty(time);
-                }
+                if (time >= prop.StartTime) prop.UpdateProperty(time);
             }
         }
 
@@ -116,68 +111,158 @@ namespace Beatmap.Animations
         {
             switch (key)
             {
-            case "_dissolve":
-            case "dissolve":
-                AddPointDef<float>(source, (ObjectAnimator animator, float f) => animator.Opacity.Add(f), PointDataParsers.ParseFloat, p, 1);
-                break;
-            case "_dissolveArrow":
-            case "dissolveArrow":
-                AddPointDef<float>(source, (ObjectAnimator animator, float f) => animator.OpacityArrow.Add(f), PointDataParsers.ParseFloat, p, 1);
-                break;
-            case "_localRotation":
-            case "localRotation":
-                AddPointDef<Quaternion>(source, (ObjectAnimator animator, Quaternion v) => animator.LocalRotation.Add(v), PointDataParsers.ParseQuaternion, p, Quaternion.identity);
-                break;
-            case "rotation":
-                AddPointDef<Quaternion>(source, (ObjectAnimator animator, Quaternion v) => { if (animator.TargetType == ObjectAnimator.TargetTypes.Transform) animator.WorldRotation.Add(v); }, PointDataParsers.ParseQuaternion, p, Quaternion.identity);
-                break;
-            case "_rotation":
-            case "offsetWorldRotation":
-                AddPointDef<Quaternion>(source, (ObjectAnimator animator, Quaternion v) => animator.WorldRotation.Add(v), PointDataParsers.ParseQuaternion, p, Quaternion.identity);
-                break;
-            case "_position":
-                AddPointDef<Vector3>(source, (ObjectAnimator animator, Vector3 v) => animator.OffsetPosition.Add(v * BeatmapConstant.LaneSize), PointDataParsers.ParseVector3, p, Vector3.zero);
-                break;
-            case "offsetPosition":
-                AddPointDef<Vector3>(source, (ObjectAnimator animator, Vector3 v) => { if (animator.TargetType == ObjectAnimator.TargetTypes.GameplayObject) animator.OffsetPosition.Add(v); }, PointDataParsers.ParseVector3, p, Vector3.zero);
-                break;
-            case "localPosition":
-                AddPointDef<Vector3>(source, (ObjectAnimator animator, Vector3 v) => { if (animator.TargetType == ObjectAnimator.TargetTypes.Transform) animator.OffsetPosition.Add(v); }, PointDataParsers.ParseVector3, p, Vector3.zero);
-                break;
-            case "position":
-                AddPointDef<Vector3>(source, (ObjectAnimator animator, Vector3 v) => { if (animator.TargetType == ObjectAnimator.TargetTypes.Transform) animator.WorldPosition.Add(v); }, PointDataParsers.ParseVector3, p, Vector3.zero);
-                break;
-            case "_scale":
-            case "scale":
-                AddPointDef<Vector3>(source, (ObjectAnimator animator, Vector3 v) => animator.Scale.Add(v), PointDataParsers.ParseVector3, p, Vector3.one);
-                break;
-            case "_color":
-            case "color":
-                AddPointDef<Color>(source, (ObjectAnimator animator, Color v) => { if (animator.TargetType != ObjectAnimator.TargetTypes.Transform) animator.Colors.Add(v); }, PointDataParsers.ParseColor, p, Color.white);
-                break;
-            case "_time":
-            case "time":
-                AddPointDef<float>(source, (ObjectAnimator animator, float f) => animator.SetLifeTime(f), PointDataParsers.ParseFloat, p, -1);
-                break;
+                case "_dissolve":
+                case "dissolve":
+                    AddPointDef<float>(
+                        source,
+                        (ObjectAnimator animator, float f) => animator.Opacity.Add(f),
+                        PointDataParsers.ParseFloat,
+                        p,
+                        1);
+                    break;
+                case "_dissolveArrow":
+                case "dissolveArrow":
+                    AddPointDef<float>(
+                        source,
+                        (ObjectAnimator animator, float f) => animator.OpacityArrow.Add(f),
+                        PointDataParsers.ParseFloat,
+                        p,
+                        1);
+                    break;
+                case "_localRotation":
+                case "localRotation":
+                    AddPointDef<Quaternion>(
+                        source,
+                        (ObjectAnimator animator, Quaternion v) => animator.LocalRotation.Add(v),
+                        PointDataParsers.ParseQuaternion,
+                        p,
+                        Quaternion.identity);
+                    break;
+                case "rotation":
+                    AddPointDef<Quaternion>(
+                        source,
+                        (ObjectAnimator animator, Quaternion v) =>
+                        {
+                            if (animator.TargetType == ObjectAnimator.TargetTypes.Transform)
+                                animator.WorldRotation.Add(v);
+                        },
+                        PointDataParsers.ParseQuaternion,
+                        p,
+                        Quaternion.identity);
+                    break;
+                case "_rotation":
+                case "offsetWorldRotation":
+                    AddPointDef<Quaternion>(
+                        source,
+                        (ObjectAnimator animator, Quaternion v) => animator.WorldRotation.Add(v),
+                        PointDataParsers.ParseQuaternion,
+                        p,
+                        Quaternion.identity);
+                    break;
+                case "_position":
+                    AddPointDef<Vector3>(
+                        source,
+                        (ObjectAnimator animator, Vector3 v) =>
+                            animator.OffsetPosition.Add(v * BeatmapConstant.LaneSize),
+                        PointDataParsers.ParseVector3,
+                        p,
+                        Vector3.zero);
+                    break;
+                case "offsetPosition":
+                    AddPointDef<Vector3>(
+                        source,
+                        (ObjectAnimator animator, Vector3 v) =>
+                        {
+                            if (animator.TargetType == ObjectAnimator.TargetTypes.GameplayObject)
+                                animator.OffsetPosition.Add(v);
+                        },
+                        PointDataParsers.ParseVector3,
+                        p,
+                        Vector3.zero);
+                    break;
+                case "localPosition":
+                    AddPointDef<Vector3>(
+                        source,
+                        (ObjectAnimator animator, Vector3 v) =>
+                        {
+                            if (animator.TargetType == ObjectAnimator.TargetTypes.Transform)
+                                animator.OffsetPosition.Add(v);
+                        },
+                        PointDataParsers.ParseVector3,
+                        p,
+                        Vector3.zero);
+                    break;
+                case "position":
+                    AddPointDef<Vector3>(
+                        source,
+                        (ObjectAnimator animator, Vector3 v) =>
+                        {
+                            if (animator.TargetType == ObjectAnimator.TargetTypes.Transform)
+                                animator.WorldPosition.Add(v);
+                        },
+                        PointDataParsers.ParseVector3,
+                        p,
+                        Vector3.zero);
+                    break;
+                case "_scale":
+                case "scale":
+                    AddPointDef<Vector3>(
+                        source,
+                        (ObjectAnimator animator, Vector3 v) => animator.Scale.Add(v),
+                        PointDataParsers.ParseVector3,
+                        p,
+                        Vector3.one);
+                    break;
+                case "_color":
+                case "color":
+                    AddPointDef<Color>(
+                        source,
+                        (ObjectAnimator animator, Color v) =>
+                        {
+                            if (animator.TargetType != ObjectAnimator.TargetTypes.Transform) animator.Colors.Add(v);
+                        },
+                        PointDataParsers.ParseColor,
+                        p,
+                        Color.white);
+                    break;
+                case "_time":
+                case "time":
+                    AddPointDef<float>(
+                        source,
+                        (ObjectAnimator animator, float f) => animator.SetLifeTime(f),
+                        PointDataParsers.ParseFloat,
+                        p,
+                        -1);
+                    break;
             }
         }
 
-        private void AddPointDef<T>(BaseCustomEvent source, Action<ObjectAnimator, T> _setter, PointDefinition<T>.Parser parser, IPointDefinition.UntypedParams p, T _default) where T : struct
+        private void AddPointDef<T>(
+            BaseCustomEvent source,
+            Action<ObjectAnimator, T> _setter,
+            PointDefinition<T>.Parser parser,
+            IPointDefinition.UntypedParams p,
+            T _default) where T : struct
         {
-            Action<T> setter = (v) => { for (var i = 0; i < CachedChildren.Length; ++i) { _setter(CachedChildren[i], v); } };
+            Action<T> setter = (v) =>
+            {
+                for (var i = 0; i < CachedChildren.Length; ++i) _setter(CachedChildren[i], v);
+            };
 
             GetAnimateProperty<T>(p.Key, setter, _default).AddPointDef(parser, p, source);
         }
 
         private AnimateProperty<T> GetAnimateProperty<T>(string key, Action<T> setter, T _default) where T : struct
         {
-            if (!AnimatedProperties.ContainsKey(key)) {
+            if (!AnimatedProperties.ContainsKey(key))
+            {
                 AnimatedProperties[key] = new AnimateProperty<T>(
                     new List<PointDefinition<T>>(),
                     setter,
                     _default
                 );
             }
+
             return AnimatedProperties[key] as AnimateProperty<T>;
         }
     }

@@ -42,7 +42,7 @@ namespace Beatmap.Animations
             None,
             GameplayObject,
             Transform,
-            Material,
+            Material
         };
 
         public TargetTypes TargetType;
@@ -215,7 +215,7 @@ namespace Beatmap.Animations
                                 Time = ce.SongBpmTime,
                                 Transition = ce.DataDuration ?? 0,
                                 TimeBegin = timeBegin,
-                                TimeEnd = timeEnd,
+                                TimeEnd = timeEnd
                             };
                             if (p.Transition != 0)
                             {
@@ -245,7 +245,7 @@ namespace Beatmap.Animations
                         Points = jprop.Value,
                         Easing = null,
                         TimeBegin = timeBegin,
-                        TimeEnd = timeEnd,
+                        TimeEnd = timeEnd
                     };
                     AddPointDef(p, jprop.Key, null);
                 }
@@ -410,8 +410,9 @@ namespace Beatmap.Animations
             if (Scale.Count > 0) LocalTarget.localScale = Scale.Get();
 
             if (WorldTarget is Transform && WorldRotation.Count > 0)
-                if (container is not GeometryContainer)
-                    WorldTarget.localRotation = WorldRotation.Get();
+            {
+                if (container is not GeometryContainer) WorldTarget.localRotation = WorldRotation.Get();
+            }
 
             var time = this.time ?? Context.Atsc?.CurrentSongBpmTime ?? 0;
             if (WorldPosition.Count > 0)
@@ -458,9 +459,8 @@ namespace Beatmap.Animations
             LocalTarget.localScale = Scale.Get();
 
             if (WorldTarget is Transform)
-            {
-                if (!(container is GeometryContainer)) WorldTarget.localRotation = WorldRotation.Get();
-            }
+                if (!(container is GeometryContainer))
+                    WorldTarget.localRotation = WorldRotation.Get();
         }
 
         private void RequireAnimationTrack()
@@ -614,8 +614,7 @@ namespace Beatmap.Animations
                 // This shouldn't ever go above 3, but check anyway
                 if (Count >= 4)
                     return;
-                else
-                    items[Count] = v;
+                items[Count] = v;
                 ++Count;
             }
 

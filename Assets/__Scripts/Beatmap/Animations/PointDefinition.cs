@@ -11,7 +11,7 @@ namespace Beatmap.Animations
 {
     public interface IPointDefinition
     {
-        public struct UntypedParams
+        struct UntypedParams
         {
             public string Key;
             public bool Overwrite;
@@ -46,10 +46,7 @@ namespace Beatmap.Animations
         public delegate T InterpolationHandler(PointData[] points, int prev, int next, float time);
 
         // Used for searching ONLY
-        public PointDefinition(float start)
-        {
-            StartTime = start;
-        }
+        public PointDefinition(float start) => StartTime = start;
 
         public PointDefinition(Parser parser, IPointDefinition.UntypedParams p, BaseCustomEvent source)
         {
@@ -63,10 +60,10 @@ namespace Beatmap.Animations
             var data = p.Points switch
             {
                 JSONArray arr => arr,
-                JSONString pd => (BeatSaberSongContainer.Instance.Map.PointDefinitions.ContainsKey(pd)
+                JSONString pd => BeatSaberSongContainer.Instance.Map.PointDefinitions.ContainsKey(pd)
                     ? BeatSaberSongContainer.Instance.Map.PointDefinitions[pd]
-                    : throw new Exception($"Missing point definition {pd}")),
-                _ => new JSONArray(), // TODO: Does this unset properly?
+                    : throw new Exception($"Missing point definition {pd}"),
+                _ => new JSONArray() // TODO: Does this unset properly?
             };
 
             foreach (var row in data)
@@ -88,33 +85,20 @@ namespace Beatmap.Animations
         {
             var count = Points.Length;
 
-            if (count == 0)
-            {
-                return default;
-            }
+            if (count == 0) return default;
 
-            if (Points[count - 1].Time <= time)
-            {
-                return Points[count - 1].Value;
-            }
+            if (Points[count - 1].Time <= time) return Points[count - 1].Value;
 
-            if (Points[0].Time >= time)
-            {
-                return Points[0].Value;
-            }
+            if (Points[0].Time >= time) return Points[0].Value;
 
-            GetIndexes(time, out int prev, out int next);
+            GetIndexes(time, out var prev, out var next);
 
             float normalTime;
-            float divisor = Points[next].Time - Points[prev].Time;
+            var divisor = Points[next].Time - Points[prev].Time;
             if (divisor != 0)
-            {
                 normalTime = (time - Points[prev].Time) / divisor;
-            }
             else
-            {
                 normalTime = 0;
-            }
 
             normalTime = Points[next].Easing(normalTime);
 
@@ -128,17 +112,13 @@ namespace Beatmap.Animations
 
             while (prev < next - 1)
             {
-                int m = (prev + next) / 2;
-                float pointTime = Points[m].Time;
+                var m = (prev + next) / 2;
+                var pointTime = Points[m].Time;
 
                 if (pointTime < time)
-                {
                     prev = m;
-                }
                 else
-                {
                     next = m;
-                }
             }
         }
 
@@ -159,7 +139,7 @@ namespace Beatmap.Animations
                 if (len > i)
                 {
                     // Track or Path animation
-                    Time = (tend == 0)
+                    Time = tend == 0
                         ? data[i++].AsFloat
                         : Mathf.LerpUnclamped(tbegin, tend, data[i++]);
                 }
@@ -176,20 +156,11 @@ namespace Beatmap.Animations
                 {
                     string str = data[i];
 
-                    if (str[0] == 'e')
-                    {
-                        Easing = global::Easing.Named(str);
-                    }
+                    if (str[0] == 'e') Easing = global::Easing.Named(str);
 
-                    if (str == "splineCatmullRom")
-                    {
-                        Lerp = PointDataInterpolators.CatmullRomLerp<T>();
-                    }
+                    if (str == "splineCatmullRom") Lerp = PointDataInterpolators.CatmullRomLerp<T>();
 
-                    if (str == "lerpHSV")
-                    {
-                        Lerp = PointDataInterpolators.HSVLerp<T>();
-                    }
+                    if (str == "lerpHSV") Lerp = PointDataInterpolators.HSVLerp<T>();
                 }
             }
 
@@ -198,10 +169,7 @@ namespace Beatmap.Animations
             public Func<float, float> Easing { get; }
             public InterpolationHandler Lerp { get; }
 
-            public int CompareTo(PointData other)
-            {
-                return Time.CompareTo(other.Time);
-            }
+            public int CompareTo(PointData other) => Time.CompareTo(other.Time);
         }
     }
 

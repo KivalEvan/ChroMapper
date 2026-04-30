@@ -88,9 +88,8 @@ public static class PointDefinitionParser
                     }
 
                     if (child.IsString)
-                    {
-                        foreach (var func in GetBaseGetter(child)) value.SetGetter(valueIndex++, func);
-                    }
+                        foreach (var func in GetBaseGetter(child))
+                            value.SetGetter(valueIndex++, func);
                     else if (child.IsNumber)
                         value.SetGetter(valueIndex++, child);
                     else
@@ -162,7 +161,7 @@ public static class PointDefinitionParser
 
     private static readonly Dictionary<char, int> swizzleToIndex = new()
     {
-        { 'x', 0 }, { 'y', 1 }, { 'z', 2 }, { 'w', 3 },
+        { 'x', 0 }, { 'y', 1 }, { 'z', 2 }, { 'w', 3 }
     };
 
     public static IEnumerable<Func<float>> GetBaseGetter(string modifier)
