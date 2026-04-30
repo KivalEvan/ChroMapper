@@ -19,22 +19,11 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
     public void AddState(TState state) => Collection.Add(state);
     public bool RemoveState(TState state) => Collection.Remove(state);
 
-    public IEnumerator<TState> EnumerateTo(float time)
-    {
-        if (CurrentState.IsWithinRange(time)) return EnumerateNone();
-        return IsNextDirection(time)
-            ? EnumerateToNext(time)
-            : EnumerateToPrevious(time);
-    }
+    public bool EnumerateTo(float time, bool forward) => forward ? EnumerateToNext(time) : EnumerateToPrevious(time);
 
     public bool IsNextDirection(float time) => time >= CurrentState.EndTime;
 
-    private static IEnumerator<TState> EnumerateNone()
-    {
-        yield break;
-    }
-
-    public IEnumerator<TState> EnumerateToNext(float target)
+    public bool EnumerateToNext(float target)
     {
         currLocalIdx++;
         while (currBucketIdx < Collection.Buckets.Count)
@@ -43,50 +32,33 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
             while (currLocalIdx < currBucket.Count)
             {
                 CurrentState = currBucket[currLocalIdx];
-                yield return CurrentState;
-                if (CurrentState.IsWithinRange(target))
-                {
-                    currLocalIdx = Math.Clamp(currLocalIdx, 0, currBucket.Count - 1);
-                    currBucketIdx = Math.Clamp(currBucketIdx, 0, Collection.Buckets.Count - 1);
-                    yield break;
-                }
-
-                currLocalIdx++;
+                return !CurrentState.IsWithinRange(target);
             }
 
             currLocalIdx = 0;
             currBucketIdx++;
         }
 
-        currLocalIdx = Math.Clamp(currLocalIdx, 0, currBucket.Count - 1);
-        currBucketIdx = Math.Clamp(currBucketIdx, 0, Collection.Buckets.Count - 1);
+        return false;
     }
 
-    public IEnumerator<TState> EnumerateToPrevious(float target)
+    public bool EnumerateToPrevious(float target)
     {
+        currLocalIdx--;
         while (currBucketIdx >= 0)
         {
             currBucket = Collection.Buckets[currBucketIdx];
             while (currLocalIdx >= 0 && currBucket.Count > currLocalIdx)
             {
                 CurrentState = currBucket[currLocalIdx];
-                if (CurrentState.IsWithinRange(target))
-                {
-                    currLocalIdx = Math.Clamp(currLocalIdx, 0, currBucket.Count - 1);
-                    currBucketIdx = Math.Clamp(currBucketIdx, 0, Collection.Buckets.Count - 1);
-                    yield break;
-                }
-
-                yield return CurrentState;
-                currLocalIdx--;
+                return !CurrentState.IsWithinRange(target);
             }
 
             currBucketIdx--;
             currLocalIdx = Collection.Buckets[currBucketIdx].Count - 1;
         }
 
-        currLocalIdx = Math.Clamp(currLocalIdx, 0, currBucket.Count - 1);
-        currBucketIdx = Math.Clamp(currBucketIdx, 0, Collection.Buckets.Count - 1);
+        return false;
     }
 
     public bool IsCurrentOrFindState(float time, bool playing) =>

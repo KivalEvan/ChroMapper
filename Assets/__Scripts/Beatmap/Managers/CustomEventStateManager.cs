@@ -41,14 +41,19 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     public override void UpdateTime(bool isPlaying, float time)
     {
         var isNext = container.IsNextDirection(time);
-        var enumerator = container.EnumerateTo(time);
-        while (enumerator.MoveNext())
+        if (!container.CurrentState.IsWithinRange(time))
         {
-            var state = enumerator.Current;
-            if (isNext)
-                FireEvent(state);
-            else
-                RevertEvent(state);
+            // yea we have to fire these event outside of loop
+            if (!isNext) RevertEvent(container.CurrentState);
+            while (container.EnumerateTo(time, isNext))
+            {
+                if (isNext)
+                    FireEvent(container.CurrentState);
+                else
+                    RevertEvent(container.CurrentState);
+            }
+
+            if (isNext) FireEvent(container.CurrentState);
         }
 
         if (isPlaying)
