@@ -16,7 +16,7 @@ public class Track : MonoBehaviour
     private readonly Vector3 rotationPoint = Vector3.zero;
 
     private BaseGrid gridObject;
-    private ObjectContainer gridContainer;
+    public ObjectContainer GridContainer;
     private (Transform, Vector3, Quaternion)[] nodesTarget;
     private readonly Vector3[] newSplinePosition = new Vector3[ArcContainer.NumSamples + 1];
     private bool useCustom;
@@ -100,7 +100,7 @@ public class Track : MonoBehaviour
                         jumpT);
 
                     // Multiply euler rotation by spawn lifetime if we are in the first half (spawning) portion of our object lifetime
-                    if (normalizedLifetime >= 0.5f && gridContainer is NoteContainer noteContainer)
+                    if (normalizedLifetime >= 0.5f && GridContainer is NoteContainer noteContainer)
                     {
                         var quaternion = Quaternion.Euler(noteContainer.DirectionTargetEuler);
 
@@ -149,7 +149,7 @@ public class Track : MonoBehaviour
                 }
             case BaseArc arc:
                 {
-                    var arcContainer = gridContainer as ArcContainer;
+                    var arcContainer = GridContainer as ArcContainer;
 
                     var normalizedLifetime = Mathf.Clamp01(
                         Mathf.InverseLerp(
@@ -228,7 +228,7 @@ public class Track : MonoBehaviour
 
     public void UpdateState()
     {
-        if (!UIMode.PreviewMode || useCustom || gridObject == null || gridContainer.ObjectData == null) return;
+        if (!UIMode.PreviewMode || useCustom || gridObject == null || GridContainer.ObjectData == null) return;
 
         gridObject.SetSpawnParameters(
             vNjsProvider.HalfJumpDurationInBeats,
@@ -266,7 +266,7 @@ public class Track : MonoBehaviour
         spawnPosition += BeatmapConstant.ZOffset;
         despawnPosition += BeatmapConstant.ZOffset;
 
-        gridContainer.UpdateScalable(gridObject.HalfJumpDistance / gridObject.HalfJumpDuration);
+        GridContainer.UpdateScalable(gridObject.HalfJumpDistance / gridObject.HalfJumpDuration);
     }
 
     public void AttachContainer(ObjectContainer obj)
@@ -277,10 +277,10 @@ public class Track : MonoBehaviour
         obj.AssignTrack(this);
 
         if (obj.ObjectData is not BaseGrid g) return;
-        gridContainer = obj;
+        GridContainer = obj;
         gridObject = g;
 
-        if (gridContainer is ChainContainer chainContainer)
+        if (GridContainer is ChainContainer chainContainer)
         {
             nodesTarget = chainContainer
                 .Nodes.Select(n => (n.transform, n.transform.localPosition, n.transform.localRotation))

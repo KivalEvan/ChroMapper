@@ -10,6 +10,7 @@ public class TracksManager : MonoBehaviour
     [SerializeField] private Track trackPrefab;
     [SerializeField] private Transform tracksParent;
     [SerializeField] private EventGridContainer eventGridContainer;
+    [SerializeField] private ModelUpdateQueueManager modelUpdateQueueManager;
 
     [SerializeField] private AudioTimeSyncController atsc;
     [SerializeField] private VariableNJSProvider vNjsProvider;
@@ -174,5 +175,14 @@ public class TracksManager : MonoBehaviour
     {
         this.position = position;
         foreach (var track in loadedTracks.Values) track.UpdatePosition(position);
+    }
+
+    public void QueueModelUpdate(string track)
+    {
+        if (!animationTracks.TryGetValue(track, out var animator)) return;
+        for (var i = 0; i < animator.Children.Count; i++)
+        {
+            modelUpdateQueueManager.Add(animator.Children[i].AnimationTrack.GridContainer);
+        }
     }
 }
