@@ -35,18 +35,18 @@ public class TracksManager : MonoBehaviour
         objectContainerCollections.Add(BeatmapObjectContainerCollection.GetCollectionForType(ObjectType.Chain));
     }
 
-    private Track GetOrCreateTrack()
+    private Track GetOrCreateTrack(Transform parent)
     {
         var track = trackPool.Count > 0 ? trackPool.Pop() : Instantiate(trackPrefab);
         track.gameObject.SetActive(true);
-        track.SelfTransform.SetParent(tracksParent, false);
+        track.SelfTransform.SetParent(parent, false);
         return track;
     }
 
     public void Remove(Track track)
     {
         track.gameObject.SetActive(false);
-        track.SelfTransform.SetParent(tracksParent, false);
+        track.SelfTransform.SetParent(null, false);
         track.ResetData();
         trackPool.Push(track);
     }
@@ -61,7 +61,7 @@ public class TracksManager : MonoBehaviour
     {
         if (loadedTracks.TryGetValue(rotation, out var track)) return track;
 
-        track = GetOrCreateTrack();
+        track = GetOrCreateTrack(tracksParent);
         track.gameObject.name = $"Track [{rotation.x}, {rotation.y}, {rotation.z}]";
 
         track.vNjsProvider = vNjsProvider;
@@ -89,7 +89,7 @@ public class TracksManager : MonoBehaviour
     {
         if (animationTracks.TryGetValue(name, out var animator)) return animator;
 
-        var track = GetOrCreateTrack();
+        var track = GetOrCreateTrack(null);
         track.gameObject.name = name;
 
         animator = track.gameObject.GetOrAddComponent<TrackAnimator>();
@@ -98,7 +98,7 @@ public class TracksManager : MonoBehaviour
         animator.Track = track;
         animator.Track.vNjsProvider = vNjsProvider;
         animator.Track.enabled = true;
-        
+
         animationTracks.Add(name, animator);
         return animator;
     }
@@ -108,7 +108,7 @@ public class TracksManager : MonoBehaviour
     {
         // TODO: This is the same math used for 90/360 tacks, but does it actually handle BPM changes?
         var pos = -1 * obj.JsonTime * EditorScaleController.EditorScale;
-        var track = GetOrCreateTrack();
+        var track = GetOrCreateTrack(tracksParent);
         track.gameObject.name = $"Track Object {obj.JsonTime}";
 
         track.vNjsProvider = vNjsProvider;

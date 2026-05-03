@@ -88,7 +88,8 @@ namespace Beatmap.Appearances
             if (basemat.Color is Color color) container.MpbController.Mpb.SetColor(colorId, color);
 
             // For animating material color
-            if (basemat.Track is string track) container.MaterialAnimator.AttachToMaterial(container, track);
+            if (basemat.Track is string track)
+                container.MaterialAnimator.AttachToMaterial(container, container.Animator, track);
 
             foreach (var r in container.MpbController.Renderers) r.sharedMaterial = material;
             container.MpbController.ApplyChanges();

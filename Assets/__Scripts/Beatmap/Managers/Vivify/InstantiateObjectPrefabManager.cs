@@ -4,6 +4,7 @@ using UnityEngine;
 public class InstantiateObjectPrefabManager
 {
     public VivifyAssetBundleManager VivifyAssetBundleManager;
+    public TracksManager TracksManager;
 
     private readonly Dictionary<string, Stack<VivifyObject>> prefabPool = new();
     private readonly Dictionary<CustomEventStateData, VivifyObject> ownerToObject = new();
@@ -36,6 +37,7 @@ public class InstantiateObjectPrefabManager
         var vivifyObject = GetOrCreateObject(prefabName);
         if (vivifyObject == null) return;
 
+        vivifyObject.transform.SetParent(null, false);
         vivifyObject.Initialize();
 
         if (data["scale"] != null) vivifyObject.transform.localScale = data["scale"].ReadVector3(Vector3.one);
@@ -51,6 +53,10 @@ public class InstantiateObjectPrefabManager
 
         vivifyObject.Activate();
         vivifyObject.SongSynchronize(state.StartSecondTime);
+        
+        if (data["track"] != null)
+            vivifyObject.Animator.AttachToVivify(vivifyObject, data["track"]);
+
         ownerToObject.Add(state, vivifyObject);
 
         if (!data.HasKey("id")) return;

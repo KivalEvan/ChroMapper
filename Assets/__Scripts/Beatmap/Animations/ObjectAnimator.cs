@@ -6,7 +6,6 @@ using Beatmap.Base;
 using Beatmap.Base.Customs;
 using Beatmap.Containers;
 using Beatmap.Enums;
-using Beatmap.V2.Customs;
 using SimpleJSON;
 using Random = UnityEngine.Random;
 
@@ -277,7 +276,7 @@ namespace Beatmap.Animations
 
         public void AttachToGeometry(BaseEnvironmentEnhancement eh)
         {
-            var v2 = eh is V2EnvironmentEnhancement;
+            var v2 = BeatSaberSongContainer.Instance.Map.MajorVersion == 2;
             ResetData();
 
             TargetType = TargetTypes.Transform;
@@ -305,6 +304,28 @@ namespace Beatmap.Animations
             OnTimeChanged();
         }
 
+        public void AttachToVivify(VivifyObject vivifyObject, string track)
+        {
+            ResetData();
+
+            TargetType = TargetTypes.Transform;
+
+            LocalTarget = AnimationThis.transform;
+            //WorldTarget = container.transform;
+            WorldTarget = AnimationThis.transform;
+
+            // WorldRotation = LocalRotation;
+
+            vivifyObject.SetAnimatorDefault();
+
+            AddParent(track);
+            vivifyObject.transform.SetParent(tracks[0].Track.ObjectParentTransform, false);
+
+            Context.Atsc.OnTimeChanged += OnTimeChanged;
+
+            OnTimeChanged();
+        }
+
         public void AttachToTrack(Track track, string name)
         {
             ResetData();
@@ -317,12 +338,14 @@ namespace Beatmap.Animations
             Context.Atsc.OnTimeChanged += OnTimeChanged;
         }
 
-        public void AttachToMaterial(GeometryContainer con, string track)
+        public void AttachToMaterial(GeometryContainer con, ObjectAnimator animator, string track)
         {
             ResetData();
 
             TargetType = TargetTypes.Material;
             container = con;
+            TracksManager = animator.TracksManager;
+            Context = animator.Context;
 
             enabled = true;
             AddParent(track);
@@ -411,7 +434,8 @@ namespace Beatmap.Animations
 
             if (WorldTarget is Transform && WorldRotation.Count > 0)
             {
-                if (container is not GeometryContainer) WorldTarget.localRotation = WorldRotation.Get();
+                if (container is not GeometryContainer || container != null)
+                    WorldTarget.localRotation = WorldRotation.Get();
             }
 
             var time = this.time ?? Context.Atsc?.CurrentSongBpmTime ?? 0;
@@ -459,7 +483,7 @@ namespace Beatmap.Animations
             LocalTarget.localScale = Scale.Get();
 
             if (WorldTarget is Transform)
-                if (!(container is GeometryContainer))
+                if (container is not GeometryContainer || container != null)
                     WorldTarget.localRotation = WorldRotation.Get();
         }
 
@@ -612,8 +636,7 @@ namespace Beatmap.Animations
             public void Add(T v)
             {
                 // This shouldn't ever go above 3, but check anyway
-                if (Count >= 4)
-                    return;
+                if (Count >= 4) return;
                 items[Count] = v;
                 ++Count;
             }

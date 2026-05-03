@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using Beatmap.Animations;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -102,13 +103,14 @@ public class VivifyAssetBundleManager : MonoBehaviour
             vivifyObject.SongSynchronize(0);
 
             // TODO: ok genuinely i have no idea how this work
-            // var objectAnimator = go.AddComponent<ObjectAnimator>();
-            // vivifyObject.Animator = objectAnimator;
-            // objectAnimator.AnimationThis = go;
-            // objectAnimator.LocalTarget = go.transform;
-            // objectAnimator.TracksManager = tracksManager;
-            // objectAnimator.Context = beatmapRuntimeContext;
-            // vivifyObject.SetAnimatorDefault();
+            var objectAnimator = go.AddComponent<ObjectAnimator>();
+            vivifyObject.Animator = objectAnimator;
+            objectAnimator.AnimationThis = go;
+            objectAnimator.LocalTarget = go.transform;
+            objectAnimator.WorldTarget = go.transform;
+            objectAnimator.TracksManager = tracksManager;
+            objectAnimator.Context = beatmapRuntimeContext;
+            vivifyObject.SetAnimatorDefault();
 
             AssetPathToPrefab.Add(assetPath, vivifyObject);
             VisualRepository.AddWithFallback(go, assetPath);
