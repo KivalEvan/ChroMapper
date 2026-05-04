@@ -7,6 +7,8 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     public VivifyAssetBundleManager VivifyAssetBundleManager;
     public TracksManager TracksManager;
 
+    private readonly AnimateComponentManager animateComponentManager = new();
+
     private readonly InstantiateObjectPrefabManager instantiateObjectPrefabManager = new();
     public readonly AssignObjectPrefabManager AssignObjectPrefabManager = new();
     private readonly ObjectPropertyManager objectPropertyManager = new();
@@ -22,6 +24,9 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
                 PointDefinitionParser.Get(n, pd);
         }
 
+        // what's DI anyway
+        animateComponentManager.TracksManager = TracksManager;
+        animateComponentManager.TweenManager = tweenManager;
         instantiateObjectPrefabManager.VivifyAssetBundleManager = VivifyAssetBundleManager;
         AssignObjectPrefabManager.VisualRepository = VisualRepository;
         AssignObjectPrefabManager.TracksManager = TracksManager;
@@ -68,6 +73,9 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     {
         switch (state.Base.Type)
         {
+            case "AnimateComponent":
+                animateComponentManager.Assign(state);
+                break;
             case "SetMaterialProperty":
                 objectPropertyManager.AssignMaterial(state);
                 break;
@@ -93,6 +101,9 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     {
         switch (state.Base.Type)
         {
+            case "AnimateComponent":
+                animateComponentManager.Revert(state);
+                break;
             case "SetMaterialProperty":
             case "SetGlobalProperty":
             case "SetAnimatorProperty":

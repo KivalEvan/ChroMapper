@@ -13,7 +13,7 @@ namespace Beatmap.Containers
 {
     public class GeometryContainer : ObjectContainer
     {
-        private static Mesh triangleMesh = null;
+        private static Mesh triangleMesh;
 
         public override BaseObject ObjectData
         {
@@ -21,10 +21,7 @@ namespace Beatmap.Containers
             set => EnvironmentEnhancement = (BaseEnvironmentEnhancement)value;
         }
 
-        public BeatmapRuntimeContext Context;
-
         public BaseEnvironmentEnhancement EnvironmentEnhancement;
-
         public ObjectAnimator MaterialAnimator;
 
         public override void UpdateGridPosition()
@@ -40,7 +37,6 @@ namespace Beatmap.Containers
             var container = Instantiate(prefab).GetComponent<GeometryContainer>();
             if (context.Descriptor != null)
                 SceneManager.MoveGameObjectToScene(container.gameObject, context.Descriptor.gameObject.scene);
-            container.Context = context;
             container.Animator.Context = context;
             container.Animator.TracksManager = tracksManager;
             container.EnvironmentEnhancement = eh;
@@ -48,12 +44,12 @@ namespace Beatmap.Containers
             if (eh.Geometry != null)
             {
                 // Continue with geometry generation if the Geometry object is defined
-                GeneratePrimitiveGeometry(container, eh, context);
+                GeneratePrimitiveGeometry(container, eh, context, tracksManager);
             }
             else
             {
                 // Otherwise, fallback to environment enhancement
-                GenerateEnvironmentEnhancement(container, eh, context);
+                GenerateEnvironmentEnhancement(container, eh, context, tracksManager);
             }
 
             container.Animator.AttachToGeometry(eh);
@@ -66,7 +62,8 @@ namespace Beatmap.Containers
         private static void GeneratePrimitiveGeometry(
             GeometryContainer container,
             BaseEnvironmentEnhancement eh,
-            BeatmapRuntimeContext ctx)
+            BeatmapRuntimeContext ctx,
+            TracksManager tracksManager)
         {
             PrimitiveType type;
             if (eh.Geometry[eh.GeometryKeyType] == "Triangle")
@@ -110,6 +107,12 @@ namespace Beatmap.Containers
                 controller.Type = eh.LightType ?? 0;
                 controller.ID = eh.LightID ?? -1;
                 descriptor.Register(controller, false);
+
+                if (eh.Track != null)
+                {
+                    tracksManager.TrackToBloomFogLights.TryAdd(eh.Track, new());
+                    tracksManager.TrackToBloomFogLights[eh.Track].Add(controller);
+                }
             }
 
             if (eh.Components?.HasKey("TubeBloomPrePassLight") ?? false)
@@ -127,7 +130,8 @@ namespace Beatmap.Containers
         private static void GenerateEnvironmentEnhancement(
             GeometryContainer container,
             BaseEnvironmentEnhancement eh,
-            BeatmapRuntimeContext ctx)
+            BeatmapRuntimeContext ctx,
+            TracksManager tracksManager)
         {
             // Get descriptor of currently loaded environment
             var descriptor = ctx.Descriptor;
@@ -199,6 +203,11 @@ namespace Beatmap.Containers
 
                 if (eh.Track != null)
                 {
+                    tracksManager.TrackToBloomFogLights.TryAdd(eh.Track, new());
+                    tracksManager
+                        .TrackToBloomFogLights[eh.Track]
+                        .AddRange(target.GetComponentsInChildren<ParametricBloomFogLightController>());
+
                     // Parent to our animator but keep world transform
                     target.transform.SetParent(container.Animator.AnimationThis.transform, true);
 

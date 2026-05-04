@@ -18,6 +18,7 @@ public class TracksManager : MonoBehaviour
     private readonly Stack<Track> trackPool = new();
     private readonly Dictionary<Vector3, Track> loadedTracks = new();
     private readonly Dictionary<string, TrackAnimator> animationTracks = new();
+    public readonly Dictionary<string, List<ParametricBloomFogLightController>> TrackToBloomFogLights = new();
 
     private readonly List<BeatmapObjectContainerCollection> objectContainerCollections = new();
 
