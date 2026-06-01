@@ -338,6 +338,7 @@ public class BeatmapEasingsSelectionInputController : BeatmapInputController<Obj
                 njsEventContainer.ObjectData,
                 njsEventContainer.ObjectData,
                 original,
+                "Modified NJS Event Easing",
                 mergeType: ActionMergeType.ModifyNJSEventEase));
     }
 
@@ -352,6 +353,7 @@ public class BeatmapEasingsSelectionInputController : BeatmapInputController<Obj
                 njsEventContainer.ObjectData,
                 njsEventContainer.ObjectData,
                 original,
+                "Modified NJS Event Extension",
                 mergeType: ActionMergeType.ModifyNJSEventExtension));
     }
 
