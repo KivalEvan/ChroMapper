@@ -35,6 +35,6 @@ public class BeatmapNJSEventInputController : BeatmapInputController<NJSEventCon
                 containerToEdit.ObjectData,
                 original,
                 "Tweaked NJS",
-                mergeType: ActionMergeType.NJSValueTweak));
+                mergeType: ActionMergeType.ModifyNJSEventValue));
     }
 }
