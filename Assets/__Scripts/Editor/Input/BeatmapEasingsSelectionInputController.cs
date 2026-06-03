@@ -90,7 +90,6 @@ public class BeatmapEasingsSelectionInputController : BeatmapInputController<Obj
             ease += (int)currentCurve;
         }
 
-        Debug.Log($"Hello {ease}");
         switch (HoveredObject)
         {
             case GLSEventContainer glsEventContainer:
@@ -116,7 +115,6 @@ public class BeatmapEasingsSelectionInputController : BeatmapInputController<Obj
     public void OnEasingNoneHover(InputAction.CallbackContext context)
     {
         if (!context.performed || !IsHovering) return;
-        Debug.Log($"Hello {HoveredObject}");
         switch (HoveredObject)
         {
             case GLSEventContainer glsEventContainer:
