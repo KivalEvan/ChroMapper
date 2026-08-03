@@ -10,16 +10,36 @@ public class EnvironmentBuildPopulate
     [MenuItem("Environment/Populate Build Data", false, 800)]
     private static void PopulateBuildData()
     {
-        var libraryPath = $"{Constants.EditorPath}/EnvironmentLibrarySO.asset";
-        var library = AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(libraryPath);
-        if (library == null)
+        // AssetDatabase always reports forward-slash paths, including on Windows.
+        var envDataPaths = AssetDatabase
+            .GetAllAssetPaths()
+            .Where(x => x.StartsWith(PathUtils.Combine(environmentPath, "Data")) && x.EndsWith(".json"))
+            .ToList();
+
+        // Abort before marking entries unused so a path regression cannot silently empty the generated libraries.
+        if (envDataPaths.Count == 0)
         {
-            Debug.LogError($"[EnvironmentTools] EnvironmentLibrarySO not found at '{libraryPath}'.");
-            return;
+            const string message = "Populate Build Data found no environment JSON assets; generated libraries were not changed.";
+            Debug.LogError(message);
+            throw new InvalidOperationException(message);
         }
 
+        // Unity asset loading requires normalized project-relative paths on every host platform.
+        var library =
+            AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(PathUtils.Combine(editorPath, "EnvironmentLibrarySO.asset"));
+
+        // Fail explicitly instead of producing a partial refresh when the library asset cannot be resolved.
+        if (library == null)
+        {
+            const string message = "Populate Build Data could not load EnvironmentLibrarySO.asset.";
+            Debug.LogError(message);
+            throw new InvalidOperationException(message);
+        }
+        
         library.MarkForChange();
 
+        // Validate every source before mutating generated assets so one unreadable file cannot leave a partial refresh.
+        var environmentData = new List<EnvData>(envDataPaths.Count);
         foreach (var data in CreateUtils.GetEnvironmentData())
         {
             Debug.Log($"Populating data from {data.Data.ID}");
@@ -43,6 +63,27 @@ public class EnvironmentBuildPopulate
 
         library.RemoveUnused();
         library.Sort();
+        
+        // Rebuild runtime lookups now so Create All from Data can run correctly in the same Unity session.
+        library.Meshes.RebuildLookup();
+        library.Materials.RebuildLookup();
+        library.Sprites.RebuildLookup();
+        // Report unresolved references explicitly; null entries are metadata-only and cannot render.
+        var resolvedMeshCount = library.Meshes.Lookup.Values.Count(x => x != null);
+        var resolvedMaterialCount = library.Materials.Lookup.Values.Count(x => x != null);
+        Debug.Log(
+            $"Populated environment libraries: {resolvedMeshCount}/{library.Meshes.list.Count} meshes and " +
+            $"{resolvedMaterialCount}/{library.Materials.list.Count} materials resolved.");
+        if (resolvedMeshCount == 0 || resolvedMaterialCount == 0)
+        {
+            const string message = "Populate Build Data produced no usable mesh or material references.";
+            Debug.LogError(message);
+            throw new InvalidOperationException(message);
+        }
+
+        foreach (var s in library.Shaders)
+            s.keywords.Sort((a, b) => string.Compare(a.Replace("_", ""), b.Replace("_", ""), StringComparison.Ordinal));
+        library.Shaders.Sort((a, b) => string.Compare(a.name, b.name, StringComparison.Ordinal));
 
         foreach (var entry in library.Shaders)
         {
@@ -76,14 +117,26 @@ public class EnvironmentBuildPopulate
                     : matInfo.Name;
                 if (matInfo.Environments.Count > 1)
                 {
-                    var targetPath = $"{Constants.MaterialsPath}/{name}.mat";
-                    mat = CreateUtils.CreateOrReplace(mat, targetPath);
+                    // Asset creation and lookup paths must use Unity's forward-slash convention.
+                    var targetPath = PathUtils.Combine(graphicsPath, "Materials", "Environment", $"{name}.mat");
+                    if (!AssetDatabase.AssetPathExists(targetPath))
+                        AssetDatabase.CreateAsset(mat, targetPath);
+                    else
+                        mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
                 }
                 else
                 {
-                    var environmentName = matInfo.Environments[0].Replace("Environment", "");
-                    var targetPath = $"{Constants.MaterialsPath}/{environmentName}/{name}.mat";
-                    mat = CreateUtils.CreateOrReplace(mat, targetPath);
+                    // Keep every folder and material path compatible with AssetDatabase on Windows.
+                    var parentPath = PathUtils.Combine(graphicsPath, "Materials", "Environment");
+                    var env = matInfo.Environments[0].Replace("Environment", "");
+                    var folderPath = PathUtils.Combine(parentPath, env);
+                    if (!AssetDatabase.AssetPathExists(folderPath)) AssetDatabase.CreateFolder(parentPath, env);
+
+                    var targetPath = PathUtils.Combine(folderPath, $"{name}.mat");
+                    if (!AssetDatabase.AssetPathExists(targetPath))
+                        AssetDatabase.CreateAsset(mat, targetPath);
+                    else
+                        mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
                 }
 
                 usedMaterialName.TryAdd(name, 0);

@@ -13,6 +13,9 @@ public class EnvironmentSpriteSO : ScriptableObject
     public void OnValidate() => Initialize();
     public void OnEnable() => Initialize();
 
+    // Refresh callers need the runtime lookup immediately, without waiting for Unity to re-enable the asset.
+    public void RebuildLookup() => Initialize();
+
     public void Initialize()
     {
         Lookup.Clear();

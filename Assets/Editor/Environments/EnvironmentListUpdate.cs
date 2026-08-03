@@ -1,37 +1,70 @@
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 public static class EnvironmentListUpdate
 {
+    private const string environmentPath = "Assets/__Scenes/Environments";
+    private const string scriptPath = "Assets/__Scripts/Environments";
+
+    #pragma warning disable IDE0051 // Remove unused private members - used by unity script
     [MenuItem("Environment/Update Environment List", false, 800)]
     private static void PopulateBuildData()
     {
-        var listingPath = $"{Constants.ScriptsPath}/EnvironmentListSO.asset";
-        var environmentListing = AssetDatabase.LoadAssetAtPath<EnvironmentListSO>(listingPath);
-        if (environmentListing == null)
-        {
-            Debug.LogError($"[EnvironmentTools] EnvironmentListSO not found at '{listingPath}'.");
-            return;
-        }
+        // Track processed and skipped environments so generation failures are visible in the editor.
+        var updatedEnvironmentCount = 0;
+        var missingSceneCount = 0;
+        var envDataPaths = AssetDatabase
+            .GetAllAssetPaths()
+            // Normalize the search prefix because AssetDatabase always returns forward-slash paths.
+            .Where(x => x.StartsWith(PathUtils.Combine(environmentPath, "Data")) && x.EndsWith(".json"))
+            .ToList();
 
-        var assetToReserialize = new List<Object> { environmentListing };
+        // An empty source set indicates a broken path or import state and must not look like a successful update.
+        if (envDataPaths.Count == 0)
+            throw new InvalidOperationException(
+                $"No environment JSON files found under '{PathUtils.Combine(environmentPath, "Data")}'.");
+
+        var listSo =
+            // AssetDatabase paths must use Unity's forward-slash convention on every host platform.
+            AssetDatabase.LoadAssetAtPath<EnvironmentListSO>(PathUtils.Combine(scriptPath, "EnvironmentListSO.asset"));
+
+        // Updating without the central list would either throw later or leave generated assets disconnected.
+        if (listSo == null)
+            throw new InvalidOperationException(
+                $"Environment list asset was not found at '{PathUtils.Combine(scriptPath, "EnvironmentListSO.asset")}'.");
+
+        var assetToReserialize = new List<Object> { listSo };
 
         foreach (var data in CreateUtils.GetEnvironmentData())
         {
             var scene = AssetDatabase.LoadAssetAtPath<SceneAsset>(
-                $"{Constants.ScenesPath}/{data.Data.ID}.unity");
+                PathUtils.Combine(environmentPath, data.Data.ID + ".unity"));
 
             if (scene == null)
             {
-                Debug.LogWarning($"[EnvironmentTools] Scene not found at '{Constants.ScenesPath}/{data.Data.ID}.unity'. Run 'Create All from Data' first.");
+                missingSceneCount++;
+                // Identify every omitted environment rather than hiding incomplete generation behind the final count.
+                Debug.LogError($"Skipping '{data.Data.ID}': scene asset was not found.");
                 continue;
             }
 
-            var colorScheme = $"{Constants.ScriptsPath}/ColorSchemes/{data.Data.ID}ColorScheme.asset"
-                .GetOrCreateScriptableObject<ColorSchemeSO>();
+            var colorSchemePath = PathUtils.Combine(scriptPath, "ColorSchemes", data.Data.ID + "ColorScheme.asset");
+            var colorScheme = AssetDatabase.AssetPathExists(colorSchemePath)
+                ? AssetDatabase.LoadAssetAtPath<ColorSchemeSO>(colorSchemePath)
+                : ScriptableObject.CreateInstance<ColorSchemeSO>();
+
+            var tracksDefinitionPath = PathUtils.Combine(
+                scriptPath,
+                "TracksDefinitions",
+                data.Data.ID + "TracksDefinition.asset");
+            var tracksDefinition = AssetDatabase.AssetPathExists(tracksDefinitionPath)
+                ? AssetDatabase.LoadAssetAtPath<TrackDefinitionsSO>(tracksDefinitionPath)
+                : ScriptableObject.CreateInstance<TrackDefinitionsSO>();
+
             assetToReserialize.Add(colorScheme);
 
             var trackDefinitions = $"{Constants.ScriptsPath}/TrackDefinitions/{data.Data.ID}TrackDefinitions.asset"
@@ -40,7 +73,8 @@ public static class EnvironmentListUpdate
 
             data.Data.ColorScheme.CopyTo(colorScheme);
             if (data.Data.LightTracks != null)
-                data.Data.LightTracks.CopyTo(trackDefinitions);
+                // Build component capabilities from the exported object registrations without modifying exported data.
+                data.Data.LightTracks.CopyTo(tracksDefinition, data.Objects, data.Data.ID);
             else
             {
                 trackDefinitions.UnregisterAll();
@@ -77,11 +111,30 @@ public static class EnvironmentListUpdate
                         TrackDefinitions = trackDefinitions
                     });
             }
+
+            if (!AssetDatabase.AssetPathExists(colorSchemePath))
+                AssetDatabase.CreateAsset(colorScheme, colorSchemePath);
+            if (!AssetDatabase.AssetPathExists(tracksDefinitionPath))
+                AssetDatabase.CreateAsset(tracksDefinition, tracksDefinitionPath);
+
+            updatedEnvironmentCount++;
         }
+
+        // Never serialize an apparently valid empty result when all source environments were rejected.
+        if (updatedEnvironmentCount == 0)
+            throw new InvalidOperationException(
+                $"No environment definitions were updated from {envDataPaths.Count} source files.");
 
         environmentListing.Sort();
 
         foreach (var o in assetToReserialize) EditorUtility.SetDirty(o);
         AssetDatabase.SaveAssets();
+        // Use an error for partial output so skipped environments cannot be overlooked among normal editor logs.
+        if (missingSceneCount > 0)
+            Debug.LogError(
+                $"Updated {updatedEnvironmentCount} environment definitions, but skipped {missingSceneCount} without scenes.");
+        else
+            Debug.Log($"Updated all {updatedEnvironmentCount} environment definitions.");
     }
+
 }

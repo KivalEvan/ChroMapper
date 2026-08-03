@@ -68,13 +68,8 @@ public class MissingMeshesGrabber
 
     private static void GatherMissingMeshes(bool isV3)
     {
-        var libraryPath = $"{editorPath}/EnvironmentLibrarySO.asset";
-        var library = AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(libraryPath);
-        if (library == null)
-        {
-            Debug.LogError($"[EnvironmentTools] EnvironmentLibrarySO not found at '{libraryPath}'.");
-            return;
-        }
+        var library =
+            AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(PathUtils.Combine(editorPath, "EnvironmentLibrarySO.asset"));
 
         List<JsonMesh> meshes = new();
         foreach (var meshInfo in library.Meshes.list)
@@ -97,7 +92,7 @@ public class MissingMeshesGrabber
 
         // Write missing meshes data to file
         using (var stream = new FileStream(
-            Path.Combine(editorPath, "MeshTracking", "MissingMeshes.json"),
+            PathUtils.Combine(editorPath, "MeshTracking", "MissingMeshes.json"),
             FileMode.Create))
         {
             using (var writer = new StreamWriter(stream))

@@ -73,6 +73,8 @@ public class BeatmapRuntimeContext : MonoBehaviour
     public void SetTrackDefinitions(TrackDefinitionsSO trackDefinitions)
     {
         TrackDefinitions.Copy(trackDefinitions);
+        // Share the active definition by reference so requirement checks can identify component-specific Basic Events.
+        BeatSaberSongContainer.Instance.Map.RuntimeTracksDefinition = TrackDefinitions;
         PaintSelectedObjects.TrackDefinitions = trackDefinitions;
         NotifyTrackDefinitions();
     }

@@ -33,11 +33,19 @@ public class
         {
             var container = activeContainers[i];
             var state = container.EventContainer.CurrentState;
+            var startState = (LightColorEventStateData)(state.UsePrevious ? state.Previous : state);
+            var endState = (LightColorEventStateData)(state.Next.UsePrevious ? startState : state.Next);
 
-            container.Tween.StartColor =
-                ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)state.Base.Color, false);
-            container.Tween.EndColor =
-                ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)state.Next.Base.Color, false);
+            // Resolve default GLS colors through the color scheme injected by the dev effect manager.
+            var startColor = startState.Base.CustomColor
+                ?? ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)startState.Base.Color, false);
+            var endColor = endState.Base.CustomColor
+                ?? ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)endState.Base.Color, false);
+
+            container.Tween.StartColor = startColor;
+            container.Tween.EndColor = endColor;
+            container.Tween.StartStrobeColor = startState.Base.StrobeColor ?? startColor;
+            container.Tween.EndStrobeColor = endState.Base.StrobeColor ?? endColor;
         }
     }
 
@@ -132,28 +140,47 @@ public class
         tween.StartTimeAlpha = tween.StartTimeColor = state.StartTime;
         var startState = (LightColorEventStateData)(state.UsePrevious ? state.Previous : state);
         tween.StartAlpha = startState.Brightness;
-        tween.StartColor = ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)startState.Base.Color, false);
-        tween.StartStrobeFrequency = startState.Base.Frequency;
+        tween.StartColor = startState.Base.CustomColor
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)startState.Base.Color, false);
+        tween.StartStrobeFrequency = StrobeFrequencyFor(startState.Base);
         tween.StartStrobeBrightness = startState.Base.StrobeBrightness;
+        tween.StartStrobeColor = startState.Base.StrobeColor ?? tween.StartColor;
 
         tween.EndTimeAlpha = tween.EndTimeColor = state.EndTime;
         var endState = (LightColorEventStateData)(state.Next.UsePrevious ? startState : state.Next);
         tween.EndAlpha = endState.Brightness;
-        tween.EndColor = ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)endState.Base.Color, false);
+        tween.EndColor = endState.Base.CustomColor
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom((LightColor)endState.Base.Color, false);
 
         if (endState.Base.Easing == (int)EaseType.None)
         {
-            tween.EndStrobeFrequency = startState.Base.Frequency;
+            tween.EndStrobeFrequency = StrobeFrequencyFor(startState.Base);
             tween.EndStrobeBrightness = startState.Base.StrobeBrightness;
+            tween.EndStrobeColor = tween.StartStrobeColor;
+            tween.StrobeFade = startState.Base.StrobeFade == 1;
         }
         else
         {
-            tween.EndStrobeFrequency = endState.Base.Frequency;
+            tween.EndStrobeFrequency = StrobeFrequencyFor(endState.Base);
             tween.EndStrobeBrightness = endState.Base.StrobeBrightness;
+            tween.EndStrobeColor = endState.Base.StrobeColor ?? tween.EndColor;
+            // shouldn't we fade between no strobe fade and strobe fade...? What does the game even do?
+            tween.StrobeFade = endState.Base.StrobeFade == 1;
         }
 
-        tween.StrobeFade = endState.Base.StrobeFade == 1;
         tween.Easing = Easing.FromID(endState.Base.Easing);
+    }
+
+    private static float StrobeFrequencyFor(BaseLightColorBase lightColorBase)
+    {
+        // A 0-light-level node with no strobe flash is not a strobe, regardless of strobeInterval or strobeColor.
+        if (lightColorBase.Brightness <= 0f && lightColorBase.StrobeBrightness <= 0f)
+            return 0f;
+
+        // customData.strobeInterval is the period in beats per strobe cycle; the in-editor tween expects cycles per beat.
+        return lightColorBase.ChromaStrobeInterval is { } interval && interval > 0f
+            ? 1f / interval
+            : lightColorBase.Frequency;
     }
 
     protected override LightColorGroupStateData CreateState(BaseLightColorEventBoxGroup data) => new(data);
