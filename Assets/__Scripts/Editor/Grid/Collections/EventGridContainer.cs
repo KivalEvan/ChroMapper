@@ -392,7 +392,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>, C
         }
 
         var nextEvent = @event.Next;
-        if (BeatmapContext.TracksDefinition.GetBasicOrDefault(@event.Type).Kind != BasicEventKind.Lights
+        if (BeatmapContext.TrackDefinitions.GetBasicOrDefault(@event.Type).Kind != BasicEventKind.Lights
             || @event.IsFade
             || @event.IsFlash
             || nextEvent == null
@@ -436,7 +436,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>, C
     {
         var eventContainer = con as EventContainer;
         // Rebind pooled and cloned event containers to the active environment metadata whenever they receive event data.
-        eventContainer.TracksDefinition = BeatmapContext.TracksDefinition;
+        eventContainer.TrackDefinitions = BeatmapContext.TrackDefinitions;
         eventAppearance.SetAppearance(
             eventContainer,
             true,
@@ -528,7 +528,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>, C
 
         foreach (var e in MapObjects)
         {
-            var components = BeatmapContext.TracksDefinition.GetBasicOrDefault(e.Type).Components;
+            var components = BeatmapContext.TrackDefinitions.GetBasicOrDefault(e.Type).Components;
             if (components.HasFlag(BasicEventComponent.RingRotation))
             {
                 if (prevRotation != null)

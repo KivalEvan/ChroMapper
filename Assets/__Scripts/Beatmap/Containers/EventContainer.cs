@@ -177,20 +177,20 @@ namespace Beatmap.Containers
 
         // Ring capabilities come from the active environment rather than conventional event-type numbers.
         private bool IsRingRotationEvent =>
-            TracksDefinition.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.RingRotation);
+            TrackDefinitions.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.RingRotation);
 
         private bool IsRingZoomEvent =>
-            TracksDefinition.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.RingZoom)
+            TrackDefinitions.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.RingZoom)
             || IsSmoothStepRingZoomEvent;
 
         // SmoothStepRingZoom only applies to The Second's legacy ring right now.
         private bool IsSmoothStepRingZoomEvent =>
-            TracksDefinition.GetBasicOrDefault(EventData.Type).Components
+            TrackDefinitions.GetBasicOrDefault(EventData.Type).Components
                 .HasFlag(BasicEventComponent.SmoothStepRingZoom);
 
         // Basic Event light-rotation consumers use speed as their primary visual magnitude.
         private bool IsLaserSpeedEvent =>
-            TracksDefinition.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.LightRotation);
+            TrackDefinitions.GetBasicOrDefault(EventData.Type).Components.HasFlag(BasicEventComponent.LightRotation);
 
         //you can do this instead//Change the scale of the event height based on the alpha of the event if alpha visualization is on
         private float GetHeight()
@@ -314,7 +314,7 @@ namespace Beatmap.Containers
 
         public void RefreshAppearance()
         {
-            // Refresh through the dev branch's TracksDefinition field.
+            // Refresh through the active track definitions.
             eventAppearance.SetAppearance(this, TrackDefinitions);
         }
     }

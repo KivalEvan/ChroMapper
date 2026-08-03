@@ -55,7 +55,7 @@ namespace Beatmap.Base
         public BaseFxEventsCollection FxEventsCollection { get; set; } = new();
 
         // Requirement checks need the already-loaded environment metadata without serializing or copying its asset.
-        [NonSerialized] public TracksDefinitionSO RuntimeTracksDefinition;
+        [NonSerialized] public TrackDefinitionsSO RuntimeTrackDefinitions;
 
         public BaseEventTypesWithKeywords EventTypesWithKeywords { get; set; }
         public bool UseNormalEventsAsCompatibleEvents { get; set; } = true;

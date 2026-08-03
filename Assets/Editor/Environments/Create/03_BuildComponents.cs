@@ -39,7 +39,7 @@ public partial class EnvironmentSceneCreator
         container.Descriptor.BasicEventEffectManager.gameObject.transform.SetParent(
             GameObject.Find("Environment").transform);
         var cbe = container.Descriptor.BasicEventEffectManager.Register<ColorBoostEffect>(
-            (int)EventTypeValue.ColorBoost);
+            (int)EventTypeValue.ColorBoostEventType);
         cbe.ColorSchemeProvider = container.Descriptor.ColorSchemeProvider;
 
         container.Descriptor.LightColorGroupEffectManager = new GameObject("LightColorGroupEffectManager")

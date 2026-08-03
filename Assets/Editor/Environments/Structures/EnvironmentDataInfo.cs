@@ -26,15 +26,10 @@ public class EnvironmentDataInfo
     [JsonProperty("lightTracks")] public LightTrackDefinitions LightTracks;
 
     // Every unique material found in the environments' objects (name, keyword list)
-    [JsonProperty("uniqueMaterials")]
-    public EnvironmentInfoMaterial[] UniqueMaterials = Array.Empty<EnvironmentInfoMaterial>();
+    [JsonProperty("uniqueMaterials")] public EnvironmentInfoMaterial[] UniqueMaterials;
 
-    // Every unique mesh found in the environments' objects
-    [JsonProperty("uniqueMeshes")] public EnvironmentInfoMesh[] UniqueMeshes = Array.Empty<EnvironmentInfoMesh>();
-
-    // Every unique texture found in the environments' objects
-    [JsonProperty("uniqueTextures")]
-    public EnvironmentInfoTexture[] UniqueTextures = Array.Empty<EnvironmentInfoTexture>();
+    // Every unique mesh name found in the environments' objects
+    [JsonProperty("uniqueMeshes")] public EnvironmentInfoMesh[] UniqueMeshes;
 }
 
 public class LightTrackDefinitions
@@ -83,7 +78,7 @@ public class LightTrackDefinitions
         }
     }
 
-    public void CopyTo(TrackDefinitionsSO copy, IEnumerable<EnvDataObject> objects, string environmentId)
+    public void CopyTo(TrackDefinitionsSO copy, IEnumerable<EnvironmentDataObject> objects, string environmentId)
     {
         copy.UnregisterAll();
         var basicTracks = BasicLightTracks
@@ -99,25 +94,25 @@ public class LightTrackDefinitions
         // Infer Basic Event capabilities from the game components that register for each event type.
         foreach (var components in objects.Select(x => x.Components))
         {
-            foreach (var rotation in components.TrackLaneRingsRotationEffectSpawner ?? Array.Empty<TrackLaneRingsRotationEffectSpawnerComponent>())
+            foreach (var rotation in components.TrackLaneRingsRotationEffectSpawner ?? Array.Empty<TrackLaneRingsRotationEffectSpawnerData>())
             {
                 if (rotation.IsEnabled)
                     AddComponent(basicTracks, ConvertUtils.ToEventType(rotation.EventType), BasicEventComponent.RingRotation);
             }
 
-            foreach (var zoom in components.TrackLaneRingsPositionStepEffectSpawner ?? Array.Empty<TrackLaneRingsPositionStepEffectSpawnerComponent>())
+            foreach (var zoom in components.TrackLaneRingsPositionStepEffectSpawner ?? Array.Empty<TrackLaneRingsPositionStepEffectSpawnerData>())
             {
                 if (zoom.IsEnabled)
                     AddComponent(basicTracks, ConvertUtils.ToEventType(zoom.EventType), BasicEventComponent.RingZoom);
             }
 
-            foreach (var rotation in components.LightRotationEventEffect ?? Array.Empty<LightRotationEventEffectComponent>())
+            foreach (var rotation in components.LightRotationEventEffect ?? Array.Empty<LightRotationEventEffectData>())
             {
                 // Match Create from Data, which registers direct light-rotation effects by event type.
                 AddComponent(basicTracks, ConvertUtils.ToEventType(rotation.EventType), BasicEventComponent.LightRotation);
             }
 
-            foreach (var pair in components.LightPairRotationEventEffect ?? Array.Empty<LightPairRotationEventEffectComponent>())
+            foreach (var pair in components.LightPairRotationEventEffect ?? Array.Empty<LightPairRotationEventEffectData>())
             {
                 // Pair rotation registers independent left and right light-rotation event consumers.
                 AddComponentIfValid(
@@ -130,7 +125,7 @@ public class LightTrackDefinitions
                     BasicEventComponent.LightRotation | BasicEventComponent.LightRotationRight);
             }
 
-            foreach (var pair in components.LightPairSinMoveEventEffect ?? Array.Empty<LightPairSinMoveEventEffectComponent>())
+            foreach (var pair in components.LightPairSinMoveEventEffect ?? Array.Empty<LightPairSinMoveEventEffectData>())
             {
                 // Pair sinusoidal movement uses the same light-rotation event effect and speed-value semantics.
                 AddComponentIfValid(
@@ -271,10 +266,4 @@ public class EnvironmentInfoMesh
     public string Name;
     public Vector3 BoundsSize;
     public Vector3 BoundsCenter;
-}
-
-public class EnvironmentInfoTexture
-{
-    public string Hash;
-    public string Name;
 }

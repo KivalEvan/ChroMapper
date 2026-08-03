@@ -21,7 +21,7 @@ namespace Beatmap.Containers
         [SerializeField] private TracksManager tracksManager;
         [SerializeField] private TextMeshPro[] valueDisplays;
         [SerializeField] public LightGradientController lightGradientController;
-        // Keep the serialized field compatible with dev's TracksDefinitionSO asset type.
+        // Keep the serialized field compatible with the active track-definition asset type.
         [SerializeField] public TrackDefinitionsSO TrackDefinitions;
 
         public BaseEventBoxGroup EventBoxGroupData;

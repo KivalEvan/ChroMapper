@@ -12,6 +12,9 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public partial class EnvironmentSceneCreator
 {
+    private const string environmentPath = "Assets/__Scenes/Environments";
+    private const string editorPath = "Assets/Editor/Environments";
+
     [MenuItem("Environment/Create from Data", false, 1000)]
     private static void CreateEnvironmentFromDataWithScript() => ReadSelectedAndCreateEnvironment(true);
 
@@ -78,7 +81,7 @@ public partial class EnvironmentSceneCreator
             Debug.LogError("Create from Data could not resolve environment JSON for the selected or active scene.");
             return;
         }
-        CreateEnvironmentFromData(textAsset, script);
+        CreateEnvironmentFromData(textAsset, allowScript);
     }
 
     private static void CreateEnvironmentFromData(TextAsset textAsset, bool allowScript)
@@ -100,7 +103,7 @@ public partial class EnvironmentSceneCreator
         var environmentLibrary =
             AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(PathUtils.Combine(editorPath, "EnvironmentLibrarySO.asset"));
         var environmentData =
-            JsonConvert.DeserializeObject<EnvData>(textAsset.text, new Vector3ArrayConverter());
+            JsonConvert.DeserializeObject<EnvironmentData>(textAsset.text, new Vector3ArrayConverter());
 
         // Move null checks up here so it doesnt ruin the rest of the process
         if (environmentLibrary == null) throw new ArgumentNullException(nameof(environmentLibrary));

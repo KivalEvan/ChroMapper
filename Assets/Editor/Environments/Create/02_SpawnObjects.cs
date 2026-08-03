@@ -125,13 +125,13 @@ public partial class EnvironmentSceneCreator
         }
 
         // Verify render references before saving so regeneration cannot silently produce incomplete scenes.
-        ValidateSpawnedRenderAssets(library, data, chromaIdObjects);
+        ValidateSpawnedRenderAssets(container.Library, container.Data, chromaIdObjects);
         return chromaIdObjects;
     }
 
     private static void ValidateSpawnedRenderAssets(
         EnvironmentLibrarySO library,
-        EnvData data,
+        EnvironmentData data,
         Dictionary<string, GameObject> chromaIdObjects)
     {
         var validatedMeshes = 0;

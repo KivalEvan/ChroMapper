@@ -553,18 +553,18 @@ public class BeatmapEventInputController : BeatmapInputController<EventContainer
         }
 
         // ScriptableObjects require Unity's overloaded null comparison when selecting the runtime fallback.
-        var tracksDefinition = e.TrackDefinitions != null
+        var trackDefinitions = e.TrackDefinitions != null
             ? e.TrackDefinitions
             : TrackDefinition;
-        if (tracksDefinition == null)
+        if (trackDefinitions == null)
         {
-            LogMetadataFailure(e, "both container and runtime TracksDefinition are null");
+            LogMetadataFailure(e, "both container and runtime TrackDefinitions are null");
             return false;
         }
 
         lastMetadataFailureContainer = null;
         lastMetadataFailureReason = null;
-        components = tracksDefinition.GetBasicOrDefault(e.EventData.Type).Components;
+        components = trackDefinitions.GetBasicOrDefault(e.EventData.Type).Components;
         return true;
     }
 
