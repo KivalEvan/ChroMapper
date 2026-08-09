@@ -53,7 +53,6 @@ public class BoxSelectionPlacement : BasePlacement<BaseObstacle, ObstacleContain
     private readonly HashSet<BaseObject> alreadySelected = new();
     private readonly List<BaseObject> deselectionBuffer = new();
     private Action<BeatmapObjectContainerCollection, BaseObject> selectionCandidateCallback;
-    private bool hasPreviousSnappedState;
     private bool hasPreviousSelectionQuery;
     private Vector3 originPos;
     // Store both drag corners in beat space so scrolling or BPM changes cannot alter the selection range.
@@ -61,7 +60,6 @@ public class BoxSelectionPlacement : BasePlacement<BaseObstacle, ObstacleContain
     private float currentSongBpmBeat;
     // Resolve cursor time in the active view's timeline coordinate system, not the separate box-rendering track.
     private Transform beatCoordinateTrack;
-    private Vector2 previousSnappedState;
     private ObjectType selectedTypes = 0;
     private float selectionLeft;
     private float selectionRight;
@@ -170,13 +168,6 @@ public class BoxSelectionPlacement : BasePlacement<BaseObstacle, ObstacleContain
         }
     }
 
-    protected override void ResetHysteresis()
-    {
-        base.ResetHysteresis();
-        hasPreviousSnappedState = false;
-        previousSnappedState = Vector2.zero;
-    }
-
     public override void UpdateState(Intersections.IntersectionHit hit, PlacementInputState inputState)
     {
         if (!CanPlace && !IsPlacing)
@@ -200,17 +191,11 @@ public class BoxSelectionPlacement : BasePlacement<BaseObstacle, ObstacleContain
 
         var raw = (Vector2)localPoint;
         raw.x -= gridViewController.IsOdd ? 0.5f : 0f;
-        if (!hasPreviousSnappedState)
-        {
-            previousSnappedState = new Vector2(Mathf.Floor(raw.x), Mathf.Floor(raw.y));
-            hasPreviousSnappedState = true;
-        }
-        else
-            previousSnappedState = BeatmapPositionHelper.SnapWithHysteresis(raw, previousSnappedState);
+        var snappedPosition = SnapWithHysteresis(raw.x, raw.y);
 
         LanePosition = new Vector3(
-            previousSnappedState.x,
-            previousSnappedState.y,
+            snappedPosition.x,
+            snappedPosition.y,
             localPoint.z);
 
         if (!IsPlacing)
