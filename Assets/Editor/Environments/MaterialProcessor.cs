@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 public static class MaterialProcessor
 {
@@ -166,4 +167,184 @@ public static class MaterialProcessor
             }
         }
     }
+
+    public static int SynchronizeCanonicalKeywords(MaterialInfo matInfo, IEnumerable<string> canonicalKeywords)
+    {
+        if (matInfo?.Material == null || canonicalKeywords == null)
+            return 0;
+
+        var keywordSet = canonicalKeywords
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(NormalizeKeyword)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return ApplyKeywordSet(material: matInfo.Material, keywords: keywordSet, reset: true);
+    }
+
+    public static bool SynchronizeLocalKeyword(MaterialInfo matInfo, string keywordName)
+    {
+        if (matInfo?.Material == null || string.IsNullOrWhiteSpace(keywordName))
+            return false;
+
+        var keywordSet = matInfo.Keywords == null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : matInfo.Keywords.Where(x => !string.IsNullOrWhiteSpace(x)).Select(NormalizeKeyword).ToHashSet(StringComparer.Ordinal);
+
+        var targetKeyword = NormalizeKeyword(keywordName);
+        return ApplyKeywordSet(material: matInfo.Material, keywords: keywordSet, reset: false, targetKeyword: targetKeyword) > 0;
+    }
+
+    private static int ApplyKeywordSet(Material material, HashSet<string> keywords, bool reset, string targetKeyword = null)
+    {
+        var changed = 0;
+        var count = material.shader.GetPropertyCount();
+
+        for (var i = 0; i < count; i++)
+        {
+            var attributes = material.shader.GetPropertyAttributes(i);
+            var propId = material.shader.GetPropertyNameId(i);
+            var propName = material.shader.GetPropertyName(i).ToUpper();
+
+            var found = false;
+            var value = 0f;
+
+            foreach (var attribute in attributes)
+            {
+                var p = attribute.IndexOf("(", StringComparison.Ordinal);
+                if (p == -1) continue;
+
+                var attributeName = attribute[..p];
+                var parameters = attribute[(p + 1)..^1]
+                    .Split(',')
+                    .Select(x => x.Trim().ToUpper())
+                    .ToArray();
+
+                string[] normalizedKeywords;
+
+                switch (attributeName)
+                {
+                    case "KeywordEnum":
+                        if (parameters.Length == 0) break;
+
+                        normalizedKeywords = parameters.Select(x => $"{propName}_{x}").ToArray();
+
+                        if (targetKeyword != null)
+                        {
+                            var targetIndex = Array.IndexOf(normalizedKeywords, targetKeyword);
+                            if (targetIndex == -1) break;
+
+                            var currentValue = material.GetFloat(propId);
+                            value = 0f;
+                            if (keywords.Contains(targetKeyword)) value = targetIndex;
+                            else if (reset) value = 0f;
+                            else if (Mathf.Approximately(currentValue, targetIndex)) value = 0f;
+                            else break;
+                        }
+                        else
+                        {
+                            value = 0f;
+                            for (var k = 0; k < normalizedKeywords.Length; k++)
+                            {
+                                if (keywords.Contains(normalizedKeywords[k]))
+                                {
+                                    value = k;
+                                    break;
+                                }
+                            }
+                        }
+
+                        found = true;
+                        break;
+
+                    case "Toggle":
+                    case "ToggleShowIfAny":
+                        if (parameters.Length == 0) break;
+
+                        if (targetKeyword != null)
+                        {
+                            if (!normalizedKeywordMatch(parameters[0], targetKeyword)) break;
+
+                            var currentValue = material.GetFloat(propId);
+                            value = keywords.Contains(targetKeyword) ? 1f : 0f;
+                            if (value != currentValue || reset)
+                                found = true;
+                        }
+                        else
+                        {
+                            value = 0f;
+                            for (var k = 0; k < parameters.Length; k++)
+                            {
+                                if (keywords.Contains(parameters[k]))
+                                {
+                                    value = 1f;
+                                    break;
+                                }
+                            }
+
+                            found = true;
+                        }
+
+                        break;
+
+                    case "EnumShowIfAny":
+                        if (parameters.Length < 2) break;
+
+                        if (!int.TryParse(parameters[0], out var optionsCount)) break;
+                        normalizedKeywords = parameters.Skip(1).Take(optionsCount).Select(x => $"{propName}_{x}").ToArray();
+
+                        if (targetKeyword != null)
+                        {
+                            var targetIndex = Array.IndexOf(normalizedKeywords, targetKeyword);
+                            if (targetIndex == -1) break;
+
+                            var currentValue = material.GetFloat(propId);
+                            value = 0f;
+                            if (keywords.Contains(targetKeyword)) value = targetIndex;
+                            else if (reset) value = 0f;
+                            else if (Mathf.Approximately(currentValue, targetIndex)) value = 0f;
+                            else break;
+                        }
+                        else
+                        {
+                            value = 0f;
+                            for (var k = 0; k < normalizedKeywords.Length; k++)
+                            {
+                                if (keywords.Contains(normalizedKeywords[k]))
+                                {
+                                    value = k;
+                                    break;
+                                }
+                            }
+                        }
+
+                        found = true;
+                        break;
+                }
+
+                if (found) break;
+            }
+
+            if (!found) continue;
+
+            var oldValue = material.GetFloat(propId);
+            if (Mathf.Approximately(oldValue, value)) continue;
+
+            material.SetFloat(propId, value);
+            changed++;
+        }
+
+        return changed;
+    }
+
+    private static string NormalizeKeyword(string keyword)
+    {
+        var normalized = keyword.ToUpper();
+        return keywordRemap.GetValueOrDefault(normalized, normalized);
+    }
+
+    private static bool normalizedKeywordMatch(string value, string target)
+    {
+        return string.Equals(value.Trim().ToUpper(), target, StringComparison.Ordinal);
+    }
+
 }

@@ -314,8 +314,8 @@ namespace Beatmap.Containers
 
         public void RefreshAppearance()
         {
-            // Refresh through the active track definitions.
-            eventAppearance.SetAppearance(this, TrackDefinitions);
+            // Targeted event refreshes must resolve the boost state just like pooled container setup.
+            eventAppearance.SetAppearance(this, true, eventGridContainer.IsBoostAt(EventData.JsonTime));
         }
     }
 }
