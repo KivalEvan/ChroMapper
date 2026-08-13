@@ -153,8 +153,8 @@ public class BloomRenderer : MonoBehaviour
             lastDownHeight = descriptors[i].height;
         }
 
-        // Upsample all but the final level. The serialized main-effect asset
-        // uses the same upsample kernel for the final merge.
+        // Upsample all but the final level. The captured runtime main effect
+        // uses the same tent kernel for the final merge.
         commandBuffer.SetGlobalFloat(sampleScaleId, sampleScale);
         var lastUp = new RenderTargetIdentifier(mipDownIds[iterations - 1]);
         var lastUpWidth = descriptors[iterations - 1].width;
@@ -180,9 +180,8 @@ public class BloomRenderer : MonoBehaviour
         else
             SetMergeParams(commandBuffer, 0, iterations, GetFinalUpsampleBrightness());
 
-        // The game's PyramidBloomMainEffect asset uses UpsampleTent for both
-        // intermediate and final merges. Auto-exposure and ACES belong only to
-        // the bloom-fog final pass.
+        // The captured runtime main effect uses UpsampleTent for intermediate
+        // and final merges. Auto-exposure and ACES belong only to bloom fog.
         commandBuffer.Blit(lastUp, destination, bloomMaterial, 2);
 
         commandBuffer.SetGlobalTexture(bloomTexId, Texture2D.blackTexture);

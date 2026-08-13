@@ -70,8 +70,10 @@ public sealed class CameraDepthRenderingController : MonoBehaviour
         }
 
         configured = false;
-        depthTextureUsers--;
-        if (depthTextureUsers == 0 && !depthTextureKeywordWasEnabled)
-            Shader.DisableKeyword(depthTextureKeyword);
+        if (depthTextureUsers > 0) depthTextureUsers--;
+        if (depthTextureUsers != 0) return;
+
+        if (depthTextureKeywordWasEnabled) Shader.EnableKeyword(depthTextureKeyword);
+        else Shader.DisableKeyword(depthTextureKeyword);
     }
 }

@@ -3,8 +3,8 @@ using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
-// Built-in pipeline equivalent of the game's screen-displacement grab and
-// draw passes. Registered displacement renderers are excluded from the normal
+// Built-in pipeline equivalent of Beat Saber 1.44.1's screen-displacement
+// passes. Registered displacement renderers are excluded from the normal
 // camera pass and drawn after the other transparent objects.
 public sealed class ScreenDisplacementRenderingController : MonoBehaviour
 {
@@ -13,31 +13,17 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
     private static readonly int grabTextureId = Shader.PropertyToID("_ScreenDisplacementGrabTexture");
     private static readonly int grabTextureTexelSizeId =
         Shader.PropertyToID("_ScreenDisplacementGrabTexture_TexelSize");
-    private static readonly int activeDepthTextureId = Shader.PropertyToID("_ChroMapperActiveDepthTexture");
-    private static readonly int cameraDepthTextureId = Shader.PropertyToID("_CameraDepthTexture");
-
     [SerializeField, Range(0, 31)] private int displacementLayer = 31;
-    [SerializeField] private Shader copyDepthShader;
 
     private readonly List<ScreenDisplacementRenderer> sortedRenderers = new();
 
     private Camera activeCamera;
     private CommandBuffer commandBuffer;
-    private Material copyDepthMaterial;
-    private RenderTexture updatedDepthTexture;
     private int previousDisplacementLayerMask;
     private bool active;
     private bool commandBufferAttached;
     private bool screenDisplacementEnabled;
     private bool settingsCallbackSubscribed;
-
-    private void Awake()
-    {
-        copyDepthMaterial = new Material(copyDepthShader)
-        {
-            hideFlags = HideFlags.HideAndDontSave
-        };
-    }
 
     public void AssignToCamera(CameraController cameraController)
     {
@@ -78,8 +64,6 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
             commandBuffer.Release();
             commandBuffer = null;
         }
-        if (copyDepthMaterial != null) Destroy(copyDepthMaterial);
-        ReleaseUpdatedDepthTexture();
     }
 
     private void Activate()
@@ -130,7 +114,6 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
         commandBuffer?.Clear();
         Shader.SetGlobalTexture(grabTextureId, null);
         Shader.SetGlobalVector(grabTextureTexelSizeId, Vector4.zero);
-        Shader.SetGlobalTexture(cameraDepthTextureId, null);
     }
 
     private void OnCameraPreRender(Camera renderingCamera)
@@ -163,18 +146,6 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
         commandBuffer.SetGlobalTexture(grabTextureId, Texture2D.blackTexture);
         commandBuffer.SetGlobalVector(grabTextureTexelSizeId, Vector4.zero);
         commandBuffer.ReleaseTemporaryRT(grabTextureId);
-
-        // Unity's built-in depth texture is captured before transparent draws.
-        // Copy the updated camera depth after displacement when MSAA is off.
-        // With MSAA, keep Unity's resolved opaque depth texture.
-        if (!activeCamera.allowMSAA || QualitySettings.antiAliasing <= 1)
-        {
-            EnsureUpdatedDepthTexture(sourceWidth, sourceHeight);
-            commandBuffer.SetGlobalTexture(activeDepthTextureId, BuiltinRenderTextureType.Depth);
-            commandBuffer.Blit(null, updatedDepthTexture, copyDepthMaterial);
-            commandBuffer.SetGlobalTexture(cameraDepthTextureId, updatedDepthTexture);
-            commandBuffer.SetGlobalTexture(activeDepthTextureId, Texture2D.blackTexture);
-        }
     }
 
     private void CollectRenderers()
@@ -186,12 +157,31 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
                 sortedRenderers.Add(displacementRenderer);
         }
 
-        var cameraPosition = activeCamera.transform.position;
+        var cameraTransform = activeCamera.transform;
         sortedRenderers.Sort((left, right) =>
         {
-            var leftDistance = (left.transform.position - cameraPosition).sqrMagnitude;
-            var rightDistance = (right.transform.position - cameraPosition).sqrMagnitude;
-            return rightDistance.CompareTo(leftDistance);
+            var leftRenderer = left.TargetRenderer;
+            var rightRenderer = right.TargetRenderer;
+            var comparison = SortingLayer.GetLayerValueFromID(leftRenderer.sortingLayerID)
+                .CompareTo(SortingLayer.GetLayerValueFromID(rightRenderer.sortingLayerID));
+            if (comparison != 0) return comparison;
+
+            comparison = leftRenderer.sortingOrder.CompareTo(rightRenderer.sortingOrder);
+            if (comparison != 0) return comparison;
+
+            comparison = leftRenderer.sharedMaterial.renderQueue
+                .CompareTo(rightRenderer.sharedMaterial.renderQueue);
+            if (comparison != 0) return comparison;
+
+            // Approximate the game's QuantizedFrontToBack criterion. The built-in
+            // command buffer does not expose URP's renderer-list sorter.
+            var leftDepth = Vector3.Dot(
+                leftRenderer.bounds.center - cameraTransform.position,
+                cameraTransform.forward);
+            var rightDepth = Vector3.Dot(
+                rightRenderer.bounds.center - cameraTransform.position,
+                cameraTransform.forward);
+            return leftDepth.CompareTo(rightDepth);
         });
     }
 
@@ -211,43 +201,33 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
 
     private RenderTextureDescriptor GetGrabDescriptor()
     {
-        var targetTexture = activeCamera.targetTexture;
-        var descriptor = targetTexture != null
-            ? targetTexture.descriptor
-            : new RenderTextureDescriptor(
-                Mathf.Max(activeCamera.scaledPixelWidth, 1),
-                Mathf.Max(activeCamera.scaledPixelHeight, 1),
-                activeCamera.allowHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default,
-                0);
+        var descriptor = GetCameraTargetDescriptor();
         descriptor.depthBufferBits = 0;
         descriptor.depthStencilFormat = GraphicsFormat.None;
         descriptor.msaaSamples = 1;
+        descriptor.useDynamicScale = false;
+        descriptor.useDynamicScaleExplicit = false;
         return descriptor;
     }
 
-    private void EnsureUpdatedDepthTexture(int width, int height)
+    private RenderTextureDescriptor GetCameraTargetDescriptor()
     {
-        if (updatedDepthTexture != null
-            && updatedDepthTexture.width == width
-            && updatedDepthTexture.height == height)
-            return;
-
-        ReleaseUpdatedDepthTexture();
-        updatedDepthTexture = new RenderTexture(width, height, 0, RenderTextureFormat.RFloat)
+        if (activeCamera.targetTexture != null)
         {
-            name = "ChroMapper Updated Camera Depth",
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
+            var descriptor = activeCamera.targetTexture.descriptor;
+            descriptor.width = Mathf.Max(activeCamera.scaledPixelWidth, 1);
+            descriptor.height = Mathf.Max(activeCamera.scaledPixelHeight, 1);
+            return descriptor;
+        }
+
+        return new RenderTextureDescriptor(
+            Mathf.Max(activeCamera.scaledPixelWidth, 1),
+            Mathf.Max(activeCamera.scaledPixelHeight, 1),
+            activeCamera.allowHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default,
+            0)
+        {
+            sRGB = QualitySettings.activeColorSpace == ColorSpace.Linear
         };
-        updatedDepthTexture.Create();
     }
 
-    private void ReleaseUpdatedDepthTexture()
-    {
-        if (updatedDepthTexture == null) return;
-        updatedDepthTexture.Release();
-        Destroy(updatedDepthTexture);
-        updatedDepthTexture = null;
-    }
 }

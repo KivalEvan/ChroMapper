@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 // Built-in pipeline equivalent of the game's MainEffect renderer pass. The
@@ -82,8 +83,9 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         var renderFade = mainEffectController != null && mainEffectController.IsFadeReady;
         if (!renderMainEffect && !renderChromaticAberration && !renderFade) return;
 
-        var sourceWidth = Mathf.Max(activeCamera.scaledPixelWidth, 1);
-        var sourceHeight = Mathf.Max(activeCamera.scaledPixelHeight, 1);
+        var sourceDescriptor = GetCopyDescriptor(GetCameraTargetDescriptor());
+        var sourceWidth = sourceDescriptor.width;
+        var sourceHeight = sourceDescriptor.height;
         var cameraTarget = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
 
         if (!renderMainEffect && !renderChromaticAberration)
@@ -92,26 +94,13 @@ public sealed class PostProcessRenderingController : MonoBehaviour
             return;
         }
 
-        commandBuffer.GetTemporaryRT(
-            sourceTextureId,
-            sourceWidth,
-            sourceHeight,
-            0,
-            FilterMode.Bilinear,
-            RenderTextureFormat.ARGBHalf,
-            RenderTextureReadWrite.Linear);
+        commandBuffer.GetTemporaryRT(sourceTextureId, sourceDescriptor, FilterMode.Bilinear);
         commandBuffer.Blit(cameraTarget, sourceTextureId);
 
         if (renderMainEffect && renderChromaticAberration)
         {
             commandBuffer.GetTemporaryRT(
-                mainEffectOutputId,
-                sourceWidth,
-                sourceHeight,
-                0,
-                FilterMode.Bilinear,
-                RenderTextureFormat.ARGBHalf,
-                RenderTextureReadWrite.Linear);
+                mainEffectOutputId, sourceDescriptor, FilterMode.Bilinear);
             mainEffectController.RecordRender(
                 commandBuffer, sourceTextureId, sourceWidth, sourceHeight, mainEffectOutputId);
             chromaticAberrationRenderer.RecordRender(
@@ -135,5 +124,35 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         }
 
         commandBuffer.ReleaseTemporaryRT(sourceTextureId);
+    }
+
+    private RenderTextureDescriptor GetCameraTargetDescriptor()
+    {
+        if (activeCamera.targetTexture != null)
+        {
+            var descriptor = activeCamera.targetTexture.descriptor;
+            descriptor.width = Mathf.Max(activeCamera.scaledPixelWidth, 1);
+            descriptor.height = Mathf.Max(activeCamera.scaledPixelHeight, 1);
+            return descriptor;
+        }
+
+        return new RenderTextureDescriptor(
+            Mathf.Max(activeCamera.scaledPixelWidth, 1),
+            Mathf.Max(activeCamera.scaledPixelHeight, 1),
+            activeCamera.allowHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default,
+            0)
+        {
+            sRGB = QualitySettings.activeColorSpace == ColorSpace.Linear
+        };
+    }
+
+    private static RenderTextureDescriptor GetCopyDescriptor(RenderTextureDescriptor descriptor)
+    {
+        descriptor.depthBufferBits = 0;
+        descriptor.depthStencilFormat = GraphicsFormat.None;
+        descriptor.msaaSamples = 1;
+        descriptor.useDynamicScale = false;
+        descriptor.useDynamicScaleExplicit = false;
+        return descriptor;
     }
 }

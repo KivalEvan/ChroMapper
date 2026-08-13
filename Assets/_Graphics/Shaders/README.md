@@ -136,9 +136,10 @@ changes. Do not change prefab renderer overrides in this shader work.
 
 ## Bloom and post process
 
-Bloom uses the fixed high-quality route. `CustomBloom.shader` and
-`BloomShared.hlsl` serve camera bloom and bloom fog. Runtime controllers own
-global values, temporary targets, camera state, and keyword lifetime.
+Main bloom uses the runtime-observed high-quality route with a 13-tap filter
+and 928-pixel base width. `CustomBloom.shader` and `BloomShared.hlsl` serve
+camera bloom and bloom fog. Runtime controllers own global values, temporary
+targets, camera state, and keyword lifetime.
 
 Settings expose independent Bloom, BloomFog, ChromaticAberration, and
 ScreenDisplacement controls. Each controller restores its camera state, globals,

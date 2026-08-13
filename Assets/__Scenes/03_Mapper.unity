@@ -107511,7 +107511,6 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Main::ScreenDisplacementRenderingController
   displacementLayer: 31
-  copyDepthShader: {fileID: 4800000, guid: 50375e4532874132bdf1b169871f0d07, type: 3}
 --- !u!1 &2100000061
 GameObject:
   m_ObjectHideFlags: 0
