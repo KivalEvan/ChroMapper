@@ -50,6 +50,7 @@ Shader "ChroMapper/Parametric Box Fake Glow"
         BlendOp [_BlendOp]
         Cull [_CullMode]
         ZTest [_ZTest]
+        ZWrite Off
 
         Pass
         {

@@ -76,6 +76,7 @@ Shader "ChroMapper/Parametric Slice Billboard"
         BlendOp [_BlendOp]
         Cull [_CullMode]
         ZTest [_ZTest]
+        ZWrite Off
         Offset [_OffsetFactor], [_OffsetUnits]
 
         Stencil
