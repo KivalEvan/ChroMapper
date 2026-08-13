@@ -4,10 +4,21 @@
 #ifndef CUSTOM_TONEMAPPING_CG_INCLUDED
 #define CUSTOM_TONEMAPPING_CG_INCLUDED
 
-#define ACES_TONE_MAPPING_APPLY(col) \
-col.rgb = saturate((col.rgb * (2.51 * col.rgb + 0.03)) / (col.rgb * (2.43 * col.rgb + 0.59) + 0.14))
+inline float4 ApplyAcesTonemapping(float4 col)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    col.rgb = saturate(col.rgb * (a * col.rgb + b) / (col.rgb * (c * col.rgb + d) + e));
+    return col;
+}
 
-#define REINHARD_TONE_MAPPING_APPLY(col) \
-col.rgb = col.rgb / (col.rgb + 1)
+inline float4 ApplyReinhardTonemapping(float4 col)
+{
+    col.rgb = col.rgb / (col.rgb + 1);
+    return col;
+}
 
 #endif // CUSTOM_TONEMAPPING_CG_INCLUDED

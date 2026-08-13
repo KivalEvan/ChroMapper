@@ -1,257 +1,315 @@
-#ifndef CUSTOM_LIGHTING_CG_INCLUDED
-#define CUSTOM_LIGHTING_CG_INCLUDED
+#ifndef CHROMAPPER_CUSTOM_LIGHTING_INCLUDED
+#define CHROMAPPER_CUSTOM_LIGHTING_INCLUDED
 
-#define MAX_DIRECTIONAL_LIGHTS 5
-// don't ask me why, they apparently only use 4
-#define MAX_DIRECTIONAL_LIGHTS_ITER 4
-uniform float4 _DirectionalLightDirections[MAX_DIRECTIONAL_LIGHTS];
-uniform float4 _DirectionalLightColors[MAX_DIRECTIONAL_LIGHTS];
-uniform float4 _DirectionalLightPositions[MAX_DIRECTIONAL_LIGHTS];
-uniform float _DirectionalLightRadii[MAX_DIRECTIONAL_LIGHTS];
+#include "Data.hlsl"
 
-#define MAX_POINT_LIGHTS 1
-uniform float4 _PointLightPositions[MAX_POINT_LIGHTS];
-uniform float4 _PointLightColors[MAX_POINT_LIGHTS];
+uniform float4 _DirectionalLightPositions[5];
+uniform float _DirectionalLightRadii[5];
+uniform float4 _DirectionalLightDirections[5];
+uniform float4 _DirectionalLightColors[5];
+uniform float4 _PrivatePointLightPosition;
+uniform float _PrivatePointLightIntensity;
 
-float _PrivatePointLightIntensity;
-float4 _PrivatePointLightPosition;
-
-#if defined(UNITY_INSTANCING_ENABLED)
-#define GET_PRIVATE_POINT_LIGHT_COLOR UNITY_ACCESS_INSTANCED_PROP(Props, _PrivatePointLightColor) * _PrivatePointLightIntensity
-#else
-#define GET_PRIVATE_POINT_LIGHT_COLOR _PrivatePointLightColor * _PrivatePointLightIntensity
-#endif
-
-#if defined(POINT_LIGHT_IS_LOCAL)
-#define GET_PRIVATE_POINT_LIGHT_POSITION(worldPos) mul(unity_ObjectToWorld, float4(_PrivatePointLightPosition.xyz, 1.0)).xyz
-#else
-#define GET_PRIVATE_POINT_LIGHT_POSITION(worldPos) _PrivatePointLightPosition.xyz
-#endif
-
-inline float calculate_falloff(float3 worldPos, float3 lightPos, float lightRad)
+// Ambient inputs — nominal diffuse level, minimal value, and multiplier — are
+// passed in by the consumer (its per-material/instanced values vary by shader)
+// rather than read from uniforms the library cannot assume are declared.
+inline float3 CalculateAmbient(float3 nominalDiffuseLevel, float3 ambientMinimalValue,
+                               float ambientMultiplier = 1.0)
 {
-    float3 dist = worldPos.xyz - lightPos.xyz;
-    return 1 / (dot(dist, dist) / (lightRad * lightRad) * 25 + 1);
+    return max(ambientMultiplier * nominalDiffuseLevel, ambientMinimalValue);
 }
 
-#define __LAMBERT(worldNormal, lightDir) \
-    max(0, dot(worldNormal, lightDir))
-
-// twice for nice falloff
-#define __HALF_LAMBERT(worldNormal, lightDir) \
-    (dot(worldNormal, lightDir) * 0.5 + 0.5) * (dot(worldNormal, lightDir) * 0.5 + 0.5)
-
-#if defined(HALF_LAMBERT)
-#define __CALCULATE_DIFFUSE(color, worldNormal, lightDir) \
-    color * __HALF_LAMBERT(worldNormal, lightDir)
-#else
-#define __CALCULATE_DIFFUSE(color, worldNormal, lightDir) \
-    color * __LAMBERT(worldNormal, lightDir)
-#endif
-#define CALCULATE_DIFFUSE(color, worldNormal, lightDir) \
-    __CALCULATE_DIFFUSE(color, worldNormal, lightDir)
-
-inline float3 calculate_diffuse_lighting(float3 lightCol, float3 lightDir, float3 worldNormal, float falloff,
-                                         float otherDiffuseMul)
+inline float CalculateLightFalloff(float3 worldPosition, int lightIndex)
 {
-    float3 accumulated = 0;
-    float3 calculated = CALCULATE_DIFFUSE(lightCol, worldNormal, lightDir);
-    calculated *= falloff;
-    accumulated += calculated;
+    float3 lightOffset = worldPosition - _DirectionalLightPositions[lightIndex].xyz;
+    float radiusSquared = _DirectionalLightRadii[lightIndex] * _DirectionalLightRadii[lightIndex];
+    return 1.0 / (dot(lightOffset, lightOffset) / radiusSquared * 25.0 + 1.0);
+}
 
+inline float3 CalculateLightFalloffDiffuse(float3 worldPosition, float3 normalWS);
+inline float3 CalculateLightFalloffSpecular(float3 worldPosition, float3 normalWS,
+                                            float smoothness);
+
+inline float CalculateDirectionalDiffuseTerm(float normalDot,
+                                             float bothSidesDiffuseMultiplier = 1.0)
+{
     #if defined(BOTH_SIDES_DIFFUSE)
-    calculated = CALCULATE_DIFFUSE(lightCol, -worldNormal, lightDir);
-    calculated *= falloff;
-    calculated *= otherDiffuseMul;
-    accumulated += calculated;
+    return max(normalDot, 0.0) + min(normalDot, 0.0) * (-bothSidesDiffuseMultiplier);
+    #else
+    return max(normalDot, 0.0);
     #endif
-
-    return accumulated;
 }
 
-inline float3 calculate_global_diffuse_lighting(float3 worldPos, float3 worldNormal, float3 pvtPointLightPos, float3 pvtPointLightCol, float otherDiffuse)
+inline float3 CalculateLightDiffuse(float3 normalWS,
+                                    float bothSidesDiffuseMultiplier = 1.0)
 {
-    #if !defined(DIFFUSE)
-    return 0;
+    float3 direct = CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[1].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[1].rgb;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[0].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[0].rgb;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[2].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[2].rgb;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[3].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[3].rgb;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[4].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[4].rgb;
+    return direct;
+}
+
+inline float3 CalculateViewReflectionDirection(float3 worldPosition, float3 normalWS)
+{
+    float3 viewDirection = normalize(worldPosition - _WorldSpaceCameraPos);
+    return viewDirection - 2.0 * dot(viewDirection, normalWS) * normalWS;
+}
+
+inline float CalculateSpecularLobeFactor(
+    float3 lightDirection, float3 reflectionDirection, float specularScale)
+{
+    float3 difference = lightDirection - reflectionDirection;
+    float lobe = saturate(1.0 - dot(difference, difference) * specularScale * 0.5);
+    lobe *= lobe;
+    lobe *= lobe;
+    lobe *= lobe;
+    return lobe;
+}
+
+inline float3 CalculateLightSpecularLobe(float3 lightDirection, float3 lightColor,
+                                         float3 reflectionDirection, float specularScale)
+{
+    float lobe = CalculateSpecularLobeFactor(
+        lightDirection, reflectionDirection, specularScale);
+    return lobe * lightColor * specularScale;
+}
+
+inline float3 CalculateSpecularReflectionDirection(
+    float3 worldPosition, float3 normalWS, float smoothness, out float specularScale)
+{
+    float3 reflectionDirection = CalculateViewReflectionDirection(worldPosition, normalWS);
+    float smoothnessSquared = smoothness * smoothness;
+    specularScale = smoothnessSquared * smoothnessSquared * 500.0;
+    return reflectionDirection;
+}
+
+inline float3 CalculateLightSpecular(float3 worldPosition, float3 normalWS, float smoothness)
+{
+    float specularScale;
+    float3 reflectionDirection = CalculateSpecularReflectionDirection(
+        worldPosition, normalWS, smoothness, specularScale);
+
+    float3 specular = CalculateLightSpecularLobe(
+        _DirectionalLightDirections[1].xyz, _DirectionalLightColors[1].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[0].xyz, _DirectionalLightColors[0].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[2].xyz, _DirectionalLightColors[2].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[3].xyz, _DirectionalLightColors[3].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[4].xyz, _DirectionalLightColors[4].rgb,
+        reflectionDirection, specularScale);
+    return specular;
+}
+
+inline float3 CalculateLightSpecularFromCamera(
+    float3 worldPosition, float3 cameraPosition, float3 normalWS, float smoothness)
+{
+    float3 viewDirection = normalize(worldPosition - cameraPosition);
+    float3 reflectionDirection = viewDirection - 2.0 * dot(viewDirection, normalWS) * normalWS;
+    float smoothnessSquared = smoothness * smoothness;
+    float specularScale = smoothnessSquared * smoothnessSquared * 500.0;
+    float3 specular = CalculateLightSpecularLobe(
+        _DirectionalLightDirections[1].xyz, _DirectionalLightColors[1].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[0].xyz, _DirectionalLightColors[0].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[2].xyz, _DirectionalLightColors[2].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[3].xyz, _DirectionalLightColors[3].rgb,
+        reflectionDirection, specularScale);
+    specular += CalculateLightSpecularLobe(
+        _DirectionalLightDirections[4].xyz, _DirectionalLightColors[4].rgb,
+        reflectionDirection, specularScale);
+    return specular;
+}
+
+inline float3 CalculateLightFalloffDiffuse(float3 worldPosition, float3 normalWS)
+{
+    float3 direct = max(dot(normalWS, _DirectionalLightDirections[1].xyz), 0.0) *
+        _DirectionalLightColors[1].rgb * CalculateLightFalloff(worldPosition, 1);
+    direct += max(dot(normalWS, _DirectionalLightDirections[0].xyz), 0.0) *
+        _DirectionalLightColors[0].rgb * CalculateLightFalloff(worldPosition, 0);
+    direct += max(dot(normalWS, _DirectionalLightDirections[2].xyz), 0.0) *
+        _DirectionalLightColors[2].rgb * CalculateLightFalloff(worldPosition, 2);
+    direct += max(dot(normalWS, _DirectionalLightDirections[3].xyz), 0.0) *
+        _DirectionalLightColors[3].rgb * CalculateLightFalloff(worldPosition, 3);
+    direct += max(dot(normalWS, _DirectionalLightDirections[4].xyz), 0.0) *
+        _DirectionalLightColors[4].rgb * CalculateLightFalloff(worldPosition, 4);
+    return direct;
+}
+
+inline float3 CalculateLightFalloffSpecularLobe(float3 lightDirection, float3 lightColor,
+                                                float3 reflectionDirection,
+                                                float specularScale, float falloff)
+{
+    float lobe = CalculateSpecularLobeFactor(
+        lightDirection, reflectionDirection, specularScale);
+    return lobe * lightColor * falloff * specularScale;
+}
+
+inline float3 CalculateLightFalloffSpecular(float3 worldPosition, float3 normalWS,
+                                            float smoothness)
+{
+    float specularScale;
+    float3 reflectionDirection = CalculateSpecularReflectionDirection(
+        worldPosition, normalWS, smoothness, specularScale);
+
+    float3 specular = CalculateLightFalloffSpecularLobe(
+        _DirectionalLightDirections[1].xyz, _DirectionalLightColors[1].rgb,
+        reflectionDirection, specularScale,
+        CalculateLightFalloff(worldPosition, 1));
+    specular += CalculateLightFalloffSpecularLobe(
+        _DirectionalLightDirections[0].xyz, _DirectionalLightColors[0].rgb,
+        reflectionDirection, specularScale,
+        CalculateLightFalloff(worldPosition, 0));
+    specular += CalculateLightFalloffSpecularLobe(
+        _DirectionalLightDirections[2].xyz, _DirectionalLightColors[2].rgb,
+        reflectionDirection, specularScale,
+        CalculateLightFalloff(worldPosition, 2));
+    specular += CalculateLightFalloffSpecularLobe(
+        _DirectionalLightDirections[3].xyz, _DirectionalLightColors[3].rgb,
+        reflectionDirection, specularScale,
+        CalculateLightFalloff(worldPosition, 3));
+    specular += CalculateLightFalloffSpecularLobe(
+        _DirectionalLightDirections[4].xyz, _DirectionalLightColors[4].rgb,
+        reflectionDirection, specularScale,
+        CalculateLightFalloff(worldPosition, 4));
+    return specular;
+}
+
+inline float3 CalculateComposablePrivatePointDiffuse(
+    float3 worldPosition, float3 normalWS, float3 privatePointLightColor)
+{
+    #if defined(POINT_LIGHT_IS_LOCAL)
+    float3 lightPosition = mul(
+        unity_ObjectToWorld, float4(_PrivatePointLightPosition.xyz, 1.0)).xyz;
+    #else
+    float3 lightPosition = _PrivatePointLightPosition.xyz;
     #endif
-    float3 accumulated = 0;
-    float3 lightCol, lightVec, lightDir, lightPos;
-    float lightRadii, distSq, falloff = 1;
-    int i;
+    float3 lightVector = lightPosition - worldPosition;
+    float distanceSquared = max(dot(lightVector, lightVector), 0.00001);
+    float3 lightDirection = lightVector / sqrt(distanceSquared);
+    #if defined(BOTH_SIDES_DIFFUSE)
+    float diffuse = abs(dot(normalWS, lightDirection));
+    #else
+    float diffuse = max(dot(normalWS, lightDirection), 0.0);
+    #endif
+    return diffuse * privatePointLightColor *
+        _PrivatePointLightIntensity / distanceSquared;
+}
 
-    // unused
-    // [unroll]
-    // for (i = 0; i < MAX_POINT_LIGHTS; i++)
-    // {
-    //     lightCol = _PointLightColors[i].rgb;
-    //     lightPos = _PointLightPositions[i].xyz;
-    //     lightVec = lightPos - worldPos;
-    //     lightDir = pointLightVec / sqrt(pointLightDistSq);
-    //
-    //     #if defined(LIGHT_FALLOFF)
-    //     distSq = max(dot(pointLightVec, pointLightVec), 0.00001);
-    //     falloff = 1 / distSq;
-    //     #endif
-    //     accumulated.rgb += calculate_diffuse_lighting(lightCol, lightDir, worldNormal, falloff, otherDiffuse);
-    // }
+inline LightingData ResolveLitDirectLighting(
+    SurfaceData surface, float3 ambientLight, float3 privatePointLightColor,
+    sampler2D lightMap1, sampler2D lightMap2,
+    float3 lightMapLightBakeIdA, float3 lightMapLightBakeIdB,
+    float3 lightMapLightBakeIdC, float3 lightMapLightBakeIdD,
+    float3 lightMapLightBakeIdE, float3 lightMapLightBakeIdF,
+    float bothSidesDiffuseMultiplier = 1.0, float specularIntensity = 1.0,
+    float groundFadeScale = 0.5, float groundFadeOffset = 1.0)
+{
+    LightingData lighting = InitializeLightingData();
+    float3 directBaseColor = surface.baseColor.rgb;
+    float groundFade = 1.0;
+    #if defined(GROUND_FADE)
+    groundFade = 1.0 - saturate(
+        -surface.worldPosition.y * groundFadeScale + groundFadeOffset);
+    directBaseColor *= groundFade;
+    #endif
+    #if defined(_PROBE_CALCULATION_PRECISE)
+    float minimumColor = min(directBaseColor.r,
+                             min(directBaseColor.g, directBaseColor.b));
+    float maximumColor = max(directBaseColor.r,
+                             max(directBaseColor.g, directBaseColor.b));
+    float saturation = (maximumColor - minimumColor) / maximumColor;
+    lighting.ambient = directBaseColor * ambientLight *
+        ((saturation + 1.0) * (1.0 - surface.metallic));
+    #else
+    lighting.ambient = directBaseColor * ambientLight;
+    #endif
 
-    #if defined(PRIVATE_POINT_LIGHT)
-    lightCol = pvtPointLightCol;
-    lightPos = pvtPointLightPos;
-    lightVec = lightPos - worldPos;
-    distSq = max(dot(lightVec, lightVec), 0.00001);
-    lightDir = lightVec / sqrt(distSq);
-
+    float3 diffuseLights = 0.0;
+    #if defined(DIFFUSE)
     #if defined(LIGHT_FALLOFF)
-    falloff = 1 / distSq;
+    diffuseLights = CalculateLightFalloffDiffuse(
+        surface.worldPosition, surface.normalWS);
+    #else
+    diffuseLights = CalculateLightDiffuse(
+        surface.normalWS, bothSidesDiffuseMultiplier);
     #endif
-    accumulated.rgb += calculate_diffuse_lighting(lightCol, lightDir, worldNormal, falloff, otherDiffuse);
+    #endif
+    #if defined(PRIVATE_POINT_LIGHT)
+    diffuseLights += CalculateComposablePrivatePointDiffuse(
+        surface.worldPosition, surface.normalWS, privatePointLightColor);
     #endif
 
-    [unroll]
-    for (i = 0; i < MAX_DIRECTIONAL_LIGHTS_ITER; i++)
-    {
-        lightCol = _DirectionalLightColors[i].rgb;
-        lightDir = _DirectionalLightDirections[i].xyz;
-        lightPos = _DirectionalLightPositions[i];
-        lightRadii = _DirectionalLightRadii[i];
-        #if defined(LIGHT_FALLOFF)
-        falloff = calculate_falloff(worldPos, lightPos, lightRadii);
-        #endif
-        accumulated.rgb += calculate_diffuse_lighting(lightCol, lightDir, worldNormal, falloff, otherDiffuse);
-    }
-
-    return accumulated;
-}
-
-inline float3 calculate_global_diffuse_lighting(float3 worldPos, float3 worldNormal, float otherDiffuse)
-{
-    return calculate_global_diffuse_lighting(worldPos, worldNormal, 0, 0, otherDiffuse);
-}
-
-inline float3 calculate_global_diffuse_lighting(float3 worldPos, float3 worldNormal)
-{
-    return calculate_global_diffuse_lighting(worldPos, worldNormal, 0, 0, 0);
-}
-
-// GGX Specular
-inline float3 calculate_specular_lighting(float3 lightCol, float3 lightDir, float3 reflDir, float smoothness,
-                                          float falloff)
-{
-    float smoothnessSq = smoothness * smoothness;
-    float specPower = smoothnessSq * smoothnessSq * 500;
-
-    float3 dist = lightDir - reflDir;
-    float distSq = dot(dist, dist);
-
-    float specTerm = saturate(1 - distSq * specPower * 0.5);
-    specTerm *= specTerm;
-    specTerm *= specTerm;
-    specTerm *= specTerm;
-
-    return specTerm * lightCol * smoothnessSq * 500.0 * falloff;
-}
-
-inline float3 calculate_reflection_direction(float3 worldPos, float3 worldNormal)
-{
-    float3 viewDir = normalize(worldPos - _WorldSpaceCameraPos);
-    float VdotN = dot(viewDir, worldNormal);
-    return worldNormal * (-2 * VdotN) + viewDir;
-}
-
-inline float3 calculate_global_specular_lighting(float3 worldPos, float3 worldNormal, float smoothness)
-{
-    #if !defined(SPECULAR)
-    return 0;
+    float3 directColor = diffuseLights * directBaseColor;
+    #if defined(DIFFUSE) && defined(SPECULAR)
+    lighting.directDiffuse = directColor * (0.96 * (1.0 - surface.metallic));
+    #else
+    lighting.directDiffuse = directColor * (1.0 - surface.metallic);
     #endif
-    float3 reflDir = calculate_reflection_direction(worldPos, worldNormal);
-
-    float3 accumulated = 0;
-    float falloff = 1;
-    int i;
-    [unroll]
-    for (i = 0; i < MAX_DIRECTIONAL_LIGHTS_ITER; i++)
-    {
-        float3 lightCol = _DirectionalLightColors[i].rgb;
-        float3 lightDir = _DirectionalLightDirections[i].xyz;
-
-        #if defined(LIGHT_FALLOFF)
-        float3 lightPos = _DirectionalLightPositions[i].xyz;
-        float3 lightRadii = _DirectionalLightRadii[i];
-        falloff = calculate_falloff(worldPos, lightPos, lightRadii);
-        #endif
-
-        accumulated += calculate_specular_lighting(lightCol, lightDir, reflDir, smoothness, falloff);
-    }
-
-    return accumulated;
+    #if defined(SPECULAR)
+    #if defined(DIFFUSE)
+    float3 specularColor = 0.04 + surface.metallic * (directColor - 0.04);
+    #else
+    float3 specularColor = 0.04 + surface.metallic * (directBaseColor - 0.04);
+    #endif
+    #if defined(LIGHT_FALLOFF)
+    float3 specularLights = CalculateLightFalloffSpecular(
+        surface.worldPosition, surface.normalWS, surface.smoothness);
+    #else
+    float3 specularLights = CalculateLightSpecular(
+        surface.worldPosition, surface.normalWS, surface.smoothness);
+    #endif
+    lighting.directSpecular = specularLights * specularColor *
+        (specularIntensity * groundFade);
+    #if defined(OCCLUSION)
+    lighting.directSpecular *= surface.occlusion;
+    #endif
+    #endif
+    #if defined(LIGHTMAP)
+    float3 lightmap1 = tex2D(lightMap1, surface.lightmapUv).rgb;
+    float3 lightmap2 = tex2D(lightMap2, surface.lightmapUv).rgb;
+    float3 decodedLightmap =
+        lightmap1.r * lightMapLightBakeIdA +
+        lightmap1.g * lightMapLightBakeIdB +
+        lightmap1.b * lightMapLightBakeIdC +
+        lightmap2.r * lightMapLightBakeIdD +
+        lightmap2.g * lightMapLightBakeIdE +
+        lightmap2.b * lightMapLightBakeIdF;
+    lighting.directDiffuse += decodedLightmap * 4.594793 *
+        (1.0 - surface.metallic) * directBaseColor;
+    #endif
+    return lighting;
 }
 
-inline float3 get_one_minus_reflectivity(float metallic)
+inline float4 ComposeLitLighting(LightingData lighting)
 {
-    return 0.96 * (1 - metallic);
-}
-
-inline float3 calculate_final_lighting(float3 diffuseColor, float3 specularLighting, float metallic)
-{
-    return diffuseColor * get_one_minus_reflectivity(metallic) + specularLighting;
-}
-
-inline float3 calculate_global_lighting(float3 worldPos, float3 worldNormal, float3 baseColor, float3 pvtPointLightPos,
-                                        float3 pvtPointLightCol, float metallic,
-                                        float smoothness, float otherDiffuseMul, float specIntensity)
-{
-    float3 diffuseLighting = calculate_global_diffuse_lighting(
-        worldPos, worldNormal, pvtPointLightPos, pvtPointLightCol, otherDiffuseMul);
-    float3 specularLighting = calculate_global_specular_lighting(worldPos, worldNormal, smoothness);
-
-    float3 diffuseColor = diffuseLighting * baseColor;
-    float3 f0 = metallic * (diffuseColor - 0.04) + 0.04;
-    specularLighting *= f0 * specIntensity;
-
-    return calculate_final_lighting(diffuseColor, specularLighting, metallic);
-}
-
-inline float3 calculate_global_lighting(float3 worldPos, float3 worldNormal, float3 baseColor, float metallic,
-                                        float smoothness, float otherDiffuseMul, float specIntensity)
-{
-    return calculate_global_lighting(worldPos, worldNormal, baseColor, metallic,
-                                     smoothness, otherDiffuseMul, specIntensity);
-}
-
-inline float3 calculate_camera_lighting(float3 worldPos, float3 worldNormal, float3 baseColor, float metallic,
-                                        float smoothness, float falloff, float otherDiffuseMul, float specIntensity)
-{
-    float3 lightDir = normalize(_WorldSpaceCameraPos - worldPos);
-    float3 reflDir = calculate_reflection_direction(worldPos, worldNormal);
-
-    float3 diffuseLighting = calculate_diffuse_lighting(1, lightDir, worldNormal, falloff, otherDiffuseMul);
-    float3 specularLighting = calculate_specular_lighting(1, lightDir, reflDir, smoothness, falloff);
-
-    float3 diffuseColor = diffuseLighting * baseColor;
-    float3 f0 = metallic * (diffuseColor - 0.04) + 0.04;
-    specularLighting *= f0 * specIntensity;
-
-    return calculate_final_lighting(diffuseColor, specularLighting, metallic);
-}
-
-inline float3 calculate_lighting(float3 worldPos, float3 worldNormal, float3 lightColor, float3 lightPos,
-                                 float3 baseColor, float metallic, float smoothness, float falloff,
-                                 float otherDiffuseMul, float specIntensity)
-{
-    float3 reflDir = calculate_reflection_direction(worldPos, worldNormal);
-    float3 lightVec = lightPos - _WorldSpaceCameraPos;
-    float distSq = max(dot(lightVec, lightVec), 0.00001);
-    float3 lightDir = lightVec / sqrt(distSq);
-
-    float3 diffuseLighting = calculate_diffuse_lighting(baseColor, lightDir, worldNormal, falloff, otherDiffuseMul);
-    float3 specularLighting = calculate_specular_lighting(lightColor, lightDir, reflDir, smoothness, falloff);
-
-    float3 diffuseColor = diffuseLighting * baseColor;
-    float3 f0 = metallic * (diffuseColor - 0.04) + 0.04;
-    specularLighting *= f0 * specIntensity;
-
-    return calculate_final_lighting(diffuseColor, specularLighting, metallic);
+    return float4(
+        lighting.reflection + lighting.ambient +
+        (lighting.directDiffuse + lighting.directSpecular),
+        0.0);
 }
 
 #endif
