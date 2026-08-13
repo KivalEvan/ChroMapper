@@ -997,7 +997,7 @@ MonoBehaviour:
     Ignored: 0
   - Name: BlueNoise
     Hash: f0210efb8e0c805b4139f157c61ea43d
-    Texture: {fileID: 0}
+    Texture: {fileID: 2800000, guid: de7ecf4efcbf7e5429c3bec2bd2ff452, type: 3}
     Environments:
     - GagaEnvironment
     Unused: 0
@@ -2290,7 +2290,7 @@ MonoBehaviour:
     Ignored: 0
   - Name: MagicDoor
     Hash: 494735281c58e4d6e2d8660565ca5c4a
-    Texture: {fileID: 0}
+    Texture: {fileID: 2800000, guid: 4d74b6d100ca3e5448ed79cc41db0716, type: 3}
     Environments:
     - BTSEnvironment
     Unused: 0
@@ -2713,7 +2713,7 @@ MonoBehaviour:
     Ignored: 0
   - Name: SkrillexLogo
     Hash: a2e44700a629f8aab884f195f64c1357
-    Texture: {fileID: 0}
+    Texture: {fileID: 2800000, guid: 503e5a08e0b5f3d4da64f242f81758a5, type: 3}
     Environments:
     - SkrillexEnvironment
     Unused: 0
@@ -2972,7 +2972,7 @@ MonoBehaviour:
     Ignored: 0
   - Name: TimbalandLogo
     Hash: 2e6f5be56e7c5ef31d298d65a3a332bb
-    Texture: {fileID: 0}
+    Texture: {fileID: 2800000, guid: 5097f592d9cd3a463962864023ea8776, type: 3}
     Environments:
     - TimbalandEnvironment
     Unused: 0

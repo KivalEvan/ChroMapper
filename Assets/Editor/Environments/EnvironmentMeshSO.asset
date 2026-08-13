@@ -569,8 +569,8 @@ MonoBehaviour:
     Names:
     - Chevron
     Environments:
-    - ProdigyEnvironment
     - GridEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 4.095761, y: 1.5977647, z: 0}
     BoundsCenter: {x: 0, y: -0.6768093, z: -0.099999994}
@@ -949,7 +949,6 @@ MonoBehaviour:
     Names:
     - Cube
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -989,6 +988,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 1, y: 1, z: 1}
     BoundsCenter: {x: 0, y: 0, z: 0}
@@ -1121,8 +1121,8 @@ MonoBehaviour:
     Names:
     - Disc
     Environments:
-    - ProdigyEnvironment
     - ColdplayEnvironment
+    - ProdigyEnvironment
     BoundsSize: {x: 2, y: 0, z: 2}
     BoundsCenter: {x: 0, y: 0, z: 0}
     Unused: 0
@@ -1155,7 +1155,6 @@ MonoBehaviour:
     Names:
     - Dynamic3SliceSprite
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -1201,6 +1200,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 10, y: 5000, z: 0.1}
     BoundsCenter: {x: 0, y: 0, z: 0}
@@ -1844,7 +1844,6 @@ MonoBehaviour:
     Names:
     - LightGlow
     Environments:
-    - ProdigyEnvironment
     - LinkinPark2Environment
     - QueenEnvironment
     - TheWeekndEnvironment
@@ -1852,6 +1851,7 @@ MonoBehaviour:
     - EDMEnvironment
     - LizzoEnvironment
     - Monstercat2Environment
+    - ProdigyEnvironment
     BoundsSize: {x: 0.057052556, y: 0.05705256, z: 0.0000000037252903}
     BoundsCenter: {x: 0, y: 0, z: 0}
     Unused: 0
@@ -2040,7 +2040,6 @@ MonoBehaviour:
     - Mirror
     - PlayersPlaceCore
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -2086,6 +2085,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 3, y: 0.00000023841858, z: 2.0000002}
     BoundsCenter: {x: 0, y: -0.0001, z: 0}
@@ -2251,7 +2251,6 @@ MonoBehaviour:
     Names:
     - ParametricBox
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -2297,6 +2296,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 2, y: 2, z: 2}
     BoundsCenter: {x: 0, y: 0, z: 0}
@@ -2597,7 +2597,6 @@ MonoBehaviour:
     Names:
     - PlayersPlaceConstruction
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -2641,6 +2640,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 3, y: 112.755005, z: 2}
     BoundsCenter: {x: 0, y: -56.372498, z: 0}
@@ -2696,7 +2696,6 @@ MonoBehaviour:
     Names:
     - Quad
     Environments:
-    - ProdigyEnvironment
     - LinkinPark2Environment
     - Dragons2Environment
     - GridEnvironment
@@ -2711,6 +2710,7 @@ MonoBehaviour:
     - Monstercat2Environment
     - Halloween2Environment
     - BritneyEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 1, y: 1, z: 6.1232336e-17}
     BoundsCenter: {x: 0, y: 0, z: 0}
@@ -2834,7 +2834,6 @@ MonoBehaviour:
     Names:
     - RectangleFakeGlow
     Environments:
-    - ProdigyEnvironment
     - GreenDayEnvironment
     - PanicEnvironment
     - LinkinPark2Environment
@@ -2878,6 +2877,7 @@ MonoBehaviour:
     - DragonsEnvironment
     - MonstercatEnvironment
     - BigMirrorEnvironment
+    - ProdigyEnvironment
     - ColliderEnvironment
     BoundsSize: {x: 3, y: 3, z: 0}
     BoundsCenter: {x: 0, y: 0, z: 0}
