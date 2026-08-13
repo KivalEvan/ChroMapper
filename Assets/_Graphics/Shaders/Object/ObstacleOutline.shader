@@ -145,7 +145,8 @@ Shader "ChroMapper/Object/Obstacle Outline"
 
                 // Preserve the existing cube-mesh frame construction while exposing the HD contract.
                 float4 sizeParams = UNITY_ACCESS_INSTANCED_PROP(Props, _SizeParams);
-                float frameWidth = max(sizeParams.w, 0.0001);
+                // Scale the recovered source width to match this cube mesh's UV frame construction.
+                float frameWidth = max(sizeParams.w * 1.5, 0.0001);
                 float2 distanceFromEdge = 0.5 - abs(0.5 - i.uv);
                 clip(frameWidth - min(distanceFromEdge.x * faceScale.x,
                                       distanceFromEdge.y * faceScale.y));

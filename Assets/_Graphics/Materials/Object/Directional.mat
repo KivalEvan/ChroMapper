@@ -12,9 +12,8 @@ Material:
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
-  - DIFFUSE
-  - FOG
-  - SPECULAR
+  - CUTOUT
+  - _FOGTYPE_LERP
   m_InvalidKeywords:
   - ENABLE_FOG
   - _EMISSION
@@ -94,6 +93,7 @@ Material:
     - _CutoutSize: 4
     - _DstBlend: 0
     - _EnableDiffuse: 1
+    - _EnableCutout: 1
     - _EnableFog: 1
     - _EnableHeightFog: 0
     - _EnableRimDim: 0
