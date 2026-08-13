@@ -39,15 +39,20 @@ Shader "ChroMapper/Particles"
         [ToggleShowIfAny(VERTEX_RED_IS_ALPHA, VERTEX_COLOR)] _RedIsVertexAlpha ("Red is Vertex Alpha", float) = 0
         [EnumShowIfAny(3, RGBA, A, RGB, VERTEX_COLOR)] _VertexChannels ("Vertex Channels", float) = 0
 
+        [Toggle(VERTEX_FLIPBOOK)] _EnableVertexFlipbook ("Enable Vertex Flipbook", float) = 0
+        [ShowIfAny(VERTEX_FLIPBOOK)] _VertexFlipbookCount ("Frame Count", float) = 1
+        [ShowIfAny(VERTEX_FLIPBOOK)] _VertexFlipbookSpeed ("Flipbook Speed", float) = 1
+        [ToggleShowIfAny(VERTEX_FLIPBOOK_FADE, VERTEX_FLIPBOOK)] _EnableVertexFlipbookFade ("Enable Flipbook Fade", float) = 0
+
         [Space]
         [Toggle(VERTEX_DISPLACEMENT)] _VertexDisplacement ("Use Vertex Displacement", float) = 0
-        [ShowIfAny(VERTEX_DISPLACEMENT)] _DisplacementTex ("Displacement Texture", 2D) = "white" {}
+        [ShowIfAny(2, VERTEX_DISPLACEMENT, SPATIAL_DISPLACEMENT)] _DisplacementTex ("Displacement Texture", 2D) = "white" {}
         [ToggleShowIfAny(SPATIAL_DISPLACEMENT, VERTEX_DISPLACEMENT)] _3DDisplacement ("3D Displacement", float) = 0
-        [ShowIfAny(VERTEX_DISPLACEMENT)] _DisplacementStrength ("Strength", float) = 0.1
+        [ShowIfAny(2, VERTEX_DISPLACEMENT, SPATIAL_DISPLACEMENT)] _DisplacementStrength ("Strength", float) = 0.1
         [ShowIfAny(2, VERTEX_DISPLACEMENT, SPATIAL_DISPLACEMENT)] _DisplacementAxes ("Per Axis Strength", Vector) = (1,1,1,0)
-        [ShowIfAny(VERTEX_DISPLACEMENT)] _DisplacementPanningSpeed ("Panning Speed", float) = 1
-        [ShowIfAny(VERTEX_DISPLACEMENT)] _DisplacementPanning ("Panning", Vector) = (0,0,0,0)
-        [EnumShowIfAny(1, None, Flat, Full, SPATIAL_DISPLACEMENT)] _Spectrogram ("Spectrogram Influence", float) = 0
+        [ShowIfAny(2, VERTEX_DISPLACEMENT, SPATIAL_DISPLACEMENT)] _DisplacementPanningSpeed ("Panning Speed", float) = 1
+        [ShowIfAny(2, VERTEX_DISPLACEMENT, SPATIAL_DISPLACEMENT)] _DisplacementPanning ("Panning", Vector) = (0,0,0,0)
+        [EnumShowIfAny(2, None, Full, SPATIAL_DISPLACEMENT)] _Spectrogram ("Spectrogram Influence", float) = 0
         [ShowIfAny(_SPECTROGRAM_FULL)] _UV3Offset ("UV3 Offset", float) = 0
         [ShowIfAny(_SPECTROGRAM_FULL)] _UV3Scale ("UV3 Scale", float) = 1
 
@@ -109,6 +114,7 @@ Shader "ChroMapper/Particles"
         [ShowIfAny(_DISTORTION_SIMPLE)] _DistortionStrength ("Distortion Strength", float) = 0.2
         [ShowIfAny(_DISTORTION_SIMPLE)] _DistortionAxes ("Distortion Axes", Vector) = (1, 1, 0, 0)
         [ShowIfAny(_DISTORTION_SIMPLE)] _DistortionPanning ("Distortion Panning", Vector) = (0, 0, 0, 0)
+        [ToggleShowIfAny(DISTORTION_TARGET_MASK, MASK)] _DistortionTargetMask ("Distort Mask UVs", float) = 0
 
         [Header(Dissolve)] [Space]
         [KeywordEnum(None, Alpha Clip)] _CutoutType ("Cutout", float) = 0
@@ -122,18 +128,18 @@ Shader "ChroMapper/Particles"
 
         [Space]
         [Toggle(VIEW_ALIGN_DISAPPEAR)] _EnableViewAlignDisappear ("View Align Disappear", float) = 0
-        [ToggleShowIfAny(VIEW_ALIGN_DISAPPEAR_SQUARE_ANGLE, VIEW_ALIGN_DISAPPEAR)] _SquareAngleForViewAlignDisappear ("Square Angle", float) = 0
+        [ShowIfAny(VIEW_ALIGN_DISAPPEAR)] _SquareAngleForViewAlignDisappear ("Square Angle", float) = 0
         [ShowIfAny(VIEW_ALIGN_DISAPPEAR)] _ViewAlignFactor ("View Align Factor", float) = 1.5
         [ShowIfAny(VIEW_ALIGN_DISAPPEAR)] _ViewAlignOffset ("View Align Offset", float) = 0
 
 
 
         [Header(Others)] [Space]
-        [KeywordEnum(None, PP, Frag)] _BloomType ("Bloom Type", float) = 0
-        [ShowIfAny(_BLOOMTYPE_PP, _BLOOMTYPE_FRAG)] _QuestWhiteboostMultiplier ("White Multiplier", float) = 1
-        [ShowIfAny(_BLOOMTYPE_PP, _BLOOMTYPE_FRAG)] _BloomMultiplier ("Bloom Multiplier", float) = 1
+        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("Bloom Type", float) = 0
+        [ShowIfAny(_BLOOMTYPE_DEFERRED, _BLOOMTYPE_MIXED)] _QuestWhiteboostMultiplier ("White Multiplier", float) = 1
+        [ShowIfAny(_BLOOMTYPE_DEFERRED, _BLOOMTYPE_MIXED)] _BloomMultiplier ("Bloom Multiplier", float) = 1
         [Toggle(REMAP_WHITEBOOST_START)] _EnableRemapWhiteBoostStart ("Remap White Boost Start", float) = 0
-        [ShowIfAny(_WHITEBOOSTTYPE_MAINEFFECT, _WHITEBOOSTTYPE_ALWAYS)] _WhiteBoostRemapStart ("Alpha for no White Boost", Range(0, 1)) = 0
+        [ShowIfAny(_BLOOMTYPE_DEFERRED, _BLOOMTYPE_MIXED)] _WhiteBoostRemapStart ("Alpha for no White Boost", Range(0, 1)) = 0
 
         [Space]
         [KeywordEnum(None, Full, Y Axis, Camera Facing)] _Billboard ("Billboard", float) = 0
@@ -146,14 +152,59 @@ Shader "ChroMapper/Particles"
 
 
 
+        [Header(Lifetime and Soft Particles)] [Space]
+        [Toggle(LIFETIME)] _EnableLifetime ("Use Lifetime Fade", float) = 0
+        [ShowIfAny(LIFETIME)] _Lifetime ("Lifetime Fade", float) = 1
+        [ToggleShowIfAny(SOFT_PARTICLES)] _EnableSoftParticles ("Soft Particles", float) = 0
+        [ShowIfAny(SOFT_PARTICLES)] _SoftFactor ("Soft Factor", Range(0, 50)) = 0
+        [ToggleShowIfAny(CLOSE_TO_CAMERA_DISAPPEAR)] _EnableViewAlignedDisappearDistance ("Close-to-Camera Disappear", float) = 0
+        [ShowIfAny(CLOSE_TO_CAMERA_DISAPPEAR)] _CloseCameraDisappearDistance ("Disappear Distance", float) = 0.5
+        [ShowIfAny(CLOSE_TO_CAMERA_DISAPPEAR)] _CloseCameraDisappearWidth ("Disappear Width", float) = 1
+        [ShowIfAny(CLOSE_TO_CAMERA_DISAPPEAR)] _CloseCameraDisappearStrength ("Disappear Strength", float) = 1
+
+        [Header(Dissolve)] [Space]
+        [Toggle(DISSOLVE)] _EnableDissolve ("Dissolve", float) = 0
+        [KeywordEnum(None, World, World Centered)] _Dissolve_Space ("Dissolve Space", float) = 0
+        [ShowIfAny(DISSOLVE)] _DissolveAxisVector ("Dissolve Axis", Vector) = (0, 1, 0, 0)
+        [ShowIfAny(DISSOLVE)] _DissolveOffset ("Dissolve Offset", float) = 0
+        [ShowIfAny(DISSOLVE)] _DissolveScale ("Dissolve Scale", float) = 5
+        [ShowIfAny(DISSOLVE)] _DissolveReverse ("Reverse Dissolve", float) = 0
+        [ShowIfAny(DISSOLVE)] _DissolveStrength ("Dissolve Strength", float) = 1
+        [ToggleShowIfAny(DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA, DISSOLVE)] _DissolveProgressFromVertexAlpha ("Get Progress from Vertex Alpha", float) = 0
+        [ShowIfAny(DISSOLVE)] _DissolveProgress ("Dissolve Progress", Range(-1, 1)) = 0
+
+        [Header(World Space Panning)] [Space]
+        [Toggle(WORLDSPACE_PANNING_MAIN)] _EnableWorldspacePanningMain ("Worldspace Panning (Main)", float) = 0
+        [ShowIfAny(WORLDSPACE_PANNING_MAIN)] _WorldspacePanningSpeed ("Panning Speed", float) = 1
+        [ShowIfAny(WORLDSPACE_PANNING_MAIN)] _WorldspacePanningDirection ("Worldspace Panning Direction", Vector) = (0, 0, 1, 0)
+        [ShowIfAny(WORLDSPACE_PANNING_MAIN)] _WorldspacePanningOffset ("Worldspace Panning Offset", Vector) = (0, 0, 0, 0)
+
+        [Header(MIPMAP and Noise)]
+        [Toggle(MIPMAP_BIAS)] _EnableMipmapBias ("Mipmap Bias", float) = 0
+        [ShowIfAny(MIPMAP_BIAS)] _MipmapBias ("Texture Mipmap Bias", float) = 0
+        [ShowIfAny(MIPMAP_BIAS)] _MipmapFade ("View Angle Fade", float) = 0
+        [Toggle(NOISE_DITHERING)] _EnableNoiseDithering ("Noise Dithering", float) = 0
+
+        [Space]
+        [Toggle(HOLOGRAM)] _EnableHologram ("Hologram", float) = 0
+        [ShowIfAny(HOLOGRAM)] _HologramColor ("Hologram Color", Color) = (0.5, 0.8, 1, 1)
+        [Toggle(FAKE_MIRROR_TRANSPARENCY)] _EnableFakeMirrorTransparency ("Fake Mirror Transparency", float) = 0
+        [ShowIfAny(FAKE_MIRROR_TRANSPARENCY)] _FakeMirrorTransparency ("Fake Mirror Transparency", float) = 0.5
+
+        [Toggle(FILL_ALPHA)] _EnableFillAlpha ("Fill Alpha", float) = 0
+        [ShowIfAny(FILL_ALPHA)] _FillAlpha ("Fill Alpha", Range(0, 1)) = 1
+        [Toggle(_OVERRIDE_FINAL_ALPHA_COLOR_BASED)] _EnableOverrideFinalAlpha ("Override Final Alpha (Color Based)", float) = 0
+        [ShowIfAny(_OVERRIDE_FINAL_ALPHA_COLOR_BASED)] _OverrideFinalAlpha ("Override Alpha Amount", Range(0, 1)) = 0
+
         [Header(Fog Settings)] [Space]
         [KeywordEnum(None, Lerp, Color, Alpha)] _FogType ("Fog Type", float) = 0
-        [ShowIfAny(0_FOGTYPE_NONE)] _FogStartOffset ("Fog Start Offset", float) = 1
-        [ShowIfAny(0_FOGTYPE_NONE)] _FogScale ("Fog Scale", float) = 1
+        [ShowIfAny(_FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA)] _FogStartOffset ("Fog Start Offset", float) = 0
+        [ShowIfAny(_FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA)] _FogScale ("Fog Scale", float) = 1
         [Space]
-        [ToggleShowIfAny(HEIGHT_FOG, 0_FOGTYPE_NONE)] _EnableHeightFog ("Enable Height Fog", float) = 0
-        [ShowIfAny(2, 0_FOGTYPE_NONE, HEIGHT_FOG)] _FogHeightOffset ("Fog Height Offset", float) = 0
-        [ShowIfAny(2, 0_FOGTYPE_NONE, HEIGHT_FOG)] _FogHeightScale ("Fog Height Scale", float) = 1
+        [ToggleShowIfAny(HEIGHT_FOG, _FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA)] _EnableHeightFog ("Enable Height Fog", float) = 0
+        [ShowIfAny(4, _FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA, HEIGHT_FOG)] _FogHeightOffset ("Fog Height Offset", float) = 0
+        [ShowIfAny(4, _FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA, HEIGHT_FOG)] _FogHeightScale ("Fog Height Scale", float) = 1
+        [ToggleShowIfAny(PRECISE_FOG, _FOGTYPE_LERP, _FOGTYPE_COLOR, _FOGTYPE_ALPHA)] _PreciseFog ("Precise Fog", float) = 0
 
         [Header(Settings)] [Space]
         [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrc ("Blend Src", float) = 1
@@ -164,9 +215,14 @@ Shader "ChroMapper/Particles"
         [Space]
         [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", float) = 4
-        [Toggle] _ZWrite ("Z Write", float) = 0
+        [Enum(Off, 0, On, 1)] _ZWrite ("Z Write", float) = 0
         _OffsetFactor ("Offset Factor", float) = 0
         _OffsetUnits ("Offset Units", float) = 0
+
+        [Header(Stencil)] [Space]
+        _StencilRefValue ("Stencil Ref Value", Float) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8
+        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencil Pass Op", Float) = 0
     }
     SubShader
     {
@@ -185,6 +241,13 @@ Shader "ChroMapper/Particles"
         ZWrite [_ZWrite]
         Lighting Off
         Offset [_OffsetFactor], [_OffsetUnits]
+
+        Stencil
+        {
+            Ref [_StencilRefValue]
+            Comp [_StencilComp]
+            Pass [_StencilPass]
+        }
 
         Pass
         {
@@ -211,7 +274,7 @@ Shader "ChroMapper/Particles"
 
             #pragma shader_feature_local_vertex VERTEX_DISPLACEMENT
             #pragma shader_feature_local_vertex SPATIAL_DISPLACEMENT
-            #pragma shader_feature_local_vertex _ _SPECTROGRAM_FLAT _SPECTROGRAM_FULL
+            #pragma shader_feature_local_vertex _ _SPECTROGRAM_FULL
 
             #pragma shader_feature_local_vertex _ _CURVE_VERTICES_AROUND_X _CURVE_VERTICES_AROUND_Y _CURVE_VERTICES_AROUND_Z
             #pragma shader_feature_local_vertex MESH_PACKING
@@ -225,8 +288,8 @@ Shader "ChroMapper/Particles"
 
             #pragma shader_feature_local_fragment CUSTOM_WRAPPING
 
-            #pragma shader_feature_local_fragment TEXTURE_FLIPBOOK
-            #pragma shader_feature_local_fragment FLIPBOOK_BLENDING_OFF
+            #pragma shader_feature_local TEXTURE_FLIPBOOK
+            #pragma shader_feature_local FLIPBOOK_BLENDING_OFF
 
             #pragma shader_feature_local MASK
             #pragma shader_feature_local SECONDARY_UVS_MASK
@@ -239,13 +302,40 @@ Shader "ChroMapper/Particles"
             #pragma shader_feature_local _ _MASK2BLEND_ADD _MASK2BLEND_MASKED_ADD
 
             #pragma shader_feature_local _ _DISTORTION_SIMPLE
+            #pragma shader_feature_local_fragment DISTORTION_TARGET_MASK
 
             #pragma shader_feature_local_fragment _ _CUTOUTTYPE_ALPHA_CLIP
 
             #pragma shader_feature_local_fragment SQUARE_ALPHA
             #pragma shader_feature_local_fragment VIEW_ALIGN_DISAPPEAR
 
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_PP _BLOOMTYPE_FRAG
+            // Lifetime / depth / distance gates
+            #pragma shader_feature_local_fragment LIFETIME
+            #pragma shader_feature_local SOFT_PARTICLES
+            #pragma shader_feature_local_fragment CLOSE_TO_CAMERA_DISAPPEAR
+            #pragma shader_feature_local_fragment FILL_ALPHA
+            #pragma shader_feature_local_fragment _OVERRIDE_FINAL_ALPHA_COLOR_BASED
+
+            // Dissolve
+            #pragma shader_feature_local DISSOLVE
+            #pragma shader_feature_local _DISSOLVE_SPACE_NONE _DISSOLVE_SPACE_WORLD _DISSOLVE_SPACE_WORLD_CENTERED
+            #pragma shader_feature_local DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA
+
+            // World-space mapping / vertex flipbook
+            #pragma shader_feature_local_vertex WORLDSPACE_PANNING_MAIN
+            #pragma shader_feature_local VERTEX_FLIPBOOK
+            #pragma shader_feature_local VERTEX_FLIPBOOK_FADE
+
+            // Sampling / dithering / fx
+            #pragma shader_feature_local MIPMAP_BIAS
+            #pragma shader_feature_local_fragment NOISE_DITHERING
+            #pragma shader_feature_local_fragment HOLOGRAM
+            #pragma shader_feature_local_fragment FAKE_MIRROR_TRANSPARENCY
+            #pragma shader_feature_local_fragment PRECISE_FOG
+
+            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
+            // Global: the post-process bloom runs (mirrors the game's MAIN_EFFECT_ENABLED gate).
+            #pragma multi_compile _ POST_BLOOM
             #pragma shader_feature_local_fragment REMAP_WHITEBOOST_START
 
             #pragma shader_feature_local_vertex _ _BILLBOARD_FULL _BILLBOARD_Y_AXIS _BILLBOARD_CAMERA_FACING
@@ -255,13 +345,12 @@ Shader "ChroMapper/Particles"
             #pragma shader_feature_local_fragment HEIGHT_FOG
 
             #pragma multi_compile_fragment _ BLOOM_FOG
-            #define FOG defined(_FOGTYPE_LERP) || defined(_FOGTYPE_COLOR) || defined(_FOGTYPE_ALPHA)
+            #define FOG (defined(_FOGTYPE_LERP) || defined(_FOGTYPE_COLOR) || defined(_FOGTYPE_ALPHA))
 
             #include "UnityCG.cginc"
-            #include "ShaderLibrary/BloomFog.hlsl"
+            #include "ShaderLibrary/Fog.hlsl"
             #include "ShaderLibrary/CustomBloom.hlsl"
             #include "ShaderLibrary/CustomTime.hlsl"
-            #include "ShaderLibrary/CustomTonemapping.hlsl"
             #include "Packages/com.llealloo.audiolink/Runtime/Shaders/AudioLink.cginc"
 
             // SECONDARY_COLOR
@@ -332,6 +421,9 @@ Shader "ChroMapper/Particles"
             float _FlipbookRows;
             float _FlipbookNonloopableFrames;
             float _FlipbookSpeed;
+            // VERTEX_FLIPBOOK
+            float _VertexFlipbookCount;
+            float _VertexFlipbookSpeed;
             // --
 
             // MASK
@@ -347,21 +439,79 @@ Shader "ChroMapper/Particles"
             sampler2D _DistortionTex;
             float4 _DistortionTex_ST;
 
+            UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+
+            // LIFETIME
+            float _Lifetime;
+            // --
+
+            // SOFT_PARTICLES
+            float _SoftFactor;
+            // --
+
+            // CLOSE_TO_CAMERA_DISAPPEAR
+            float _CloseCameraDisappearDistance;
+            float _CloseCameraDisappearWidth;
+            float _CloseCameraDisappearStrength;
+            // --
+
+            // DISSOLVE
+            float4 _DissolveAxisVector;
+            float _DissolveOffset;
+            float _DissolveScale;
+            float _DissolveReverse;
+            float _DissolveStrength;
+            float _DissolveProgress;
+            // --
+
+            // WORLDSPACE_PANNING_MAIN
+            float _WorldspacePanningSpeed;
+            float4 _WorldspacePanningDirection;
+            float4 _WorldspacePanningOffset;
+            // --
+
+            // MIPMAP_BIAS
+            float _MipmapBias;
+            float _MipmapFade;
+            // --
+
+            // NOISE_DITHERING / HOLOGRAM
+            sampler2D _GlobalBlueNoiseTex;
+            float4 _HologramColor;
+            // --
+
+            // FAKE_MIRROR_TRANSPARENCY
+            float _FakeMirrorTransparency;
+            // --
+
+            // FILL_ALPHA / _OVERRIDE_FINAL_ALPHA_COLOR_BASED
+            float _FillAlpha;
+            float _OverrideFinalAlpha;
+            // --
+
             #define USE_BILLBOARD defined(_BILLBOARD_FULL) || defined(_BILLBOARD_Y_AXIS) || defined(_BILLBOARD_CAMERA_FACING)
 
-            
+            inline float3 GetParticlesCameraPosition()
+            {
+                #if defined(UNITY_SINGLE_PASS_STEREO) || defined(STEREO_INSTANCING_ON) || defined(STEREO_MULTIVIEW_ON)
+                return unity_StereoWorldSpaceCameraPos[unity_StereoEyeIndex];
+                #else
+                return _WorldSpaceCameraPos;
+                #endif
+            }
+
 
             #if defined(UNITY_INSTANCING_ENABLED)
-            UNITY_INSTANCING_BUFFER_START (Props)
-            UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
-            UNITY_DEFINE_INSTANCED_PROP(float4, _SecondaryColor)
-            UNITY_DEFINE_INSTANCED_PROP(float4, unity_SpriteRendererColorArray)
-            UNITY_DEFINE_INSTANCED_PROP(half2, unity_SpriteFlipArray)
-            UNITY_DEFINE_INSTANCED_PROP(float, _MaskStrength)
-            UNITY_DEFINE_INSTANCED_PROP(float, _Mask2Strength)
-            UNITY_DEFINE_INSTANCED_PROP(float, _TimeOffset)
-            UNITY_DEFINE_INSTANCED_PROP(float, _MeshPackingId)
-            UNITY_INSTANCING_BUFFER_END (Props)
+            UNITY_INSTANCING_BUFFER_START(Props)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _SecondaryColor)
+                UNITY_DEFINE_INSTANCED_PROP(float4, unity_SpriteRendererColorArray)
+                UNITY_DEFINE_INSTANCED_PROP(half2, unity_SpriteFlipArray)
+                UNITY_DEFINE_INSTANCED_PROP(float, _MaskStrength)
+                UNITY_DEFINE_INSTANCED_PROP(float, _Mask2Strength)
+                UNITY_DEFINE_INSTANCED_PROP(float, _TimeOffset)
+                UNITY_DEFINE_INSTANCED_PROP(float, _MeshPackingId)
+            UNITY_INSTANCING_BUFFER_END(Props)
             // SpriteRenderer sets these instanced props; particle systems do not.
             // Guard them so they default to white/(1,1) instead of zero.
             #define _Flip           UNITY_ACCESS_INSTANCED_PROP(Props, unity_SpriteFlipArray)
@@ -393,17 +543,28 @@ Shader "ChroMapper/Particles"
                 float _ViewAlignFactor;
                 float _ViewAlignOffset;
                 float _BloomMultiplier;
-                float _BloomWhiteMultiplier;
                 float _WhiteBoostRemapStart;
                 float _QuestWhiteboostMultiplier;
-                float _BaseColorBoost;
-                float _BaseColorBoostThreshold;
                 float _BillboardScale;
                 float _FogStartOffset;
                 float _FogScale;
                 float _FogHeightOffset;
                 float _FogHeightScale;
             CBUFFER_END
+
+            inline float CalculateParticleHeightFogClearFactor(float3 worldPosition)
+            {
+                float heightInput = worldPosition.y * _FogHeightScale + _FogHeightOffset;
+                #if defined(PRECISE_FOG)
+                // The source PRECISE_FOG route evaluates this curve per fragment. ChroMapper
+                // already carries worldPosition to the fragment stage, so use the exact curve here.
+                heightInput -= _CustomFogHeightFogHeight + _CustomFogHeightFogStartY;
+                heightInput = saturate(heightInput / _CustomFogHeightFogHeight);
+                return 1.0 - heightInput * heightInput * (3.0 - 2.0 * heightInput);
+                #else
+                return CalculateHeightFogFactor(heightInput);
+                #endif
+            }
 
             struct appdata_t
             {
@@ -424,7 +585,7 @@ Shader "ChroMapper/Particles"
                 float2 packingUv : TEXCOORD3;
                 #endif
                 #if defined(COLOR_ARRAY)
-                float2 colorIndexUv : TEXCOORD4;  // ADD — encodes color index as (tens, units)
+                float2 colorIndexUv : TEXCOORD4; // ADD — encodes color index as (tens, units)
                 #endif
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -435,13 +596,22 @@ Shader "ChroMapper/Particles"
 
                 float4 color : COLOR;
 
-                #if defined(_SECONDARY_UVS_IMPORT)
+                #if defined(_SECONDARY_UVS_IMPORT) || defined(VERTEX_FLIPBOOK)
                 float4 uv : TEXCOORD0;
                 #else
                 float2 uv : TEXCOORD0;
                 #endif
                 float3 worldPos : TEXCOORD1;
                 float4 screenPos : TEXCOORD2;
+                float3 localPos : TEXCOORD3;
+
+                #if defined(TEXTURE_FLIPBOOK)
+                float4 flipbookWeights : TEXCOORD7;
+                #endif
+
+                #if defined(DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA)
+                float vertexAlpha : TEXCOORD8;
+                #endif
 
                 #if defined(COLOR_ARRAY)
                 float2 colorIndexUv : TEXCOORD4;
@@ -449,6 +619,10 @@ Shader "ChroMapper/Particles"
 
                 #if defined(SPECTROGRAM_COLOR)
                 float2 spectrogramUv : TEXCOORD5;
+                #endif
+
+                #if defined(MIPMAP_BIAS) || defined(VIEW_ALIGN_DISAPPEAR)
+                float3 worldNormal : TEXCOORD6;
                 #endif
 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -459,7 +633,7 @@ Shader "ChroMapper/Particles"
             {
                 // _Flip is (0,0) when not set by a SpriteRenderer (e.g. particle systems).
                 // Guard against this so vertices are not collapsed to the origin.
-                half2 safeFlip = (abs(flip.x) < 0.001 && abs(flip.y) < 0.001) ? half2(1,1) : flip;
+                half2 safeFlip = (abs(flip.x) < 0.001 && abs(flip.y) < 0.001) ? half2(1, 1) : flip;
                 return float4(pos.xy * safeFlip, pos.z, 1.0);
             }
 
@@ -467,14 +641,26 @@ Shader "ChroMapper/Particles"
             {
                 v2f o;
 
+                UNITY_INITIALIZE_OUTPUT(v2f, o);
                 UNITY_SETUP_INSTANCE_ID(i);
                 UNITY_TRANSFER_INSTANCE_ID(i, o);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+
+                o.color = float4(1, 1, 1, 1);
+                #if defined(TEXTURE_FLIPBOOK)
+                o.flipbookWeights = float4(1, 0, 0, 0);
+                #endif
+                #if defined(DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA)
+                o.vertexAlpha = i.color.a;
+                #endif
 
                 #if USE_BILLBOARD
                 float3 worldOrigin = mul(unity_ObjectToWorld, float4(0, 0, 0, 1)).xyz;
+                o.localPos = i.vertex.xyz;
 
-                // TODO: figure out what's the difference between the 2
-                #if defined(_BILLBOARD_CAMERA_FACING) || defined(_BILLBOARD_FULL)
+                #if defined(_BILLBOARD_FULL)
+                // The source FULL route uses the camera basis directly. ChroMapper can match
+                // this route because the editor mesh supplies a local vertex position.
                 // Transform only the object origin to view space (not the vertex)
                 float4 viewOrigin = mul(UNITY_MATRIX_V, float4(worldOrigin, 1));
                 // Only offset XY in view space — zero Z so depth stays anchored at the object origin.
@@ -485,9 +671,21 @@ Shader "ChroMapper/Particles"
                 o.vertex = mul(UNITY_MATRIX_P, billboardViewPos);
                 #endif
 
+                #if defined(_BILLBOARD_CAMERA_FACING)
+                // The source CAMERA_FACING route has a separate camera-facing basis. ChroMapper
+                // editor particle meshes do not carry the source particle orientation stream.
+                // Use the same camera-plane adapter as FULL and document this parity limit.
+                float4 cameraFacingOrigin = mul(UNITY_MATRIX_V, float4(worldOrigin, 1));
+                float4 cameraFacingViewPos = cameraFacingOrigin +
+                    float4(i.vertex.xy * _BillboardScale, 0.0, 0.0);
+                o.worldPos = mul(unity_ObjectToWorld, i.vertex).xyz;
+                o.vertex = mul(UNITY_MATRIX_P, cameraFacingViewPos);
+                #endif
+
                 #if defined(_BILLBOARD_Y_AXIS)
                 float3 localUp = normalize(mul((float3x3)unity_ObjectToWorld, float3(0, 1, 0)));
-                float3 dirToCam = _WorldSpaceCameraPos - worldOrigin;
+                float3 cameraPosition = GetParticlesCameraPosition();
+                float3 dirToCam = cameraPosition - worldOrigin;
                 float3 look = normalize(dirToCam - localUp * dot(dirToCam, localUp));
                 float3 right = -normalize(cross(localUp, look));
 
@@ -498,23 +696,24 @@ Shader "ChroMapper/Particles"
 
                 #else
 
-                #if defined(VERTEX_DISPLACEMENT)
-                float4 time = GET_TIME(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset)) / 2;
-                float2 dispUV = TRANSFORM_TEX(i.uv1, _DisplacementTex) 
-                              + _DisplacementPanning.xy * time.y * _DisplacementPanningSpeed;
+                #if defined(VERTEX_DISPLACEMENT) || defined(SPATIAL_DISPLACEMENT)
+                float4 time = GetTime(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset)) / 2;
+                float2 dispUV = TRANSFORM_TEX(i.uv1, _DisplacementTex)
+                    + _DisplacementPanning.xy * time.y * _DisplacementPanningSpeed;
                 float3 dispSample = tex2Dlod(_DisplacementTex, float4(dispUV, 0, 0)).xyz * 2.0 - 1.0;
 
                 #if defined(SPATIAL_DISPLACEMENT)
                 float3 bitangent = i.tangent.yzx * i.normal.zxy - i.normal.yzx * i.tangent.zxy;
                 float3 dispDir = dispSample.x * i.tangent.xyz
-                               + dispSample.y * bitangent
-                               + dispSample.z * i.normal.xyz;
+                    + dispSample.y * bitangent
+                    + dispSample.z * i.normal.xyz;
                 dispDir = normalize(dispDir);
 
-                #if defined(_SPECTROGRAM_FLAT) || defined(_SPECTROGRAM_FULL)
+                #if defined(_SPECTROGRAM_FULL)
                 float spectrogramIndex = i.uv3.x * _UV3Scale + _UV3Offset;
-                float4 audioData = AudioLinkLerpMultiline(ALPASS_DFT + uint2(spectrogramIndex * AUDIOLINK_ETOTALBINS, 0));
-                float dispAmount = _DisplacementStrength * audioData.b*2;
+                float4 audioData = AudioLinkLerpMultiline(
+                    ALPASS_DFT + uint2(spectrogramIndex * AUDIOLINK_ETOTALBINS, 0));
+                float dispAmount = _DisplacementStrength * audioData.b * 2;
                 #else
                 float dispAmount = _DisplacementStrength;
                 #endif
@@ -543,16 +742,29 @@ Shader "ChroMapper/Particles"
                 #endif
 
                 o.vertex = UnityFlipSprite(i.vertex, _Flip);
+                o.localPos = o.vertex.xyz;
                 o.worldPos = mul(unity_ObjectToWorld, o.vertex).xyz;
                 o.vertex = UnityObjectToClipPos(o.vertex);
                 #endif
-                #if !defined(VERTEX_DISPLACEMENT)
-                float4 time = GET_TIME(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset)) / 2;
+                #if !defined(VERTEX_DISPLACEMENT) && !defined(SPATIAL_DISPLACEMENT)
+                float4 time = GetTime(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset)) / 2;
                 #endif
                 #if defined(MAIN_TEXTURE)
                 {
+                    #if defined(WORLDSPACE_PANNING_MAIN)
+                    // World-space main UV (corpus vertex decode: project the panning
+                    // direction onto the surface basis, then apply tile/pan).
+                    float3 wTangent = i.tangent.xyz;
+                    float3 wBitangent = i.normal.yzx * i.tangent.zxy - i.tangent.yzx * i.normal.zxy;
+                    float2 wuv = abs(float2(dot(_WorldspacePanningDirection.xyz, wTangent),
+                                            dot(_WorldspacePanningDirection.xyz, wBitangent))) * _MainTex_ST.xy;
+                    float2 worldspaceUv = i.uv1.xy * wuv + _MainTex_ST.zw;
+                    worldspaceUv += time.y * _WorldspacePanningSpeed * wuv;
+                    o.uv.xy = worldspaceUv + _WorldspacePanningOffset.xy;
+                    #else
                     float2 panOffset = time.y * _UvPanning.xy * _MainTex_ST.xy;
                     o.uv.xy = i.uv1.xy * _MainTex_ST.xy + _MainTex_ST.zw + panOffset;
+                    #endif
                 }
                 #else
                 o.uv.xy = i.uv1.xy;
@@ -560,7 +772,97 @@ Shader "ChroMapper/Particles"
                 #if defined(_SECONDARY_UVS_IMPORT)
                 o.uv.zw = i.uv2.xy;
                 #endif
+                if (_EnableRotateUV > 0.5)
+                {
+                    float rotation = abs(_RotateUV) > 0.0001 ? radians(_RotateUV) : UNITY_PI * 0.5;
+                    float rotationSin;
+                    float rotationCos;
+                    sincos(rotation, rotationSin, rotationCos);
+                    float2 mainCenteredUv = o.uv.xy - 0.5;
+                    o.uv.xy = float2(
+                        mainCenteredUv.x * rotationCos - mainCenteredUv.y * rotationSin,
+                        mainCenteredUv.x * rotationSin + mainCenteredUv.y * rotationCos) + 0.5;
+                    #if defined(_SECONDARY_UVS_IMPORT)
+                    if (_RotateMainUVOnly < 0.5)
+                    {
+                        float2 secondaryCenteredUv = o.uv.zw - 0.5;
+                        o.uv.zw = float2(
+                            secondaryCenteredUv.x * rotationCos - secondaryCenteredUv.y * rotationSin,
+                            secondaryCenteredUv.x * rotationSin + secondaryCenteredUv.y * rotationCos) + 0.5;
+                    }
+                    #endif
+                }
                 o.screenPos = ComputeScreenPosCustom(o.vertex);
+                #if defined(SOFT_PARTICLES)
+                o.screenPos.z = -mul(UNITY_MATRIX_V, float4(o.worldPos, 1.0)).z;
+                #endif
+
+                #if defined(TEXTURE_FLIPBOOK)
+                // CustomParticles uses packed RGBA frames inside each atlas cell. The
+                // frame fraction blends adjacent channels; it does not select a whole
+                // atlas image as a conventional flipbook does.
+                float flipbookTime = time.y * _FlipbookSpeed;
+                float flipbookTotal = max(_FlipbookColumns * _FlipbookRows, 1.0);
+                float flipbookFrame = flipbookTime;
+                if (_FlipbookNonloopableFrames > 0.0)
+                    flipbookFrame = min(flipbookFrame, _FlipbookNonloopableFrames - 1.0);
+                else
+                    flipbookFrame = fmod(flipbookFrame, flipbookTotal);
+
+                float flipbookCell = floor(flipbookFrame);
+                float flipbookFraction = frac(flipbookFrame);
+                float flipbookColumn = fmod(flipbookCell, _FlipbookColumns);
+                float flipbookRow = floor(flipbookCell / _FlipbookColumns);
+                o.uv.xy = float2(
+                    (o.uv.x + flipbookColumn) / _FlipbookColumns,
+                    (o.uv.y + (_FlipbookRows - 1.0 - flipbookRow)) / _FlipbookRows);
+
+                #if defined(FLIPBOOK_BLENDING_OFF)
+                float flipbookChannelIndex = min(floor(flipbookFraction * 4.0), 3.0);
+                o.flipbookWeights = float4(
+                    flipbookChannelIndex == 0.0,
+                    flipbookChannelIndex == 1.0,
+                    flipbookChannelIndex == 2.0,
+                    flipbookChannelIndex == 3.0);
+                #else
+                float3 flipbookChannel = float3(
+                    flipbookFraction * 3.0 - 1.0,
+                    1.0 - flipbookFraction * 3.0,
+                    flipbookFraction * 3.0 - 2.0);
+                o.flipbookWeights = float4(
+                    max(1.0 - flipbookFraction * 3.0, 0.0),
+                    max(1.0 - abs(flipbookChannel.x), 0.0),
+                    max(1.0 - abs(flipbookChannel.z), 0.0),
+                    max(flipbookFraction * 3.0 - 2.0, 0.0));
+                #endif
+                #endif
+
+                #if defined(VERTEX_FLIPBOOK)
+                // The source route uses vertex color red as the frame, green as a
+                // per-particle phase offset, and advances that phase by its own speed.
+                // It is independent from the texture-atlas flipbook speed above.
+                float vfCount = max(_VertexFlipbookCount, 1.0001);
+                float vfRange = max(vfCount - 1.0, 0.0001);
+                float vfFrame = time.y * _VertexFlipbookSpeed + i.color.g * vfCount;
+                float vfPhase = vfFrame / vfRange;
+                vfPhase = (vfPhase >= 0.0 ? 1.0 : -1.0) * frac(abs(vfPhase));
+                vfPhase *= vfRange;
+
+                float vfFramePosition = (vfPhase + 1.0) / vfCount;
+                bool vfPastEnd = vfFramePosition > 1.0;
+                bool vfHalfFramePassed = 0.5 / vfCount < i.color.r;
+                bool vfFrameBeforeCurrent = vfFramePosition < i.color.r;
+                bool vfWrapped = (vfHalfFramePassed && vfPastEnd) || !vfPastEnd;
+                bool vfCull = vfFrameBeforeCurrent || (vfWrapped && i.color.r < vfPhase / vfCount);
+                if (vfCull)
+                    o.vertex = UnityObjectToClipPos(float4(0, 0, 0, 1));
+
+                #if defined(VERTEX_FLIPBOOK_FADE)
+                float vfFade = saturate((i.color.r - vfPhase / vfCount) * vfCount);
+                float vfSmooth = vfFade * vfFade * (3.0 - 2.0 * vfFade);
+                vfFade = vfSmooth * vfSmooth;
+                #endif
+                #endif
 
                 #if defined(VERTEX_COLOR)
                 o.color = i.color * UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
@@ -577,6 +879,9 @@ Shader "ChroMapper/Particles"
                 #endif
 
                 #endif
+                #if defined(VERTEX_FLIPBOOK) && defined(VERTEX_FLIPBOOK_FADE)
+                o.color.a *= vfFade;
+                #endif
                 #if defined(MESH_PACKING)
                 float packingCull = abs(i.packingUv.y - UNITY_ACCESS_INSTANCED_PROP(Props, _MeshPackingId)) > 0.1;
                 o.vertex.xyz = packingCull ? float3(0.0, 0.0, 0.0) : o.vertex.xyz;
@@ -592,6 +897,10 @@ Shader "ChroMapper/Particles"
                 // so _UV3Scale and _UV3Offset control which frequency band range is sampled.
                 o.spectrogramUv.x = i.uv3.x * _UV3Scale + _UV3Offset;
                 o.spectrogramUv.y = i.uv3.y;
+                #endif
+
+                #if defined(MIPMAP_BIAS) || defined(VIEW_ALIGN_DISAPPEAR)
+                o.worldNormal = normalize(mul((float3x3)unity_ObjectToWorld, i.normal));
                 #endif
 
                 /**
@@ -612,8 +921,9 @@ Shader "ChroMapper/Particles"
             float4 frag(v2f i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-                float4 time = GET_TIME(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset))/2;
+                float4 time = GetTime(UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset)) / 2;
 
                 #if defined(_SECONDARY_UVS_IMPORT)
                 // TODO: secondary uv stuff
@@ -633,8 +943,8 @@ Shader "ChroMapper/Particles"
                 // unity_SpriteRendererColorArray, which would zero out color entirely.
                 // Match CustomParticles: just use _Color * _Intensity directly.
                 float4 color = i.color * UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
-                color.rgb *= _Intensity;
                 #endif
+                color.rgb *= _Intensity;
 
                 #if !defined(TEXTURE_FLIPBOOK) && defined(TEXTURE_COLOR)
                 float4 albedo = float4(1, 1, 1, color.a);
@@ -651,77 +961,36 @@ Shader "ChroMapper/Particles"
                 #if defined(_DISTORTION_SIMPLE)
                 {
                     float2 distortScrollUv = uv * _DistortionTex_ST.xy + _DistortionTex_ST.zw
-                                           + time.y * _DistortionPanning.xy * _DistortionTex_ST.xy;
+                        + time.y * _DistortionPanning.xy * _DistortionTex_ST.xy;
                     float2 distortionSample = tex2D(_DistortionTex, distortScrollUv).rg;
                     uv += (distortionSample * 2.0 - 1.0) * (_DistortionStrength * 0.1) * _DistortionAxes.xy;
                 }
                 #endif
+                #if defined(CUSTOM_WRAPPING)
+                {
+                    float2 customPadding = max(_CustomPadding + 1.0, 1e-4);
+                    uv = frac(uv / customPadding) * customPadding;
+                }
                 #endif
-                // Step 3: apply flipbook offset on top of (potentially distorted) UV
+                #endif
                 #if defined(TEXTURE_FLIPBOOK)
                 {
-                    float2 flipUv = uv;
-                    flipUv.x /= _FlipbookColumns;
-                    flipUv.y /= _FlipbookRows;
-                    float flipbookTime = time.y * _FlipbookSpeed;
-                    flipUv += float2(
-                        floor(flipbookTime % _FlipbookColumns) / _FlipbookColumns,
-                        ((_FlipbookRows - 1.0) - floor(flipbookTime / _FlipbookColumns) % _FlipbookRows) / _FlipbookRows
-                    );
-                    #if defined(CUSTOM_WRAPPING)
-                    // TODO: custom wrapping with flipbook
-                    #endif
-                    #if defined(TEXTURE_COLOR)
-                    float4 _texSample = tex2D(_MainTex, flipUv) * _BaseLayer;
-                    // Frame blending: sample next frame and lerp by sub-frame fraction
-                    #if !defined(FLIPBOOK_BLENDING_OFF)
-                    {
-                        float2 flipUv2 = uv;
-                        flipUv2.x /= _FlipbookColumns;
-                        flipUv2.y /= _FlipbookRows;
-                        flipUv2 += float2(
-                            floor((flipbookTime + 1) % _FlipbookColumns) / _FlipbookColumns,
-                            ((_FlipbookRows - 1.0) - floor((flipbookTime + 1) / _FlipbookColumns) % _FlipbookRows) / _FlipbookRows
-                        );
-                        _texSample = lerp(_texSample, tex2D(_MainTex, flipUv2) * _BaseLayer, frac(flipbookTime));
-                    }
-                    #endif
-                    albedo.rgb *= _texSample.rgb;
-                    #if defined(_ALPHACHANNEL_RED)
-                    albedo.a *= _texSample.r;
-                    #else
-                    albedo.a *= _texSample.a;
-                    #endif
-                    #else
-                    // Non-texture-color: only alpha channel drives transparency
-                    float4 _texSample = tex2D(_MainTex, flipUv);
-                    #if !defined(FLIPBOOK_BLENDING_OFF)
-                    {
-                        float2 flipUv2 = uv;
-                        flipUv2.x /= _FlipbookColumns;
-                        flipUv2.y /= _FlipbookRows;
-                        flipUv2 += float2(
-                            floor((flipbookTime + 1) % _FlipbookColumns) / _FlipbookColumns,
-                            ((_FlipbookRows - 1.0) - floor((flipbookTime + 1) / _FlipbookColumns) % _FlipbookRows) / _FlipbookRows
-                        );
-                        _texSample = lerp(_texSample, tex2D(_MainTex, flipUv2), frac(flipbookTime));
-                    }
-                    #endif
-                    #if defined(_ALPHACHANNEL_RED)
-                    albedo.a *= _texSample.r * _BaseLayer;
-                    #else
-                    albedo *= _texSample.a * _BaseLayer;
-                    #endif
-                    #endif
+                    // Each atlas cell contains up to four frames in RGBA. The vertex
+                    // stage supplies the channel blend weights decoded from the source
+                    // flipbook route.
+                    float4 flipbookSample = tex2D(_MainTex, uv);
+                    float flipbookValue = dot(flipbookSample, i.flipbookWeights) * _BaseLayer;
+                    albedo.a *= flipbookValue;
                 }
                 #else
                 // Non-flipbook path: sample using distorted uv
-                #if defined(CUSTOM_WRAPPING)
-                // TODO: honestly, how does this work
-                #endif
                 #if defined(TEXTURE_COLOR)
                 // Sample full RGBA — RGB multiplies into color, alpha drives transparency
+                #if defined(MIPMAP_BIAS)
+                float4 _texSample = tex2Dbias(_MainTex, float4(uv, 0, _MipmapBias)) * _BaseLayer;
+                #else
                 float4 _texSample = tex2D(_MainTex, uv) * _BaseLayer;
+                #endif
                 albedo.rgb *= _texSample.rgb;
                 #if defined(_ALPHACHANNEL_RED)
                 albedo.a *= _texSample.r;
@@ -730,26 +999,38 @@ Shader "ChroMapper/Particles"
                 #endif
                 #else
                 // Non-texture-color: only alpha channel drives transparency
-                #if defined(_ALPHACHANNEL_RED)
-                    albedo.a *= tex2D(_MainTex, uv).r * _BaseLayer;
+                #if defined(MIPMAP_BIAS)
+                float4 _mipSample = tex2Dbias(_MainTex, float4(uv, 0, _MipmapBias));
                 #else
-                    albedo *= tex2D(_MainTex, uv).a * _BaseLayer;
+                float4 _mipSample = tex2D(_MainTex, uv);
+                #endif
+                #if defined(_ALPHACHANNEL_RED)
+                albedo.a *= _mipSample.r * _BaseLayer;
+                #else
+                // Keep texture alpha out of RGB. Final premultiplication applies it once.
+                albedo.a *= _mipSample.a * _BaseLayer;
                 #endif
                 #endif
                 #endif
                 #endif
 
                 #if defined(SECONDARY_COLOR)
-                float4 secondaryColorTex = tex2D(_SecondaryColorTex, TRANSFORM_TEX(i.uv, _SecondaryColorTex) + _SecondaryColorPanning * time.yy);
-                float3 blendedColor = lerp(UNITY_ACCESS_INSTANCED_PROP(Props, _Color).rgb, UNITY_ACCESS_INSTANCED_PROP(Props, _SecondaryColor).rgb,
+                float4 secondaryColorTex = tex2D(_SecondaryColorTex,
+                                                 TRANSFORM_TEX(i.uv, _SecondaryColorTex) + _SecondaryColorPanning * time
+                                                 .yy);
+                float3 blendedColor = lerp(
+                    UNITY_ACCESS_INSTANCED_PROP(Props, _Color).rgb,
+                    UNITY_ACCESS_INSTANCED_PROP(Props, _SecondaryColor).rgb,
                     saturate(secondaryColorTex.r));
                 albedo.rgb *= blendedColor;
                 #endif
 
                 #if defined(COLOR_GRADIENT)
-                albedo.rgb += tex2D(_ColorGradient,
-                                    TRANSFORM_TEX(i.uv, _ColorGradient) + _GradientPosition.xx * time.yy)
-                    .rgb;
+                float2 gradientUv = float2(
+                    saturate(albedo.a),
+                    frac(_GradientPosition + time.y * _GradientPanningSpeed));
+                float4 gradient = tex2D(_ColorGradient, TRANSFORM_TEX(gradientUv, _ColorGradient));
+                albedo.rgb *= gradient.rgb;
                 #endif
 
                 #if defined(MASK)
@@ -758,24 +1039,27 @@ Shader "ChroMapper/Particles"
                 #else
                 float2 maskUv = i.uv.xy;
                 #endif
-                float4 _maskSample = tex2D(_MaskTex, TRANSFORM_TEX(maskUv, _MaskTex) + _MaskPanning * time.yy);
-                float4 mask = lerp(float4(1,1,1,1), _maskSample, UNITY_ACCESS_INSTANCED_PROP(Props, _MaskStrength));
+                float2 maskSampleUv = TRANSFORM_TEX(maskUv, _MaskTex) + _MaskPanning * time.yy;
+                #if defined(DISTORTION_TARGET_MASK)
+                float2 maskDistortionUv = TRANSFORM_TEX(maskUv, _DistortionTex)
+                    + _DistortionPanning.xy * time.y;
+                float2 maskDistortion = tex2D(_DistortionTex, maskDistortionUv).rg;
+                maskSampleUv += (maskDistortion * 2.0 - 1.0) *
+                    (_DistortionStrength * 0.1) * _DistortionAxes.xy;
+                #endif
+                float4 _maskSample = tex2D(_MaskTex, maskSampleUv);
+                float maskStrength = UNITY_ACCESS_INSTANCED_PROP(Props, _MaskStrength);
                 #if defined(MASK_RED_IS_ALPHA)
-                mask.a = mask.r;
-                mask.rgb = 0;
+                float maskValue = _maskSample.r;
+                #else
+                float maskValue = _maskSample.a;
                 #endif
                 #if defined(_MASKBLEND_ADD)
-                albedo.rgb += mask.rgb;
-                albedo.a *= mask.a;
+                albedo.a = saturate(albedo.a + maskValue * maskStrength);
                 #elif defined(_MASKBLEND_MASKED_ADD)
-                albedo.rgb += albedo.rgb * mask.rgb;
-                albedo.a *= mask.a;
+                albedo.a *= 1.0 + maskValue * maskStrength;
                 #else
-                #if defined(MASK_RED_IS_ALPHA)
-                albedo.a *= mask.a;
-                #else
-                albedo *= mask;
-                #endif
+                albedo.a *= lerp(1.0, maskValue, maskStrength);
                 #endif
                 #endif
 
@@ -786,30 +1070,106 @@ Shader "ChroMapper/Particles"
                 float2 mask2Uv = i.uv.xy;
                 #endif
                 float4 _mask2Sample = tex2D(_Mask2Tex, TRANSFORM_TEX(mask2Uv, _Mask2Tex) + _Mask2Panning * time.yy);
-                float4 mask2 = lerp(float4(1,1,1,1), _mask2Sample, UNITY_ACCESS_INSTANCED_PROP(Props, _Mask2Strength));
+                float mask2Strength = UNITY_ACCESS_INSTANCED_PROP(Props, _Mask2Strength);
                 #if defined(MASK2_RED_IS_ALPHA)
-                mask2.a = mask2.r;
-                mask2.rgb = 1;
+                float mask2Value = _mask2Sample.r;
+                #else
+                float mask2Value = _mask2Sample.a;
                 #endif
                 #if defined(_MASK2BLEND_ADD)
-                albedo.rgb += mask2.rgb;
-                albedo.a *= mask2.a;
+                albedo.a = saturate(albedo.a + mask2Value * mask2Strength);
                 #elif defined(_MASK2BLEND_MASKED_ADD)
-                albedo.rgb += albedo.rgb * mask2.rgb;
-                albedo.a *= mask2.a;
+                albedo.a *= 1.0 + mask2Value * mask2Strength;
                 #else
-                #if defined(MASK2_RED_IS_ALPHA)
-                albedo.a *= mask2.a;
-                #else
-                albedo *= mask2;
+                albedo.a *= lerp(1.0, mask2Value, mask2Strength);
                 #endif
                 #endif
+
+                // Dissolve (game: DISSOLVE + _DISSOLVE_SPACE_WORLD[_CENTERED] +
+                // DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA). Axis distance gates the whole
+                // alpha chain; the strength multiplies alongside (fragment 482eee84d4f6d9db).
+                #if defined(DISSOLVE)
+                {
+                    float3 axis = normalize(_DissolveAxisVector.xyz);
+                    float3 dissolvePosition = i.localPos;
+                    #if defined(_DISSOLVE_SPACE_WORLD) || defined(_DISSOLVE_SPACE_WORLD_CENTERED)
+                     dissolvePosition = i.worldPos;
+                     #endif
+                     #if defined(_DISSOLVE_SPACE_WORLD_CENTERED)
+                     // The source centered route subtracts the object's world translation
+                     // (cb1[3]), not the camera position.
+                     dissolvePosition -= unity_ObjectToWorld._m03_m13_m23;
+                     #endif
+                     float d = dot(dissolvePosition, axis) - _DissolveOffset;
+                    d *= (_DissolveReverse > 0.5) ? -1.0 : 1.0;
+                    float t = saturate(d * _DissolveScale + 0.5);
+                    albedo.a *= t * _DissolveStrength;
+                }
+                #endif
+                #if defined(DISSOLVE_PROGRESS_FROM_VERTEX_ALPHA)
+                {
+                    // Per-vertex progress: the mesh bakes the dissolve position into
+                    // vertex alpha, making particles dissolve individually.
+                    albedo.a *= saturate(i.vertexAlpha);
+                }
+                #endif
+
+                // Lifetime / soft particles / close-to-camera: alpha-chain gates decoded
+                // from LIFETIME (e7fc61bdf833e455), SOFT_PARTICLES (ebdcf1970fae8aeb)
+                // and CLOSE_TO_CAMERA_DISAPPEAR (db0bff392a1dacb8) fragments.
+                #if defined(LIFETIME)
+                albedo.a *= saturate(_Lifetime);
+                #endif
+
+                #if defined(SOFT_PARTICLES)
+                {
+                    // Match the source depth-texture route. `screenPos.z` is converted to
+                    // eye depth in the vertex stage, so it can be compared with the
+                    // linearized scene depth from Unity's camera depth texture.
+                    float sceneDepth = LinearEyeDepth(
+                        SAMPLE_DEPTH_TEXTURE_PROJ(_CameraDepthTexture, UNITY_PROJ_COORD(i.screenPos)));
+                    float softFade = saturate((sceneDepth - i.screenPos.z) * _SoftFactor);
+                    albedo.a *= softFade;
+                }
+                #endif
+
+                #if defined(CLOSE_TO_CAMERA_DISAPPEAR)
+                {
+                    float dist = length(GetParticlesCameraPosition() - i.worldPos);
+                    float s = saturate((dist - _CloseCameraDisappearDistance)
+                                       / max(_CloseCameraDisappearWidth, 1e-4));
+                    float fade = s * s * (3.0 - 2.0 * s);
+                    albedo.a *= lerp(1.0, fade, _CloseCameraDisappearStrength);
+                }
+                #endif
+
+                #if defined(MIPMAP_BIAS)
+                {
+                    // View-angle fade: grazing billboards fade out, bias already applied
+                    // to the main texture sample above.
+                    float3 viewDir = normalize(GetParticlesCameraPosition() - i.worldPos);
+                    float vd = abs(dot(viewDir, normalize(i.worldNormal)));
+                    albedo.a *= saturate(vd * _MipmapFade + (1.0 - _MipmapFade));
+                }
+                #endif
+
+                #if defined(VIEW_ALIGN_DISAPPEAR)
+                {
+                    float3 cameraToParticle = normalize(i.worldPos - GetParticlesCameraPosition());
+                    float alignment = abs(dot(cameraToParticle, normalize(i.worldNormal)));
+                    if (_SquareAngleForViewAlignDisappear > 0.5)
+                        alignment *= alignment;
+                    float viewAlign = alignment * _ViewAlignFactor + _ViewAlignOffset;
+                    if (_ViewAlignFactor < 0.0) viewAlign += 1.0;
+                    albedo.a *= saturate(viewAlign);
+                }
                 #endif
 
                 albedo.a *= _AlphaMultiplier;
 
                 #if defined(SQUARE_ALPHA)
-                albedo.a *= albedo.a;
+                // The source square route is saturate(alpha) * alpha, not alpha squared.
+                albedo.a *= saturate(albedo.a);
                 #endif
 
                 #if defined(SPECTROGRAM_COLOR)
@@ -831,7 +1191,7 @@ Shader "ChroMapper/Particles"
                     // bar mask only gated the final alpha output.
                     float barMask = (float)(binValue >= i.spectrogramUv.y);
                     albedo.rgb *= brightness;
-                    albedo.a   *= barMask * brightness;
+                    albedo.a *= barMask * brightness;
                 }
                 #endif
 
@@ -839,59 +1199,119 @@ Shader "ChroMapper/Particles"
                 if (albedo.a < _Cutout) discard;
                 #endif
 
-                #if defined(REMAP_WHITEBOOST_START)
+                // Consolidated CustomParticles white boost: the shared Lit composition
+                // (premultiply + white-boost term) over the alpha chain. The remap
+                // folds into the boost input only (DXBC 04ac3ff0), the white-boost
+                // multiplier slot feeds both type routes (DXBC 137.w), and only the
+                // Mixed route scales the output alpha (DXBC 138.x slot; the Deferred
+                // route matches it only when POST_BLOOM is on, DXBC e025580b).
+                #if defined(NOISE_DITHERING)
                 {
-                    float remapped = (albedo.a * _QuestWhiteboostMultiplier - _WhiteBoostRemapStart)
-                                     / (1.0 - _WhiteBoostRemapStart);
-                    remapped = max(remapped, 0.0);
-                    float boost = remapped * remapped * _BaseColorBoost - _BaseColorBoostThreshold;
-                    // Previously boost was computed but never used — albedo.rgb only got the
-                    // saturate(rgb*alpha) term. Now we add the white boost, matching CustomParticles.
-                    albedo.rgb = saturate(albedo.rgb * albedo.a + boost);
+                    // Screen-space dither noise added to color before premultiply
+                    // (game: noise.r - 0.5 * 1/255, added pre-bloom).
+                    float2 noiseUv = i.screenPos.xy / i.screenPos.w;
+                    albedo.rgb += (tex2D(_GlobalBlueNoiseTex, noiseUv).r - 0.5) * (1.0 / 255.0);
                 }
                 #endif
 
-                #if defined(_BLOOMTYPE_PP)
-                CUSTOM_BLOOM_PP_APPLY(albedo, _BloomMultiplier);
-                #elif defined(_BLOOMTYPE_FRAG)
-                CUSTOM_BLOOM_FRAG_APPLY(albedo, _BloomWhiteMultiplier);
-                #else
-                CUSTOM_BLOOM_NONE_TRANSPARENT_APPLY(albedo);
+                #if defined(HOLOGRAM)
+                {
+                    // Transliteration of the 1.44.3 HOLOGRAM fragment: travelling scan
+                    // band + sine grid + moving wave, added to the color pre-premultiply.
+                    float hTime = time.y * 3.0;
+                    float3 wp = i.worldPos - GetParticlesCameraPosition();
+                    float bandIn = min(frac((hTime + wp.x) * 0.2) * 2.0, 1.0);
+                    float bandS = min(bandIn * 20.0, 1.0);
+                    float band = bandS * (3.0 - 2.0 * bandS) * (1.0 - bandS);
+                    float grid =
+                        sin(frac(wp.x * 3.0 - hTime * 0.3) * 3.14159)
+                        * sin(frac(wp.y * 3.0 - hTime) * 3.14159)
+                        * sin(frac(wp.z * 3.0 + hTime * 0.7) * 3.14159);
+                    float wave = cos(hTime * 2.0 + wp.y + wp.z) * 0.4 + 0.8;
+                    albedo.rgb += band * (band + grid * wave) * _HologramColor.rgb;
+                }
                 #endif
 
-                ACES_TONE_MAPPING_APPLY(albedo);
-
-                #if FOG
+                #if FOG && !defined(BLOOM_FOG) && defined(HEIGHT_FOG)
                 {
-                    float _fogFactor = 1.0;
-
-                    #if defined(HEIGHT_FOG)
-                    {
-                        // Exact CustomParticles formula
-                        float _hf = i.worldPos.y * _FogHeightScale + _FogHeightOffset;
-                        _hf = _hf - (_CustomFogHeightFogHeight + _CustomFogHeightFogStartY);
-                        _hf = saturate(_hf / _CustomFogHeightFogHeight);
-                        float _hfSq = _hf * _hf;
-                        _hf = -_hf * 2.0 + 3.0;
-                        _hf = -_hfSq * _hf + 1.0; // smoothstep: 1=bottom(fogged), 0=top(clear)
-                        _fogFactor = 1.0 - _hf;    // invert: 0=bottom(fade), 1=top(visible)
-                    }
-                    #else
-                    // Distance-only fog when height fog is off
-                    {
-                        float3 _toFrag = i.worldPos.xyz - _WorldSpaceCameraPos;
-                        float _distSq  = max(dot(_toFrag, _toFrag) - _FogStartOffset, 0.0);
-                        _fogFactor = 1.0 / (_distSq * _FogScale + 1.0);
-                    }
-                    #endif
-
-                    #if defined(_FOGTYPE_ALPHA)
-                    albedo *= _fogFactor;
+                    // Source retained non-bloom fog routes use height fog only. Distance fog
+                    // is supplied by the separate BLOOM_FOG path and is not present in these variants.
+                    float fogClearFactor = CalculateParticleHeightFogClearFactor(i.worldPos);
+                    float fogAlphaFactor = 1.0 - fogClearFactor;
+                    #if defined(_FOGTYPE_LERP)
+                    // LERP preserves source alpha and blends unpremultiplied RGB toward 0.1.
+                    albedo = ApplyHeightFog(albedo, i.worldPos, _FogHeightScale, _FogHeightOffset);
                     #elif defined(_FOGTYPE_COLOR)
-                    albedo.rgb *= _fogFactor;
-                    #else
-                    albedo *= _fogFactor;
+                    // The retained COLOR route uses the source 0.1 fog color and gates alpha.
+                    albedo.rgb *= 0.1;
+                    albedo.a *= fogAlphaFactor;
+                    #elif defined(_FOGTYPE_ALPHA)
+                    // ALPHA changes alpha only; final premultiplication scales RGB once.
+                    albedo.a *= fogAlphaFactor;
                     #endif
+                }
+                #endif
+
+                float bloomValue = albedo.a;
+                float boostInput = bloomValue;
+                float whiteboostMultiplier = _QuestWhiteboostMultiplier;
+                #if defined(REMAP_WHITEBOOST_START)
+                boostInput = (bloomValue * _QuestWhiteboostMultiplier - _WhiteBoostRemapStart)
+                    / max(1.0 - _WhiteBoostRemapStart, 1e-4);
+                boostInput = max(boostInput, 0.0);
+                whiteboostMultiplier = 1.0;
+                #endif
+                #if defined(_BLOOMTYPE_MIXED) || (defined(_BLOOMTYPE_DEFERRED) && !defined(POST_BLOOM))
+                albedo.rgb = CalculateBloomComposition(albedo.rgb, bloomValue, boostInput, whiteboostMultiplier,
+                                                       _BaseColorBoost, _BaseColorBoostThreshold);
+                #if defined(_BLOOMTYPE_MIXED)
+                albedo.a = bloomValue * _BloomMultiplier;
+                #else
+                albedo.a = bloomValue;
+                #endif
+                #elif defined(_BLOOMTYPE_DEFERRED)
+                // POST_BLOOM on: the post-process bloom provides the glow, so the
+                // Deferred route compiles the boost out (game: MAIN_EFFECT_ENABLED on,
+                // DXBC e025580b). Plain premultiplied composition, alpha scaled
+                // like the Mixed route.
+                albedo = CalculateBloomPostComposition(albedo.rgb, bloomValue, _BloomMultiplier);
+                #else
+                albedo.rgb *= abs(albedo.a);
+                #endif
+
+                #if defined(FAKE_MIRROR_TRANSPARENCY)
+                {
+                    // Fake mirror transparency: premultiplied output becomes a dark glass
+                    // quad. The game squares the main transparency slot into alpha and RGB.
+                    float total = _FakeMirrorTransparency * _FakeMirrorTransparency;
+                    albedo.rgb *= total;
+                    albedo.a = total;
+                }
+                #endif
+
+                #if defined(FILL_ALPHA)
+                // Force a constant final alpha (used by the game with a small fill value
+                // so fully transparent particles still receive depth/overdraw passes).
+                albedo.a = _FillAlpha;
+                #endif
+
+                #if defined(_OVERRIDE_FINAL_ALPHA_COLOR_BASED)
+                {
+                    // Final alpha derived from color brightness: dark pixels stay opaque.
+                    float maxComp = max(max(albedo.r, albedo.g), albedo.b);
+                    albedo.a = _OverrideFinalAlpha * (1.0 - maxComp);
+                }
+                #endif
+
+                #if defined(BLOOM_FOG) && FOG
+                {
+                #if defined(HEIGHT_FOG)
+                    albedo = ApplyBloomHeightFog(
+                        albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale,
+                        _FogHeightOffset, _FogHeightScale);
+                #else
+                    albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
+                #endif
                 }
                 #endif
 
