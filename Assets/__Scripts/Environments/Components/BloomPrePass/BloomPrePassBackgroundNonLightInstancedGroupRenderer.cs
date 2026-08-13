@@ -61,8 +61,9 @@ public class BloomPrePassBackgroundNonLightInstancedGroupRenderer : BloomPrePass
             : Renderers[0].Renderer.sharedMaterial;
         cb.SetRenderTarget(dest);
         cb.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
-        cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.GetColumn(3));
-        // if ((bool)_timeHelper) _timeHelper.SetCommandBufferTimeProperties(_commandBuffer); // TODO: also important
+        cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.inverse.GetColumn(3));
+        var timeHelper = TimeHelper != null ? TimeHelper : global::TimeHelper.Instance;
+        if (timeHelper != null) timeHelper.SetCommandBufferTimeProperties(cb);
 
         if (Renderers.Length == 1)
         {

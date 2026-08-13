@@ -41,26 +41,21 @@ Shader "ChroMapper/BloomfogMesh"
             };
 
             uniform float4x4 _VertexTransformMatrix;
+            uniform float _CustomFogOffset;
+            uniform float _CustomFogAttenuation;
 
             sampler2D _BloomfogAlphaMask;
 
             v2f vert(appdata v)
             {
-                // Constant view matrix, so it lives here
-                float4x4 ViewMatrix = float4x4(
-                    2, 0, 0, 0,
-                    0, -2, 0, 0,
-                    0, 0, -1, 0,
-                    -1, 1, 0, 1
-                );
-
                 v2f o;
-                o.vertex = mul(transpose(ViewMatrix), float4(v.vertex, 1.0));
+                // Set once as a global by BloomfogRendererSO.Initialize to match the game's runtime cbuffer matrix
+                o.vertex = mul(_VertexTransformMatrix, float4(v.vertex, 1.0));
                 o.uv = v.uv;
 
-                float4 color = v.color;
-                color.rgb = GammaToLinearSpace(color.rgb);
-                o.color = color;
+                // The game writes the computed light color directly to the
+                // float vertex buffer. Vertex colors do not use sRGB decoding.
+                o.color = v.color;
 
                 o.tangent.xyz = v.tangent / v.tangent.z;
                 o.tangent.w = 1.0 / v.tangent.z;
@@ -78,11 +73,11 @@ Shader "ChroMapper/BloomfogMesh"
                 float alpha = max(i.color.a, 1);
                 alpha = 1 / alpha;
 
-                float u0 = dir2 * alpha - 10;
+                float u0 = dir2 * alpha - _CustomFogOffset;
 
                 u0 = max(u0, 0);
 
-                u0 = u0 * 0.01 + 1.0;
+                u0 = u0 * _CustomFogAttenuation + 1.0;
 
                 u0 = 1.0 / u0;
 
