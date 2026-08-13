@@ -79,7 +79,7 @@ Shader "ChroMapper/Object/Event"
                 else if (pos >= fadeSize) col = colorB;
                 else col = colorA;
 
-                ACES_TONE_MAPPING_APPLY(col);
+                col = ApplyAcesTonemapping(col);
                 return col;
             }
             ENDHLSL

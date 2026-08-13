@@ -4,6 +4,8 @@
     {
         _Color("Base Color", Color) = (0.5, 0, 0, 0)
         _MainTex("Texture", 2D) = "white" {}
+
+        [Header(Editor)] [Space]
         _FadeSize("Fade Size", Range(0, 10)) = 5
         [HideInInspector] _Rotation("Rotation", float) = 0
 
@@ -57,9 +59,10 @@
             #pragma shader_feature_local_fragment _FOGTYPE_ALPHA
 
             #include "UnityCG.cginc"
-            #include "../ShaderLibrary/BloomFog.hlsl"
+            #include "../ShaderLibrary/Camera.hlsl"
+            #include "../ShaderLibrary/Fog.hlsl"
             #include "../ShaderLibrary/CustomBloom.hlsl"
-            #include "../ShaderLibrary/CustomTonemapping.hlsl"
+            #include "../ShaderLibrary/ObjectShared.hlsl"
 
             // Define instanced properties
             UNITY_INSTANCING_BUFFER_START(Props)
@@ -97,16 +100,6 @@
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
-            float3 ComputeRotatedPosition(float3 position, float theta)
-            {
-                float cosTheta = cos(theta);
-                float sinTheta = sin(theta);
-
-                return float3(position.x * cosTheta - position.z * sinTheta,
-                              position.y,
-                              position.z * cosTheta + position.x * sinTheta);
-            }
-
             v2f vert(appdata i)
             {
                 v2f o;
@@ -115,7 +108,8 @@
                 UNITY_TRANSFER_INSTANCE_ID(i, o);
 
                 o.worldPos.xyz = mul(unity_ObjectToWorld, i.vertex).xyz;
-                o.worldPos.y = max(_TrackLaneYPosition + 0.01, o.worldPos.y); // save me
+                // Keep the arc above the active track lane floor.
+                o.worldPos.y = max(_TrackLaneYPosition + 0.01, o.worldPos.y);
                 o.vertex = mul(UNITY_MATRIX_VP, float4(o.worldPos, 1));
                 o.uv.xy = i.uv.xy;
 
@@ -127,10 +121,8 @@
 
                 float objectTime = UNITY_ACCESS_INSTANCED_PROP(Props, _ObjectTime);
 
-                o.rotatedPos = float4(
-                    ComputeRotatedPosition(o.worldPos - offset, rotationInRadians) + offset,
-                    objectTime + 0.001 - _SongTime.y
-                );
+                o.rotatedPos = CalculateRotatedObjectPosition(
+                    o.worldPos, offset.xyz, rotationInRadians, objectTime, _SongTime.y);
                 o.screenPos = ComputeScreenPosCustom(o.vertex);
 
                 return o;
@@ -141,28 +133,57 @@
                 UNITY_SETUP_INSTANCE_ID(i);
                 float4 color = UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
 
-                float mask = saturate(sin(i.uv.x * 3.14159) * 5);
+                // Beat Saber's custom crossed-strip mesh stores this coordinate in
+                // TEXCOORD1.w. A LineRenderer is structurally different, so use its
+                // across-strip coordinate rather than attempting vertex-stage parity.
+                float edgeFade = 1.0 - 2.0 * abs(i.uv.y - 0.5);
+                edgeFade *= edgeFade;
+
                 #if defined(CM_PREVIEW_MODE)
                 i.uv.x = (i.uv.x + _Time.y) % 1;
                 #endif
-                float4 albedo = color * tex2D(_MainTex, i.uv);
-                albedo *= mask;
 
-                CUSTOM_BLOOM_PP_APPLY(albedo, 1);
-                albedo.a *= albedo.a * albedo.a;
+                // Recovered alpha source: the game samples its pattern texture and uses the
+                // red channel as alpha, discarding RGB (replaced by a constant times _Color).
+                // ChroMapper's Arc texture is white RGB with the glow mask in alpha, so the
+                // mask comes from tex.a.
+                float4 tex = tex2D(_MainTex, i.uv);
+                float4 albedo = float4(color.rgb, edgeFade * tex.a * color.a);
 
-                ACES_TONE_MAPPING_APPLY(albedo);
-
-                #if defined(CM_PREVIEW_MODE)
+                #if defined(FOG) && defined(_FOGTYPE_ALPHA)
+                // Recovered PRECISE_FOG + _FOGTYPE_ALPHA fragment (fragment-5500cb795b66e75f):
+                // the shared distance fog factor (CalculateCustomFogFactor; the per-frame
+                // globals _CustomFogAttenuation/_CustomFogOffset are set by
+                // BloomfogRenderingController) applies to alpha as transmission, and the
+                // white-boost bloom value is alpha * fog^3 (out alpha * fog^2).
+                {
+                    float fogAmount = CalculateCustomFogFactor(
+                        distanceSquared(i.worldPos), _FogStartOffset, _FogScale);
+                    float fogTransmission = 1.0 - fogAmount;
+                    albedo.a *= fogTransmission;
+                    albedo.rgb = CalculateBloomComposition(albedo.rgb, albedo.a,
+                        albedo.a * fogTransmission * fogTransmission, 1, _BaseColorBoost,
+                        _BaseColorBoostThreshold);
+                }
+                #else
+                // Recovered no-fog white-boost composition (bloomValue = alpha,
+                // premultiplied additive, alpha preserved).
+                albedo.rgb = CalculateBloomComposition(albedo.rgb, albedo.a, albedo.a, 1,
+                    _BaseColorBoost, _BaseColorBoostThreshold);
 
                 #if defined(FOG) && defined(BLOOM_FOG)
+                // ChroMapper extension: the game's fog prepass is pipeline-level; this route
+                // blends toward the bloom prepass texture instead.
                 #if defined(HEIGHT_FOG)
-                BLOOM_FOG_HEIGHT_APPLY(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale, _FogHeightOffset,
-                                       _FogHeightScale);
+                albedo = ApplyBloomHeightFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale,
+                                       _FogHeightOffset, _FogHeightScale);
                 #else
-                BLOOM_FOG_APPLY(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
+                albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
                 #endif
                 #endif
+                #endif
+
+                #if defined(CM_PREVIEW_MODE)
 
                 float fadeSize = UNITY_ACCESS_INSTANCED_PROP(Props, _FadeSize);
 
