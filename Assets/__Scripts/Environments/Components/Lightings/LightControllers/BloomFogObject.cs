@@ -28,9 +28,18 @@ public sealed class BloomFogObject : MonoBehaviour
     [NonSerialized] public Transform CachedTransform;
     private Color color;
 
-    private void OnEnable() => AllBloomFogLights.Add(this);
+    private void OnEnable()
+    {
+        // Environment objects can be re-enabled during scene transitions
+        // without a matching disable callback. Keep one render entry per light.
+        if (!AllBloomFogLights.Contains(this)) AllBloomFogLights.Add(this);
+    }
 
-    private void OnDisable() => AllBloomFogLights.Remove(this);
+    private void OnDisable()
+    {
+        // Remove all stale entries left by older enable cycles.
+        while (AllBloomFogLights.Remove(this)) { }
+    }
 
     public void SetColor(Color col) => color = col;
 

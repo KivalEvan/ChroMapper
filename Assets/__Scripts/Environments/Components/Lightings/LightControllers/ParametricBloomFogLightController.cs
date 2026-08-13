@@ -155,6 +155,14 @@ public class ParametricBloomFogLightController : LightController
             }
         }
 
+        var lengthFactor = 1f;
+        if (MultiplyLengthByAlpha)
+        {
+            multiplyLengthByAlphaMultiplier = AlphaToLengthCurve.Evaluate(Color.a);
+            MultiplyLengthByAlphaBloomFogMultiplier = AlphaToLengthBloomFogCurve.Evaluate(Color.a);
+            lengthFactor = multiplyLengthByAlphaMultiplier;
+        }
+
         if (hasBloomFog)
         {
             BloomFog.LightWidthMultiplier = LightWidthMultiplier;
@@ -180,14 +188,6 @@ public class ParametricBloomFogLightController : LightController
         {
             var time = Mathf.InverseLerp(MinDistance, MaxDistance, transform.position.z);
             widthFactor = Mathf.Lerp(MinWidthMultiplier, MaxWidthMultiplier, ThickenCurve.Evaluate(time));
-        }
-
-        var lengthFactor = 1f;
-        if (MultiplyLengthByAlpha)
-        {
-            multiplyLengthByAlphaMultiplier = AlphaToLengthCurve.Evaluate(Color.a);
-            MultiplyLengthByAlphaBloomFogMultiplier = AlphaToLengthBloomFogCurve.Evaluate(Color.a);
-            lengthFactor = multiplyLengthByAlphaMultiplier;
         }
 
         if (hasBoxLight)

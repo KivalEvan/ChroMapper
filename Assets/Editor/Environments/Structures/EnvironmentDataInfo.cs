@@ -192,6 +192,7 @@ public class EnvFogDefinition
     public float StartY;
     public float Attenuation;
     public float AutoExposureLimit;
+    [JsonProperty("legacyAutoExposure")] public bool LegacyAutoExposure;
 
     public void CopyTo(BloomFogParams copy)
     {
@@ -200,6 +201,8 @@ public class EnvFogDefinition
         copy.StartY = StartY;
         copy.Attenuation = Attenuation;
         copy.AutoExposureLimit = AutoExposureLimit;
+        copy.LegacyAutoExposure = LegacyAutoExposure;
+        copy.CaptureDefaults();
     }
 }
 

@@ -187,6 +187,10 @@ namespace Beatmap.Containers
                 if (bloomFog["offset"] != null) descriptor.BloomFogParams.Offset = bloomFog["offset"];
                 if (bloomFog["startY"] != null) descriptor.BloomFogParams.StartY = bloomFog["startY"];
                 if (bloomFog["height"] != null) descriptor.BloomFogParams.Height = bloomFog["height"];
+                if (bloomFog["autoExposureLimit"] != null)
+                    descriptor.BloomFogParams.AutoExposureLimit = bloomFog["autoExposureLimit"];
+                if (bloomFog["legacyAutoExposure"] != null)
+                    descriptor.BloomFogParams.LegacyAutoExposure = bloomFog["legacyAutoExposure"];
             }
 
             var adjustScale = BeatSaberSongContainer.Instance.Map.MajorVersion == 2
