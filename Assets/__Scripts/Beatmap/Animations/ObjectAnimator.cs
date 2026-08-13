@@ -445,8 +445,10 @@ namespace Beatmap.Animations
                 if (Colors.Count > 0)
                 {
                     var color = Colors.Get();
-                    container.MpbController.Mpb
-                        .SetColor(colorId, color);
+                    if (container is ObstacleContainer obstacle)
+                        obstacle.SetColor(color);
+                    else
+                        container.MpbController.Mpb.SetColor(colorId, color);
                 }
 
                 if (container is NoteContainer nc)

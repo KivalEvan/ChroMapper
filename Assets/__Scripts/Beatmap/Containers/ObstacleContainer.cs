@@ -6,7 +6,15 @@ namespace Beatmap.Containers
 {
     public class ObstacleContainer : ObjectContainer
     {
+        private const float addColorMultiplier = 0.1f;
+        private const float coreLerpToWhiteFactor = 0.75f;
+        private const float obstacleEdgeSize = 0.05f;
+
         private static readonly int worldScaleId = Shader.PropertyToID("_WorldScale");
+        private static readonly int uvScaleId = Shader.PropertyToID("_UVScale");
+        private static readonly int addColorId = Shader.PropertyToID("_AddColor");
+        private static readonly int tintColorId = Shader.PropertyToID("_TintColor");
+        private static readonly int sizeParamsId = Shader.PropertyToID("_SizeParams");
 
         [SerializeField] public MeshRenderer CoreRenderer;
         [SerializeField] private Material simpleObstacle;
@@ -49,6 +57,11 @@ namespace Beatmap.Containers
         public void SetColor(Color c)
         {
             MpbController.Mpb.SetColor(ColorId, c);
+            MpbController.Mpb.SetColor(tintColorId, Color.Lerp(c, Color.white, coreLerpToWhiteFactor));
+
+            var addColor = c * addColorMultiplier;
+            addColor.a = 0f;
+            MpbController.Mpb.SetColor(addColorId, addColor);
             UpdateMaterials();
         }
 
@@ -67,6 +80,19 @@ namespace Beatmap.Containers
             OutlineTransform.localPosition = cubeOffset;
 
             MpbController.Mpb.SetVector(worldScaleId, OutlineTransform.localScale);
+            MpbController.Mpb.SetVector(uvScaleId, CoreTransform.localScale);
+            var absoluteScale = new Vector3(
+                Mathf.Abs(scale.x),
+                Mathf.Abs(scale.y),
+                Mathf.Abs(scale.z));
+            MpbController.Mpb.SetVector(
+                sizeParamsId,
+                new Vector4(
+                    absoluteScale.x * 0.5f,
+                    absoluteScale.y * 0.5f,
+                    absoluteScale.z * 0.5f,
+                    obstacleEdgeSize * 0.5f));
+
             UpdateMaterials();
         }
 
@@ -175,4 +201,5 @@ namespace Beatmap.Containers
         public void SetIndicators(bool visible) =>
             text.gameObject.SetActive(visible && Settings.Instance.DisplayNoteText);
     }
+
 }
