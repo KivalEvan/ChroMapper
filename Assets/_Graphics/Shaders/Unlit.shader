@@ -6,7 +6,7 @@
         [Space(10)]
         _Color ("Color", Color) = (1, 1, 1, 1)
         _MainTex ("Texture", 2D) = "white" {}
-        [KeywordEnum(None, PP, Frag)] _BloomType ("Bloom Type", float) = 0
+        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("Bloom Type", float) = 0
 
         [Header(Fog Settings)] [Space]
         [Toggle(FOG)] _EnableFog ("Enable Fog", float) = 1
@@ -42,13 +42,16 @@
             #pragma multi_compile_instancing
 
             #pragma shader_feature_local_fragment ALPHA_CUTOUT
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_PP _BLOOMTYPE_FRAG
+            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
+            // Global: the post-process bloom runs (mirrors the game's MAIN_EFFECT_ENABLED gate).
+            #pragma multi_compile _ POST_BLOOM
             #pragma shader_feature_local_fragment HEIGHT_FOG
 
             #pragma multi_compile_fragment _ BLOOM_FOG
 
             #include "UnityCG.cginc"
-            #include "ShaderLibrary/BloomFog.hlsl"
+            #include "ShaderLibrary/Camera.hlsl"
+            #include "ShaderLibrary/Fog.hlsl"
             #include "ShaderLibrary/CustomBloom.hlsl"
             #include "ShaderLibrary/CustomTonemapping.hlsl"
 
@@ -105,22 +108,20 @@
                 if (albedo.a == 0) discard;
                 #endif
 
-                #if _BLOOMTYPE_PP
-                CUSTOM_BLOOM_PP_APPLY(albedo, 1);
-                #elif _BLOOMTYPE_FRAG
-                CUSTOM_BLOOM_FRAG_APPLY(albedo, 1);
-                #else
-                CUSTOM_BLOOM_NONE_APPLY(albedo);
-                #endif
+                // The game's Unlit family has no white boost. The dispatcher keeps
+                // its no-bloom alpha contract and the Deferred/Mixed adapters.
+                albedo = ApplyBloomTypeComposition(
+                    albedo, albedo.rgb, albedo.a, albedo.a, 1,
+                    _BaseColorBoost, _BaseColorBoostThreshold, 1, 0);
 
-                ACES_TONE_MAPPING_APPLY(albedo);
+                albedo = ApplyAcesTonemapping(albedo);
 
                 #if defined(BLOOM_FOG)
                 #if defined(HEIGHT_FOG)
-                BLOOM_FOG_HEIGHT_APPLY(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale, _FogHeightOffset,
-                                       _FogHeightScale);
+                albedo = ApplyBloomHeightFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale,
+                                             _FogHeightOffset, _FogHeightScale);
                 #else
-                BLOOM_FOG_APPLY(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
+                albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
                 #endif
                 #endif
 

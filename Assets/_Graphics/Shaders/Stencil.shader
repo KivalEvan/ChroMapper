@@ -15,7 +15,7 @@ Shader "Custom/Stencil" {
             Blend Zero One, Zero One
             ZClip On
             ZWrite Off
-            Cull Off
+            Cull [_Cull]
 
             Stencil {
                 Ref [_StencilRefValue]
