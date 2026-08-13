@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -44,9 +43,7 @@ public static class EnvironmentListUpdate
         foreach (var dataPath in envDataPaths)
         {
             var dataAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(dataPath);
-            var data = JsonConvert.DeserializeObject<EnvironmentData>(
-                dataAsset.text,
-                new Vector3ArrayConverter());
+            var data = CreateUtils.JsonToEnvironmentData(dataAsset);
 
             var scene = AssetDatabase.LoadAssetAtPath<SceneAsset>(
                 PathUtils.Combine(environmentPath, data.Data.ID + ".unity"));

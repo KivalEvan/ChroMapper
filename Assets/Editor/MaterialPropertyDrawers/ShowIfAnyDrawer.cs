@@ -64,7 +64,8 @@ public class ShowIfAnyDrawer : MaterialPropertyDrawer
                                     break;
                                 case "EnumShowIfAny":
                                     var c = int.Parse(o.First());
-                                    if (o.Skip(1).Take(c).Select(x => $"{propName}_{x}").Contains(revKeyword))
+                                    if (o.Skip(1).Take(c).Select(x => $"{propName}_{x.Replace(' ', '_')}")
+                                        .Contains(revKeyword))
                                         return !mat.shaderKeywords.Contains(revKeyword);
                                     break;
                                 case "ToggleShowIfAny":

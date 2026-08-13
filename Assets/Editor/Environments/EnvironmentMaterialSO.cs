@@ -57,13 +57,16 @@ public class EnvironmentMaterialSO : ScriptableObject
                     Keywords = new List<string>(material.Keywords),
                     FloatProps =
                         material
-                            .ShaderProps.Where(x => x.Value is float)
+                            .ShaderProps.Where(x => IsNumeric(x.Value))
                             .Select(x =>
-                                new MaterialInfo.ShaderProps<float> { Key = x.Key, Value = x.Value })
+                                new MaterialInfo.ShaderProps<float>
+                                {
+                                    Key = x.Key, Value = Convert.ToSingle(x.Value)
+                                })
                             .ToList(),
                     VectorProps =
                         material
-                            .ShaderProps.Where(x => x.Value is not double && x.Value is not string)
+                            .ShaderProps.Where(x => x.Value is JArray)
                             .Select(x =>
                                 new MaterialInfo.ShaderProps<Vector4>
                                 {
@@ -85,13 +88,16 @@ public class EnvironmentMaterialSO : ScriptableObject
             if (material.Keywords != null) m.Keywords.AddRange(material.Keywords.Where(x => !m.Keywords.Contains(x)));
             m.FloatProps.AddRange(
                 material
-                    .ShaderProps.Where(x => x.Value is float or double or long)
+                    .ShaderProps.Where(x => IsNumeric(x.Value))
                     .Where(x => !m.FloatProps.Exists(y => y.Key == x.Key))
                     .Select(x =>
-                        new MaterialInfo.ShaderProps<float> { Key = x.Key, Value = (float)x.Value }));
+                        new MaterialInfo.ShaderProps<float>
+                        {
+                            Key = x.Key, Value = Convert.ToSingle(x.Value)
+                        }));
             m.VectorProps.AddRange(
                 material
-                    .ShaderProps.Where(x => x.Value is not double && x.Value is not long && x.Value is not string)
+                    .ShaderProps.Where(x => x.Value is JArray)
                     .Where(x => !m.VectorProps.Exists(y => y.Key == x.Key))
                     .Select(x => new MaterialInfo.ShaderProps<Vector4>
                     {
@@ -108,6 +114,9 @@ public class EnvironmentMaterialSO : ScriptableObject
             if (!m.Environments.Contains(environment)) m.Environments.Add(environment);
         }
     }
+
+    private static bool IsNumeric(object value) =>
+        value is byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal;
 
     private Vector4 GetVector4(float[] val) => new(val[0], val[1], val[2], val[3]);
 

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -102,8 +101,7 @@ public partial class EnvironmentSceneCreator
         // Oh dear I'm loading stuff at runtime
         var environmentLibrary =
             AssetDatabase.LoadAssetAtPath<EnvironmentLibrarySO>(PathUtils.Combine(editorPath, "EnvironmentLibrarySO.asset"));
-        var environmentData =
-            JsonConvert.DeserializeObject<EnvironmentData>(textAsset.text, new Vector3ArrayConverter());
+        var environmentData = CreateUtils.JsonToEnvironmentData(textAsset);
 
         // Move null checks up here so it doesnt ruin the rest of the process
         if (environmentLibrary == null) throw new ArgumentNullException(nameof(environmentLibrary));

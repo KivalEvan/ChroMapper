@@ -32,11 +32,17 @@ public class EnumShowIfAnyDrawer : ShowIfAnyDrawer
             var mat = (Material)target;
             for (var i = 0; i < options.Length; i++)
             {
-                var keyword = (prop.name + "_" + options[i]).ToUpper();
+                var option = options[i].Replace(' ', '_').ToUpperInvariant();
+                if (option is "NONE" or "OFF") continue;
+
+                var keyword = $"{prop.name.ToUpperInvariant()}_{option}";
+                var localKeyword = mat.shader.keywordSpace.FindKeyword(keyword);
+                if (!localKeyword.isValid) continue;
+
                 if (i == index)
-                    mat.EnableKeyword(keyword);
+                    mat.EnableKeyword(localKeyword);
                 else
-                    mat.DisableKeyword(keyword);
+                    mat.DisableKeyword(localKeyword);
             }
         }
     }

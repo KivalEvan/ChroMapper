@@ -24,7 +24,7 @@ public class ColorArrayConverter : JsonConverter<Color>
 
         reader.Read();
         var a = 1f;
-        if (reader.TokenType == JsonToken.Float)
+        if (reader.TokenType is JsonToken.Float or JsonToken.Integer)
         {
             a = Convert.ToSingle(reader.Value);
             reader.Read();
