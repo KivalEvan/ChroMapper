@@ -143,6 +143,7 @@ public class EnvironmentDataObject
         public TextureProcessor3DData[]? TextureProcessor3D;
         public GridElementControllerData[]? GridElementController;
         public BakedLightsNormalizerData[]? BakedLightsNormalizer;
+        public BakedReflectionProbeData[]? BakedReflectionProbe;
         public MirrorData[]? Mirror;
         public SDFPointData[]? SDFPoint;
         public SDFArrayManagerData[]? SDFArrayManager;

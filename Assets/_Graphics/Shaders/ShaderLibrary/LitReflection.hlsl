@@ -1,6 +1,10 @@
 #ifndef CHROMAPPER_LIT_REFLECTION_INCLUDED
 #define CHROMAPPER_LIT_REFLECTION_INCLUDED
 
+// Temporarily disable the custom packed baked reflection probes while their
+// baking pipeline is being reconstructed.
+#define CHROMAPPER_DISABLE_BAKED_REFLECTION_PROBES
+
 #include "Data.hlsl"
 #include "CustomLighting.hlsl"
 
@@ -203,7 +207,7 @@ inline float3 ResolveLitReflection(
     float antiflickerStrength,
     float groundFadeScale, float groundFadeOffset)
 {
-    #if !defined(REFLECTION_PROBE)
+    #if !defined(REFLECTION_PROBE) || defined(CHROMAPPER_DISABLE_BAKED_REFLECTION_PROBES)
     return 0.0;
     #else
     float smoothness = CalculateComposableReflectionSmoothness(
