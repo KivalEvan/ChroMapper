@@ -9,7 +9,6 @@ using Object = UnityEngine.Object;
 public class EnvironmentBuildPopulate
 {
     private const string editorPath = "Assets/Editor/Environments";
-    private const string graphicsPath = "Assets/_Graphics";
     private const string environmentPath = "Assets/__Scenes/Environments";
 
     [MenuItem("Environment/Populate Build Data", false, 800)]
@@ -158,7 +157,7 @@ public class EnvironmentBuildPopulate
                 if (matInfo.Environments.Count > 1)
                 {
                     // Asset creation and lookup paths must use Unity's forward-slash convention.
-                    var targetPath = PathUtils.Combine(graphicsPath, "Materials", "Environment", $"{name}.mat");
+                    var targetPath = PathUtils.Combine(Constants.MaterialsPath, $"{name}.mat");
                     if (!AssetDatabase.AssetPathExists(targetPath))
                         AssetDatabase.CreateAsset(mat, targetPath);
                     else
@@ -167,7 +166,7 @@ public class EnvironmentBuildPopulate
                 else
                 {
                     // Keep every folder and material path compatible with AssetDatabase on Windows.
-                    var parentPath = PathUtils.Combine(graphicsPath, "Materials", "Environment");
+                    var parentPath = Constants.MaterialsPath;
                     var env = matInfo.Environments[0].Replace("Environment", "");
                     var folderPath = PathUtils.Combine(parentPath, env);
                     if (!AssetDatabase.AssetPathExists(folderPath)) AssetDatabase.CreateFolder(parentPath, env);
