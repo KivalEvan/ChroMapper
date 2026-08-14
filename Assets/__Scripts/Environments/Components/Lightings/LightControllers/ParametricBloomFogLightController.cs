@@ -3,9 +3,9 @@ using UnityEngine.Animations;
 
 public class ParametricBloomFogLightController : LightController
 {
-    public float Width = 0.5f;
+    [SerializeField] private float width = 0.5f;
     public bool OverrideChildrenLength = true;
-    public float Length = 1f;
+    [SerializeField] private float length = 1f;
     public float Center = 0.5f;
     public float ColorAlphaMultiplier = 1f;
     public float BloomFogIntensityMultiplier = 1f;
@@ -33,7 +33,6 @@ public class ParametricBloomFogLightController : LightController
     public float MaxAlpha = 1f;
 
     public bool OverrideChildrenAlpha = true;
-    public float StartAlpha = 1f;
     public float EndAlpha = 1f;
 
     public bool OverrideChildrenWidth;
@@ -50,6 +49,10 @@ public class ParametricBloomFogLightController : LightController
     private bool hasBloomFog;
     private bool hasBoxLight;
     private bool hasSpriteLight;
+    private bool shouldRefresh = true;
+
+    [SerializeField] private float startAlpha = 1f;
+    [SerializeField] private float collisionLength = float.MaxValue;
 
     public float MultiplyLengthByAlphaBloomFogMultiplier = 1f;
     private float multiplyLengthByAlphaMultiplier = 1f;
@@ -62,18 +65,59 @@ public class ParametricBloomFogLightController : LightController
         set
         {
             useCollision = value;
-            if (hasBoxLight) BoxLight.UseCollision = value;
-            if (hasSpriteLight) SpriteLight.UseCollision = value;
+            shouldRefresh = true;
+            if (BoxLight != null) BoxLight.UseCollision = value;
+            if (SpriteLight != null) SpriteLight.UseCollision = value;
         }
     }
 
-    public float CollisionLength = float.MaxValue;
+    public float Width
+    {
+        get => width;
+        set
+        {
+            width = value;
+            shouldRefresh = true;
+        }
+    }
+
+    public float Length
+    {
+        get => length;
+        set
+        {
+            length = value;
+            shouldRefresh = true;
+        }
+    }
+
+    public float StartAlpha
+    {
+        get => startAlpha;
+        set
+        {
+            startAlpha = value;
+            shouldRefresh = true;
+        }
+    }
+
+    public float CollisionLength
+    {
+        get => collisionLength;
+        set
+        {
+            collisionLength = value;
+            shouldRefresh = true;
+        }
+    }
+
+    private float CalculatedCollisionEndAlpha =>
+        UseCollision
+            ? Mathf.Lerp(StartAlpha, EndAlpha, Mathf.InverseLerp(0f, Length, CalculatedCollisionLength))
+            : EndAlpha;
 
     public float CollisionEndAlpha =>
-        (UseCollision
-            ? Mathf.Lerp(StartAlpha, EndAlpha, Mathf.InverseLerp(0f, Length, CalculatedCollisionLength))
-            : EndAlpha)
-        * multiplyLengthByAlphaMultiplier;
+        CalculatedCollisionEndAlpha * multiplyLengthByAlphaMultiplier;
 
     private float CalculatedCollisionLength => !UseCollision ? Length : Mathf.Min(CollisionLength, Length);
 
@@ -93,7 +137,8 @@ public class ParametricBloomFogLightController : LightController
         {
             BoxLight.Center = Center;
             BoxLight.AlphaMultiplier = ColorAlphaMultiplier;
-            BoxLight.MinAlpha = MinAlpha;
+            BoxLight.MinAlpha = LimitAlpha ? MinAlpha : 0f;
+            BoxLight.UseCollision = useCollision;
             if (OverrideChildrenWidth)
             {
                 BoxLight.WidthStart = StartWidth;
@@ -106,8 +151,9 @@ public class ParametricBloomFogLightController : LightController
         if (hasSpriteLight)
         {
             SpriteLight.Center = Center;
-            SpriteLight.MinAlpha = MinAlpha;
+            SpriteLight.MinAlpha = LimitAlpha ? MinAlpha : 0f;
             SpriteLight.AlphaMultiplier = ColorAlphaMultiplier * FakeBloomIntensityMultiplier;
+            SpriteLight.UseCollision = useCollision;
             if (OverrideChildrenWidth)
             {
                 SpriteLight.WidthStart = StartWidth;
@@ -120,25 +166,33 @@ public class ParametricBloomFogLightController : LightController
         return true;
     }
 
-    private bool shouldRefresh;
-
-    private void OnEnable() => shouldRefresh = true;
+    private void OnEnable()
+    {
+        shouldRefresh = true;
+    }
     private void OnDisable() => shouldRefresh = false;
 
-    public override bool ShouldInclude => UpdateAlways;
-    public override bool ShouldRefresh => shouldRefresh;
+    public override bool ShouldInclude => true;
+    public override bool ShouldRefresh => shouldRefresh || (UpdateAlways && isActiveAndEnabled);
 
     public override void SetColor(Color color)
     {
         Color = color;
-        if (!HasInitialized || UpdateAlways) return;
-        Refresh();
+        shouldRefresh = true;
+        if (HasInitialized && !UpdateAlways) Refresh();
     }
 
     public override void Refresh()
     {
+        if (!shouldRefresh && !UpdateAlways) return;
+
         var rendered = !DisableRenderersOnZeroAlpha || Color.a > 0.01f;
-        if (!rendered && !EnabledRenderers) return;
+        if (hasBloomFog) BloomFog.DisableRenderersOnZeroAlpha = DisableRenderersOnZeroAlpha;
+        if (!rendered && !EnabledRenderers)
+        {
+            shouldRefresh = false;
+            return;
+        }
 
         if (EnabledRenderers != rendered)
         {
@@ -169,7 +223,7 @@ public class ParametricBloomFogLightController : LightController
             BloomFog.EndWidth = EndWidth;
             BloomFog.StartWidth = StartWidth;
             BloomFog.StartAlpha = StartAlpha;
-            BloomFog.EndAlpha = CollisionEndAlpha;
+            BloomFog.EndAlpha = CalculatedCollisionEndAlpha;
             BloomFog.LimitAlpha = LimitAlpha;
             BloomFog.MinAlpha = MinAlpha;
             BloomFog.MaxAlpha = MaxAlpha;
@@ -226,5 +280,7 @@ public class ParametricBloomFogLightController : LightController
 
             SpriteLight.SetColor(Color);
         }
+
+        shouldRefresh = false;
     }
 }

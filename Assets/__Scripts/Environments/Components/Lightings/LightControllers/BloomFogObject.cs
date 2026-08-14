@@ -21,6 +21,7 @@ public sealed class BloomFogObject : MonoBehaviour
     public float IntensityMultiplier = 1f;
 
     public float BoostToWhite;
+    public bool DisableRenderersOnZeroAlpha;
     public bool LimitAlpha;
     public float MinAlpha;
     public float MaxAlpha = 1f;
@@ -53,7 +54,7 @@ public sealed class BloomFogObject : MonoBehaviour
         // Get current quad
         ref var quad = ref quads[quadNum];
 
-        if (color.a < 0.01f)
+        if (DisableRenderersOnZeroAlpha && color.a < 0.01f)
         {
             ZeroQuad(ref quad);
             return;
@@ -261,17 +262,20 @@ public sealed class BloomFogObject : MonoBehaviour
         if (LimitAlpha) finalAlpha = Mathf.Clamp(finalAlpha, MinAlpha, MaxAlpha);
         finalAlpha = Mathf.LinearToGammaSpace(finalAlpha);
 
+        var startAlpha = StartAlpha;
+        var endAlpha = EndAlpha * MultiplyLengthByAlphaMultiplier;
+
         // Calculate vertex colors
         var startColor = new Color(
-            StartAlpha * boostedR,
-            StartAlpha * boostedG,
-            StartAlpha * boostedB,
-            StartAlpha * finalAlpha);
+            startAlpha * boostedR,
+            startAlpha * boostedG,
+            startAlpha * boostedB,
+            startAlpha * finalAlpha);
         var endColor = new Color(
-            EndAlpha * boostedR,
-            EndAlpha * boostedG,
-            EndAlpha * boostedB,
-            EndAlpha * finalAlpha);
+            endAlpha * boostedR,
+            endAlpha * boostedG,
+            endAlpha * boostedB,
+            endAlpha * finalAlpha);
 
         // Fill quad data
         quad.Vertex0Position.x = startScreenX - startWidthOffsetX;

@@ -3,7 +3,6 @@ using UnityEngine;
 
 public class BloomPrePassBackgroundColorsGradientFromColorSchemeColors : MonoBehaviour
 {
-    [SerializeField] public ColorBoostEffect Effect;
     [SerializeField] public ColorSchemeProvider ColorSchemeProvider;
 
     [SerializeField] public BloomPrePassBackgroundColorsGradient BloomPrePassBackgroundColorsGradient;
@@ -11,17 +10,29 @@ public class BloomPrePassBackgroundColorsGradientFromColorSchemeColors : MonoBeh
 
     protected void Start()
     {
-        Effect.OnStateChanged += HandleStateChanged;
-        HandleStateChanged(Effect.GetCurrentState());
+        if (ColorSchemeProvider != null)
+            ColorSchemeProvider.OnColorSchemeChanged += HandleColorSchemeChanged;
+
+        HandleColorSchemeChanged();
     }
 
-    protected void OnDestroy() => Effect.OnStateChanged -= HandleStateChanged;
+    protected void OnDestroy()
+    {
+        if (ColorSchemeProvider != null)
+            ColorSchemeProvider.OnColorSchemeChanged -= HandleColorSchemeChanged;
+    }
 
-    private void HandleStateChanged(bool boost) => SetColorsToElements();
+    private void HandleColorSchemeChanged() => SetColorsToElements();
 
     private void SetColorsToElements()
     {
-        for (var i = 0; i < BloomPrePassBackgroundColorsGradient.Elements.Length && i < Elements.Length; i++)
+        if (ColorSchemeProvider == null || ColorSchemeProvider.ColorScheme == null) return;
+        if (BloomPrePassBackgroundColorsGradient == null || Elements == null) return;
+
+        var gradientElements = BloomPrePassBackgroundColorsGradient.Elements;
+        if (gradientElements == null) return;
+
+        for (var i = 0; i < gradientElements.Length && i < Elements.Length; i++)
         {
             if (Elements[i].LoadFromColorScheme)
             {

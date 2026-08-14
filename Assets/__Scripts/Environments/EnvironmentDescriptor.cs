@@ -49,7 +49,7 @@ public class EnvironmentDescriptor : MonoBehaviour
         LightTranslationGroupEffectManager.Initialize(context.Atsc);
         FloatFxGroupEffectManager.Initialize(context.Atsc);
 
-        ColorSchemeProvider.ColorScheme = context.ColorScheme;
+        ColorSchemeProvider.Initialize(context);
         SpectrogramDataProvider.AudioLink = context.AudioLink;
 
         BasicLightEffect.FlashTimeBeat = context.Atsc.GetBeatFromSeconds(BasicLightEffect.FlashTimeSecond);

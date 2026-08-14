@@ -21,7 +21,6 @@ public class
         BloomPrePassBackgroundColorsGradientFromColorSchemeColors comp,
         CreateContainer container)
     {
-        comp.Effect = container.Descriptor.BasicEventEffectManager.GetEffect<ColorBoostEffect>(5);
         comp.ColorSchemeProvider = container.Descriptor.ColorSchemeProvider;
 
         comp.BloomPrePassBackgroundColorsGradient =

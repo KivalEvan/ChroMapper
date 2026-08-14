@@ -83,7 +83,7 @@ public class ParametricBoxLight : MonoBehaviour
             Debug.LogError($"[ParametricBoxLight] Renderer is null on '{name}' — no Renderer component found on this GameObject.");
             return;
         }
-        mpb.SetColor(colorId, color);
+        mpb.SetColor(colorId, newCol);
         mpb.SetVector(alphaWidthId, new Vector4(AlphaStart, alphaEnd, WidthStart, WidthEnd));
         Renderer.SetPropertyBlock(mpb);
     }

@@ -40,7 +40,7 @@ public abstract class BloomPrePassBackgroundNonLightRendererCore : BloomPrePassN
         cb.Clear();
         CoreUtils.SetRenderTarget(cb, dest);
         cb.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
-        cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.inverse.GetColumn(3));
+        cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.GetColumn(3));
         var timeHelper = TimeHelper != null ? TimeHelper : global::TimeHelper.Instance;
         if (timeHelper != null) timeHelper.SetCommandBufferTimeProperties(cb);
 

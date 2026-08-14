@@ -13,17 +13,14 @@ public class TubeBloomPrePassLightWithIdData : EnvironmentComponentData<Parametr
         ParametricBloomFogLightController comp,
         CreateContainer container)
     {
-        // target.SetOnlyOnce = SetOnlyOnce;
-        // target.SetColorOnly = SetColorOnly;
-
         if (TubeBloomPrePassLight is null) return;
-
-        TubeBloomPrePassLight.FillComponents(self, comp, container);
 
         comp.BloomFog = self.AddComponent<BloomFogObject>();
         comp.BoxLight = container.GetComponentOrNull<ParametricBoxLight>(TubeBloomPrePassLight.ParametricBoxController);
         comp.SpriteLight =
             container.GetComponentOrNull<ParametricSpriteLight>(TubeBloomPrePassLight.Dynamic3SliceSprite);
+
+        TubeBloomPrePassLight.FillComponents(self, comp, container);
     }
 }
 
