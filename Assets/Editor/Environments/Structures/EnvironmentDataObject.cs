@@ -88,6 +88,7 @@ public class EnvironmentDataObject
         public MeshRendererSwitchEventEffectData[]? MeshRendererSwitchEventEffect;
         public MovementBeatmapEventEffectData[]? MovementBeatmapEventEffect;
         public ParticleSystemContinuousEventEffectData[]? ParticleSystemContinuousEventEffect;
+        public ParticleSystemEmitEventEffectData[]? ParticleSystemEmitEventEffect;
         public ParticleSystemEventEffectData[]? ParticleSystemEventEffect;
         public SmoothStepPositionEventEffectData[]? SmoothStepPositionEventEffect;
         public SmoothStepPositionGroupEventEffectData[]? SmoothStepPositionGroupEventEffect;

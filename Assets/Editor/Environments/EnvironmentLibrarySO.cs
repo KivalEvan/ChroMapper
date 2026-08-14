@@ -28,6 +28,7 @@ public class EnvironmentLibrarySO : ScriptableObject
     [field: SerializeField] public Material SkyboxMaterial { get; private set; }
     [field: SerializeField] public Mesh SliceSprite { get; private set; }
     [field: SerializeField] public MirrorRendererSO MirrorRenderer { get; private set; }
+    [field: SerializeField] public ParticleSystemEventController ParticleSystemEventControllerPrefab { get; private set; }
 
     // The fallback prefab to use when no replacement is found
     [SerializeField] public GameObject fallbackPrefab;
