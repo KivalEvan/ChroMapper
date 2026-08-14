@@ -57,6 +57,8 @@ public class EnvironmentSpriteSO : ScriptableObject
     }
 
     public void Sort() => list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.Ordinal));
+
+    public Sprite GetSafe(string name) => name == "null" ? null : Lookup.GetValueOrDefault(name);
 }
 
 [Serializable]

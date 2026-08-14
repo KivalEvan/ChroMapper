@@ -505,20 +505,19 @@ Shader "ChroMapper/Particles"
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _SecondaryColor)
-                UNITY_DEFINE_INSTANCED_PROP(float4, unity_SpriteRendererColorArray)
-                UNITY_DEFINE_INSTANCED_PROP(half2, unity_SpriteFlipArray)
                 UNITY_DEFINE_INSTANCED_PROP(float, _MaskStrength)
                 UNITY_DEFINE_INSTANCED_PROP(float, _Mask2Strength)
                 UNITY_DEFINE_INSTANCED_PROP(float, _TimeOffset)
                 UNITY_DEFINE_INSTANCED_PROP(float, _MeshPackingId)
             UNITY_INSTANCING_BUFFER_END(Props)
-            // SpriteRenderer sets these instanced props; particle systems do not.
-            // Guard them so they default to white/(1,1) instead of zero.
-            #define _Flip           UNITY_ACCESS_INSTANCED_PROP(Props, unity_SpriteFlipArray)
-            #else
-            // Non-instanced path (particle systems): default to white so nothing gets zeroed out.
-            #define _Flip           half2(1,1)
             #endif
+
+            UNITY_INSTANCING_BUFFER_START(PerDrawSprite)
+                UNITY_DEFINE_INSTANCED_PROP(float4, unity_SpriteRendererColorArray)
+                UNITY_DEFINE_INSTANCED_PROP(half2, unity_SpriteFlipArray)
+            UNITY_INSTANCING_BUFFER_END(PerDrawSprite)
+            #define _RendererColor UNITY_ACCESS_INSTANCED_PROP(PerDrawSprite, unity_SpriteRendererColorArray)
+            #define _Flip UNITY_ACCESS_INSTANCED_PROP(PerDrawSprite, unity_SpriteFlipArray)
 
             CBUFFER_START(UnityPerMaterial)
                 #if !defined(UNITY_INSTANCING_ENABLED)
@@ -635,6 +634,14 @@ Shader "ChroMapper/Particles"
                 // Guard against this so vertices are not collapsed to the origin.
                 half2 safeFlip = (abs(flip.x) < 0.001 && abs(flip.y) < 0.001) ? half2(1, 1) : flip;
                 return float4(pos.xy * safeFlip, pos.z, 1.0);
+            }
+
+            inline float4 GetSpriteRendererColor()
+            {
+                // SpriteRenderer supplies both per-draw values. Particle and mesh
+                // renderers leave the flip at zero, so their color must stay white.
+                float isSpriteRenderer = step(0.5, max(abs(_Flip.x), abs(_Flip.y)));
+                return lerp(float4(1, 1, 1, 1), _RendererColor, isSpriteRenderer);
             }
 
             v2f vert(appdata_t i)
@@ -939,11 +946,9 @@ Shader "ChroMapper/Particles"
                 float _colorIdx = round(i.colorIndexUv.x * 10.0 + i.colorIndexUv.y);
                 float4 color = _ColorsArray[_colorIdx];
                 #else
-                // Do not multiply by _RendererColor here — particle systems never populate
-                // unity_SpriteRendererColorArray, which would zero out color entirely.
-                // Match CustomParticles: just use _Color * _Intensity directly.
                 float4 color = i.color * UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
                 #endif
+                color *= GetSpriteRendererColor();
                 color.rgb *= _Intensity;
 
                 #if !defined(TEXTURE_FLIPBOOK) && defined(TEXTURE_COLOR)
