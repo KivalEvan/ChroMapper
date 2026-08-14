@@ -9,7 +9,7 @@ public class ParticleSystemLightWithIdData : EnvironmentComponentData<ParticleSy
 
     public bool SetOnlyOnce;
     public bool SetColorOnly;
-    public float Intensity = 1f;
+    [JsonProperty("lightIntensity")] public float Intensity = 1f;
     public float MinAlpha;
 
 
@@ -18,7 +18,9 @@ public class ParticleSystemLightWithIdData : EnvironmentComponentData<ParticleSy
         ParticleSystemLightController comp,
         CreateContainer container)
     {
-        comp.ParticleSystem = container.GetComponentOrNull<ParticleSystem>(ParticleSystem);
+        comp.ParticleSystem = ParticleSystem == 0
+            ? self.GetComponent<ParticleSystem>()
+            : container.GetComponentOrNull<ParticleSystem>(ParticleSystem);
         comp.SetOnlyOnce = SetOnlyOnce;
         comp.SetColorOnly = SetColorOnly;
         comp.Intensity = Intensity;

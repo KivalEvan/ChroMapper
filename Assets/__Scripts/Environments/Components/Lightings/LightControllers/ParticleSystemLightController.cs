@@ -11,17 +11,20 @@ public class ParticleSystemLightController : LightController
     private ParticleSystem.MainModule mainModule;
     private ParticleSystem.Particle[] particles;
 
-    protected void Awake()
+    protected override bool Initialize()
     {
+        if (ParticleSystem == null) ParticleSystem = GetComponent<ParticleSystem>();
+        if (ParticleSystem == null) return false;
+
         mainModule = ParticleSystem.main;
         particles = new ParticleSystem.Particle[mainModule.maxParticles];
+        return true;
     }
-
-    protected override bool Initialize() => ParticleSystem != null;
 
     public override void SetColor(Color color)
     {
         if (!HasInitialized) return;
+        Color = color;
         color.a = SetColorOnly ? mainModule.startColor.color.a : Mathf.Max(MinAlpha, color.a * Intensity);
         mainModule.startColor = new ParticleSystem.MinMaxGradient(color);
         ParticleSystem.GetParticles(particles, particles.Length);

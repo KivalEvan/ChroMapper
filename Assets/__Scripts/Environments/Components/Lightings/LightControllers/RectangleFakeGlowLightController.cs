@@ -13,7 +13,11 @@ public class RectangleFakeGlowLightController : LightController
     private static readonly int sizeParamsId = Shader.PropertyToID("_SizeParams");
 
     public override bool IsPhysical => true;
-    protected override bool Initialize() => MpbController != null;
+    protected override bool Initialize()
+    {
+        if (MpbController == null) MpbController = GetComponent<MaterialPropertyBlockController>();
+        return MpbController != null;
+    }
 
     public override void SetColor(Color color)
     {
