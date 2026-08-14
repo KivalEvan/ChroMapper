@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 
 public abstract class FireEffect : MonoBehaviour, ILightColorEventEffect
@@ -18,7 +17,6 @@ public abstract class FireEffect : MonoBehaviour, ILightColorEventEffect
     public float BloomIntensityMultiplier = 1f;
     public Color PointLightColor = Color.yellow;
     public Color CustomLightColor = Color.white;
-    public Action<float> CustomLightAlphaChanged;
 
     private bool renderersEnabled;
     private float effectStartTime = float.NaN;
@@ -66,8 +64,6 @@ public abstract class FireEffect : MonoBehaviour, ILightColorEventEffect
             UseEmissionColor ? EmissionTexColorId : PrivatePointLightColorId,
             PointLightColor * bloomAlpha);
         lightController.ApplyChanges();
-
-        if (ContributeCustomLightColor) CustomLightAlphaChanged?.Invoke(bloomAlpha);
     }
 
     protected void SetRenderersEnabled(bool enabled)

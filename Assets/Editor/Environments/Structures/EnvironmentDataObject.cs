@@ -24,7 +24,7 @@ public class EnvironmentDataObject
         public MeshFilterData[]? MeshFilter;
         public MeshRendererData[]? MeshRenderer;
         public ParticleSystemData[]? ParticleSystem;
-        public RigidbodyData[]? Rigidbody;
+        public RigidbodyData[]? RigidBody;
         public SpringJointData[]? SpringJoint;
         public SpriteRendererData[]? SpriteRenderer;
 

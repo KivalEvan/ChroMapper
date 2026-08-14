@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using UnityEngine;
 
 public abstract class FireEffectData<T> : EnvironmentComponentData<T> where T : FireEffect
@@ -48,24 +47,6 @@ public abstract class FireEffectData<T> : EnvironmentComponentData<T> where T : 
                 container,
                 PrivatePointLightPropertyBlockController,
                 nameof(PrivatePointLightPropertyBlockController));
-
-        if (!container.Descriptor.LightColorGroupEffectManager.IdToEffect.TryGetValue(GroupId, out var groupEffect))
-            throw new InvalidOperationException($"Fire effect references missing GLS light-color group {GroupId}.");
-        if (ElementId < 0 || ElementId >= groupEffect.Count)
-            throw new InvalidOperationException(
-                $"Fire effect element {ElementId} is outside GLS light-color group {GroupId} ({groupEffect.Count} elements).");
-
-        var basicLightEffects = container.Descriptor.BasicEventEffectManager.GetEffects<BasicLightEffect>()
-            .Select(x => x.effect)
-            .ToArray();
-        comp.CustomLightAlphaChanged = alpha =>
-        {
-            var color = comp.CustomLightColor;
-            color.a = alpha;
-            foreach (var effect in basicLightEffects) effect.SetColorForId(LightId, color);
-        };
-        groupEffect.Register(ElementId, comp);
-        comp.Initialize();
     }
 
     private static TComponent Require<TComponent>(CreateContainer container, int instanceId, string field)
