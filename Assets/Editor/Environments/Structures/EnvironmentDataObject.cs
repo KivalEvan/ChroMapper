@@ -18,6 +18,7 @@ public class EnvironmentDataObject
         // Unity Components
         public TransformData[]? Transform;
         public BoxColliderData[]? BoxCollider;
+        public CapsuleColliderData[]? CapsuleCollider;
         public SphereColliderData[]? SphereCollider;
         public MeshColliderData[]? MeshCollider;
         public MeshFilterData[]? MeshFilter;
@@ -89,6 +90,7 @@ public class EnvironmentDataObject
         public ParticleSystemContinuousEventEffectData[]? ParticleSystemContinuousEventEffect;
         public ParticleSystemEventEffectData[]? ParticleSystemEventEffect;
         public SmoothStepPositionEventEffectData[]? SmoothStepPositionEventEffect;
+        public SmoothStepPositionGroupEventEffectData[]? SmoothStepPositionGroupEventEffect;
         public TextureIntSwitchEventEffectData[]? TextureIntSwitchEventEffect;
         public TrackLaneRingData[]? TrackLaneRing;
         public TrackLaneRingsManagerData[]? TrackLaneRingsManager;
@@ -169,6 +171,8 @@ public class EnvironmentDataObject
         public FloatFxGroupEffectData[]? FloatFxGroupEffect;
         public FloatFxGroupEffectManagerData[]? FloatFxGroupEffectManager;
         public FloatFxGroupEffectManagerData[]? TriggerFloatFxGroupEffectManager;
+        public BurstFireEffectData[]? BurstFireEffect;
+        public ContinuousFireEffectData[]? ContinuousFireEffect;
     }
 }
 #nullable restore

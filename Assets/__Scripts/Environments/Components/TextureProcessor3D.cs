@@ -66,6 +66,7 @@ public class TextureProcessor3D : MonoBehaviour
     [SerializeField] public ComputeShader TextureGenCompute;
     [SerializeField] public ComputeShader WriteTexturesCompute;
     [SerializeField] public Texture2D[] InputTextures;
+    [SerializeField] public Material[] MaterialsUsingOutput = Array.Empty<Material>();
 
     [SerializeField] public int RowSize;
     [SerializeField] public int ColumnSize;
@@ -122,6 +123,7 @@ public class TextureProcessor3D : MonoBehaviour
     private static readonly int inputTextureCId = Shader.PropertyToID("_inputTextureC");
     private static readonly int inputTextureDId = Shader.PropertyToID("_inputTextureD");
     private static readonly int outputMaskId = Shader.PropertyToID("_outputMask");
+    private static readonly int lookupTexture3DId = Shader.PropertyToID("_LookupTexture3D");
 
     public ComputeKernel ComputeKernelA
     {
@@ -418,11 +420,13 @@ public class TextureProcessor3D : MonoBehaviour
         animationTextureC = CreateTexture(RowSize, ColumnSize, DepthSize);
         animationTextureD = CreateTexture(RowSize, ColumnSize, DepthSize);
         animationTextureOut = CreateTexture(RowSize, ColumnSize, DepthSize);
+        foreach (var material in MaterialsUsingOutput)
+            if (material != null && material.HasProperty(lookupTexture3DId))
+                material.SetTexture(lookupTexture3DId, animationTextureOut);
     }
 
     private void AnimateTextures()
     {
-        return; // TODO: handle compute shader
         textureArrayLength = InputTextures.Length;
         if (RowSize <= 0 || ColumnSize <= 0 || DepthSize <= 0 || textureArrayLength == 0) return;
         ApplyIntention();
@@ -444,7 +448,6 @@ public class TextureProcessor3D : MonoBehaviour
 
     private void AnimateChannel(ref ChannelParams channel, RenderTexture outputTexture)
     {
-        return; // TODO: handle compute shader
         var kernelName = GetKernelName(channel.ComputeKernel);
         var kernelIndex = TextureGenCompute.FindKernel(kernelName);
         TextureGenCompute.SetFloat(speedId, channel.Speed);

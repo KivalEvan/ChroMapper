@@ -1,14 +1,31 @@
-// Each #kernel tells which function to compile; you can have many kernels
-#pragma kernel CSMain
+#pragma kernel WriteTextures
 
-// Create a RenderTexture with enableRandomWrite flag and set it
-// with cs.SetTexture
-RWTexture2D<float4> Result;
+int _rowSize;
+int _columnSize;
+int _depthSize;
 
-[numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+Texture3D<float4> _inputTextureA;
+Texture3D<float4> _inputTextureB;
+Texture3D<float4> _inputTextureC;
+Texture3D<float4> _inputTextureD;
+RWTexture3D<float4> _outputMask;
+
+SamplerState sampler_inputTextureA
 {
-    // TODO: insert actual code here!
+    Filter = MIN_MAG_MIP_POINT;
+    AddressU = Clamp;
+    AddressV = Clamp;
+    AddressW = Clamp;
+};
 
-    Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+[numthreads(1, 1, 1)]
+void WriteTextures(uint3 id : SV_DispatchThreadID)
+{
+    float3 uv = (id + 0.5f) / float3(_columnSize, _rowSize, _depthSize);
+    float4 value;
+    value.x = _inputTextureA.SampleLevel(sampler_inputTextureA, uv, 0).x;
+    value.y = _inputTextureB.SampleLevel(sampler_inputTextureA, uv, 0).x;
+    value.z = _inputTextureC.SampleLevel(sampler_inputTextureA, uv, 0).x;
+    value.w = _inputTextureD.SampleLevel(sampler_inputTextureA, uv, 0).x;
+    _outputMask[id] = value;
 }

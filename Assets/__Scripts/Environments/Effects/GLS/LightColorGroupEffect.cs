@@ -17,6 +17,7 @@ public class
     [SerializeField] public ColorSchemeProvider ColorSchemeProvider;
 
     [SerializeField] private List<LightController> lightEntries = new();
+    private readonly Dictionary<int, List<ILightColorEventEffect>> eventEffects = new();
     private LightColorGroupContainer[] idToContainer = Array.Empty<LightColorGroupContainer>();
     private LightColorGroupContainer[] activeContainers = Array.Empty<LightColorGroupContainer>();
 
@@ -26,6 +27,17 @@ public class
     public void Register(LightController controller) => lightEntries.Add(controller);
 
     public void Unregister(LightController controller) => lightEntries.Remove(controller);
+
+    public void Register(int elementId, ILightColorEventEffect effect)
+    {
+        if (!eventEffects.TryGetValue(elementId, out var effects))
+        {
+            effects = new List<ILightColorEventEffect>();
+            eventEffects.Add(elementId, effects);
+        }
+
+        effects.Add(effect);
+    }
 
     private void HandleBoostChange(bool boost)
     {
@@ -59,19 +71,19 @@ public class
     public override void Initialize()
     {
         idToContainer = new LightColorGroupContainer[Count];
-        foreach (var entry in lightEntries)
+        foreach (var elementId in lightEntries.Select(x => x.ID).Concat(eventEffects.Keys).Distinct())
         {
-            if (entry.ID >= Count)
+            if (elementId < 0 || elementId >= Count)
             {
                 Debug.LogError(
-                    $"{entry}:{entry.ID} ID is larger than supported by group {ID}:{Count}, was the controller modified?");
+                    $"Element {elementId} is outside the supported range for group {ID}:{Count}.");
                 continue;
             }
 
-            if (idToContainer[entry.ID] is null)
+            if (idToContainer[elementId] is null)
             {
-                idToContainer[entry.ID] = new LightColorGroupContainer();
-                var container = idToContainer[entry.ID];
+                idToContainer[elementId] = new LightColorGroupContainer { ElementId = elementId };
+                var container = idToContainer[elementId];
 
                 var startEvent = new LightColorEventStateData(new BaseLightColorBase(), short.MinValue);
                 var endEvent = new LightColorEventStateData(
@@ -111,9 +123,10 @@ public class
 
                 InitializeStates(container.GroupContainer, start, end);
             }
-
-            idToContainer[entry.ID].Lights.Add(entry);
         }
+
+        foreach (var entry in lightEntries.Where(x => 0 <= x.ID && x.ID < Count))
+            idToContainer[entry.ID]?.Lights.Add(entry);
 
         activeContainers = idToContainer.Where(x => x is not null).ToArray();
     }
@@ -126,6 +139,7 @@ public class
             UpdateObject(container);
             container.Tween.UpdateTime(Atsc.CurrentSongBpmTime);
             foreach (var controller in container.Lights) controller.SetColor(container.Tween.Color);
+            UpdateEventEffects(container, false, Atsc.CurrentSongBpmTime);
         }
     }
 
@@ -134,9 +148,23 @@ public class
         foreach (var container in activeContainers)
         {
             if (!container.EventContainer.IsCurrentOrFindState(time, isPlaying)) UpdateObject(container);
-            if (!container.Tween.UpdateTime(time)) continue;
-            foreach (var controller in container.Lights) controller.SetColor(container.Tween.Color);
+            if (container.Tween.UpdateTime(time))
+                foreach (var controller in container.Lights) controller.SetColor(container.Tween.Color);
+            UpdateEventEffects(container, isPlaying, time);
         }
+    }
+
+    private void UpdateEventEffects(LightColorGroupContainer container, bool isPlaying, float time)
+    {
+        if (!eventEffects.TryGetValue(container.ElementId, out var effects)) return;
+
+        var state = container.EventContainer.CurrentState;
+        var activeState = (LightColorEventStateData)(state.UsePrevious ? state.Previous : state);
+        var startTime = Atsc.GetSecondsFromBeat(activeState.StartTime);
+        var endTime = Atsc.GetSecondsFromBeat(activeState.EndTime);
+        var currentTime = Atsc.GetSecondsFromBeat(time);
+        foreach (var effect in effects)
+            effect.UpdateFireState(isPlaying, currentTime, startTime, endTime, activeState.Brightness);
     }
 
     private void UpdateObject(LightColorGroupContainer container)
@@ -255,6 +283,11 @@ public class
             .ToArray();
 }
 
+public interface ILightColorEventEffect
+{
+    void UpdateFireState(bool isPlaying, float currentTime, float startTime, float endTime, float brightness);
+}
+
 public class LightColorGroupStateData : EventGroupStateData<
     BaseLightColorEventBoxGroup,
     BaseLightColorEventBox,
@@ -285,6 +318,7 @@ public record LightColorGroupContainer : EventGroupContainer<
     BaseLightColorEventBox,
     BaseLightColorBase>
 {
+    public int ElementId;
     public readonly LightColorTween Tween = new();
     public readonly List<LightController> Lights = new();
 }

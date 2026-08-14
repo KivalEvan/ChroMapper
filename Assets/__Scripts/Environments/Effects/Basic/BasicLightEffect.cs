@@ -74,6 +74,13 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
     public void Unregister(LightController controller) => lightEntries.Remove(controller);
 
+    public bool SetColorForId(int lightId, Color color)
+    {
+        if (!lightIDToController.TryGetValue(lightId, out var controller)) return false;
+        controller.SetColor(color);
+        return true;
+    }
+
     private void CalculateMapping()
     {
         LaneToLightID.Clear();
