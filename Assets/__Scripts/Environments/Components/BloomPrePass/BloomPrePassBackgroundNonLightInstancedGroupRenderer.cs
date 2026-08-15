@@ -5,7 +5,6 @@ using UnityEngine.Rendering;
 
 public class BloomPrePassBackgroundNonLightInstancedGroupRenderer : BloomPrePassNonLightPass
 {
-    [SerializeField] public TimeHelper TimeHelper;
     [SerializeField] public BloomPrePassBackgroundNonLightRenderer[] Renderers;
     [SerializeField] public SupportedProperty[] SupportedProperties;
 
@@ -62,8 +61,7 @@ public class BloomPrePassBackgroundNonLightInstancedGroupRenderer : BloomPrePass
         cb.SetRenderTarget(dest);
         cb.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
         cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.GetColumn(3));
-        var timeHelper = TimeHelper != null ? TimeHelper : global::TimeHelper.Instance;
-        if (timeHelper != null) timeHelper.SetCommandBufferTimeProperties(cb);
+        TimeHelper.Instance.SetCommandBufferTimeProperties(cb);
 
         if (Renderers.Length == 1)
         {

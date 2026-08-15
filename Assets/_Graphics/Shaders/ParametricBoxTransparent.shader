@@ -22,13 +22,13 @@ Shader "ChroMapper/Parametric Box Transparent"
         _NoiseWarpZoomStrength ("Noise Warp Zoom Strength", float) = 0
         _NoiseWarpSkewStrength ("Noise Warp Skew Strength", float) = 0
 
-        [Space(12)] [ToggleHeader(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 1
+        [Space(12)] [Toggle(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 1
         [ShowIfAny(SPECULAR)] _SpecularIntensity ("Specular Intensity", float) = 1
         [ShowIfAny(SPECULAR)] _SpecularHardness ("Specular Hardness", float) = 64
-        [Space(12)] [ToggleHeader(NORMAL_MAP)] _EnableNormalMap ("Enable Normal Map", float) = 0
+        [Space(12)] [Toggle(NORMAL_MAP)] _EnableNormalMap ("Enable Normal Map", float) = 0
         [ShowIfAny(NORMAL_MAP)] _NormalTex ("Normal Texture", 2D) = "bump" {}
         [ShowIfAny(NORMAL_MAP)] _NormalScale ("Normal Scale", float) = 1
-        [Space(12)] [ToggleHeader(REFLECTION_PROBE)] _EnableReflectionProbe ("Enable Reflection Probe", float) = 0
+        [Space(12)] [Toggle(REFLECTION_PROBE)] _EnableReflectionProbe ("Enable Reflection Probe", float) = 0
         [ShowIfAny(REFLECTION_PROBE)] _Smoothness ("Smoothness", Range(0, 1)) = 1
         [ShowIfAny(REFLECTION_PROBE)] _ReflectionIntensity ("Probe Intensity", float) = 1
         [ShowIfAny(REFLECTION_PROBE)] _GlassOpacity ("Glass Opacity", float) = 1
@@ -56,7 +56,6 @@ Shader "ChroMapper/Parametric Box Transparent"
         [Space]
         [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", float) = 4
-        [Enum(Off, 0, On, 1)] _ZWrite ("Z Write", float) = 0
 
         [Header(Stencil)] [Space]
         _StencilRefValue ("Stencil Ref Value", Float) = 0
@@ -75,7 +74,7 @@ Shader "ChroMapper/Parametric Box Transparent"
         BlendOp [_BlendOp]
         Cull [_CullMode]
         ZTest [_ZTest]
-        ZWrite [_ZWrite]
+        ZWrite Off
 
         Stencil
         {

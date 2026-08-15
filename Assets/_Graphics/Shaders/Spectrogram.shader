@@ -12,11 +12,11 @@ Shader "ChroMapper/Spectrogram"
         [Space]
         [Toggle(DIFFUSE)] _EnableDiffuse ("Enable Diffuse", float) = 1
         [Space(12)]
-        [ToggleHeader(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 1
+        [Toggle(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 1
         [ShowIfAny(SPECULAR)]
         _SpecularIntensity ("Specular Intensity", float) = 1
         [Space(12)]
-        [ToggleHeader(LIGHT_FALLOFF)] _EnableLightFalloff ("Enable Light Falloff", float) = 0
+        [Toggle(LIGHT_FALLOFF)] _EnableLightFalloff ("Enable Light Falloff", float) = 0
 
         [Space(12)]
         _FogStartOffset ("Fog Start Offset", float) = 0

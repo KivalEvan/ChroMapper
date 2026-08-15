@@ -6,7 +6,6 @@ using UnityEngine.Rendering;
 [ExecuteAlways]
 public abstract class BloomPrePassBackgroundNonLightRendererCore : BloomPrePassNonLightPass
 {
-    [SerializeField] public TimeHelper TimeHelper;
     [SerializeField] public bool KeepDefaultRendering;
     [SerializeField] public bool UseCustomMaterial;
     [SerializeField] public Material CustomMaterial;
@@ -41,8 +40,7 @@ public abstract class BloomPrePassBackgroundNonLightRendererCore : BloomPrePassN
         CoreUtils.SetRenderTarget(cb, dest);
         cb.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
         cb.SetGlobalVector(worldSpaceCameraPosID, viewMatrix.GetColumn(3));
-        var timeHelper = TimeHelper != null ? TimeHelper : global::TimeHelper.Instance;
-        if (timeHelper != null) timeHelper.SetCommandBufferTimeProperties(cb);
+        TimeHelper.Instance.SetCommandBufferTimeProperties(cb);
 
         if (UseCustomPropertyBlock && customPropertyBlock != null)
         {

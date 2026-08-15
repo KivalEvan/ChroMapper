@@ -167,8 +167,8 @@ Shader "ChroMapper/Lit"
 
 
         [Header(Reflection)] [Space]
-        [ToggleHeader(REFLECTION_PROBE)] _EnableReflectionProbe ("Enable Reflection Probe", Float) = 0
-        [ToggleHeader(_PROBE_CALCULATION_PRECISE)] _EnablePreciseProbeCalculation ("Precise Probe Calculation", Float) = 0
+        [Toggle(REFLECTION_PROBE)] _EnableReflectionProbe ("Enable Reflection Probe", Float) = 0
+        [Toggle(_PROBE_CALCULATION_PRECISE)] _EnablePreciseProbeCalculation ("Precise Probe Calculation", Float) = 0
         [Toggle(REFLECTION_TEXTURE)] _EnableReflectionTexture ("Reflection Texture", Float) = 0
         [ShowIfAny(REFLECTION_TEXTURE)] _ReflectionTexIntensity ("Texture Intensity", Float) = 1
         [ShowIfAny(REFLECTION_TEXTURE)] _EnvironmentReflectionCube ("Environment Reflection", Cube) = "" {}
