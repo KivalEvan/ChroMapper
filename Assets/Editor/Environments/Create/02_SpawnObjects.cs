@@ -38,15 +38,12 @@ public partial class EnvironmentSceneCreator
             }
 
             var go = existingObjects.TryGetValue(environmentObject.ChromaID, out var val) ? val : new GameObject();
+            GameObjectUtility.RemoveMonoBehavioursWithMissingScript(go);
             if (environmentObject.Components.MeshFilter == null
                 || string.IsNullOrEmpty(environmentObject.Components.MeshFilter[0].Hash))
             {
                 var filter = go.GetComponent<MeshFilter>();
                 if (filter != null) Object.DestroyImmediate(filter);
-
-                var renderer = go.GetComponent<MeshRenderer>();
-                // Remove the stale renderer too when regenerated data no longer describes renderable geometry.
-                if (renderer != null) Object.DestroyImmediate(renderer);
             }
             else
             {
@@ -59,21 +56,6 @@ public partial class EnvironmentSceneCreator
                     if (mf == null) mf = go.AddComponent<MeshFilter>();
                     mf.sharedMesh = mesh;
                     environmentObject.Components.MeshFilter[0].Instance = mf;
-
-                    if (environmentObject.Components.MeshRenderer != null
-                        && environmentObject.Components.MeshRenderer[0].Materials.Any())
-                    {
-                        var comp = GetOrCreateMeshRenderer(go);
-                        var mats = new List<Material>();
-                        foreach (var matData in environmentObject.Components.MeshRenderer[0].Materials)
-                        {
-                            if (!container.Library.Materials.Lookup.TryGetValue(matData, out var mat)) continue;
-                            mats.Add(mat);
-                        }
-
-                        comp.sharedMaterials = mats.ToArray();
-                        environmentObject.Components.MeshRenderer[0].Instance = comp;
-                    }
                 }
                 // remove this if statement if u need to search all "invisible" fallback object
                 else if (environmentObject.Components.MeshRenderer != null)
@@ -88,6 +70,21 @@ public partial class EnvironmentSceneCreator
                     fallback.transform.localScale = mInfo.BoundsSize;
                     // fallback.SetActive(false); // uncomment if u really dont want to see it when testing
                 }
+            }
+
+            if (environmentObject.Components.MeshRenderer != null
+                && environmentObject.Components.MeshRenderer[0].Materials.Any())
+            {
+                var comp = GetOrCreateMeshRenderer(go);
+                var mats = new List<Material>();
+                foreach (var matData in environmentObject.Components.MeshRenderer[0].Materials)
+                {
+                    if (!container.Library.Materials.Lookup.TryGetValue(matData, out var mat)) continue;
+                    mats.Add(mat);
+                }
+
+                comp.sharedMaterials = mats.ToArray();
+                environmentObject.Components.MeshRenderer[0].Instance = comp;
             }
 
             foreach (var component in go.GetComponents<Collider>()) Object.DestroyImmediate(component);
@@ -139,23 +136,28 @@ public partial class EnvironmentSceneCreator
         foreach (var envObject in data.Objects)
         {
             var meshData = envObject.Components.MeshFilter?.FirstOrDefault();
-            if (meshData == null
-                || string.IsNullOrEmpty(meshData.Hash)
-                || !library.Meshes.Lookup.TryGetValue(meshData.Hash, out var expectedMesh)
-                || expectedMesh == null)
-                continue;
+            Mesh expectedMesh = null;
+            var hasExpectedMesh = meshData != null
+                && !string.IsNullOrEmpty(meshData.Hash)
+                && library.Meshes.Lookup.TryGetValue(meshData.Hash, out expectedMesh)
+                && expectedMesh != null;
+            var materialHashes = envObject.Components.MeshRenderer?.FirstOrDefault()?.Materials;
+            if (!hasExpectedMesh && (materialHashes == null || materialHashes.Count == 0)) continue;
 
             if (!chromaIdObjects.TryGetValue(envObject.ChromaID, out var go))
                 throw new InvalidOperationException(
-                    $"Environment '{data.Data.ID}' did not spawn mesh object '{envObject.ChromaID}'.");
+                    $"Environment '{data.Data.ID}' did not spawn '{envObject.ChromaID}'.");
 
-            var meshFilter = go.GetComponent<MeshFilter>();
-            if (meshFilter == null || meshFilter.sharedMesh != expectedMesh)
-                throw new InvalidOperationException(
-                    $"Environment '{data.Data.ID}' failed to assign mesh '{meshData.Hash}' to '{envObject.ChromaID}'.");
+            if (hasExpectedMesh)
+            {
+                var meshFilter = go.GetComponent<MeshFilter>();
+                if (meshFilter == null || meshFilter.sharedMesh != expectedMesh)
+                    throw new InvalidOperationException(
+                        $"Environment '{data.Data.ID}' failed to assign mesh '{meshData.Hash}' to '{envObject.ChromaID}'.");
 
-            validatedMeshes++;
-            var materialHashes = envObject.Components.MeshRenderer?.FirstOrDefault()?.Materials;
+                validatedMeshes++;
+            }
+
             if (materialHashes == null || materialHashes.Count == 0) continue;
 
             var renderer = go.GetComponent<MeshRenderer>();
@@ -166,8 +168,8 @@ public partial class EnvironmentSceneCreator
             var assignedMaterials = renderer.sharedMaterials;
             if (assignedMaterials.Length != materialHashes.Count)
                 throw new InvalidOperationException(
-                    $"Environment '{data.Data.ID}' assigned {assignedMaterials.Length}/{materialHashes.Count} " +
-                    $"materials to '{envObject.ChromaID}'.");
+                    $"Environment '{data.Data.ID}' assigned {assignedMaterials.Length}/{materialHashes.Count} "
+                    + $"materials to '{envObject.ChromaID}'.");
 
             for (var index = 0; index < materialHashes.Count; index++)
             {
@@ -176,16 +178,16 @@ public partial class EnvironmentSceneCreator
                     || expectedMaterial == null
                     || assignedMaterials[index] != expectedMaterial)
                     throw new InvalidOperationException(
-                        $"Environment '{data.Data.ID}' failed to assign material '{materialHash}' " +
-                        $"to '{envObject.ChromaID}'.");
+                        $"Environment '{data.Data.ID}' failed to assign material '{materialHash}' "
+                        + $"to '{envObject.ChromaID}'.");
 
                 validatedMaterials++;
             }
         }
 
         Debug.Log(
-            $"Validated {data.Data.ID}: {validatedMeshes} mesh assignments and " +
-            $"{validatedMaterials} material assignments.");
+            $"Validated {data.Data.ID}: {validatedMeshes} mesh assignments and "
+            + $"{validatedMaterials} material assignments.");
     }
 
     private static MeshRenderer GetOrCreateMeshRenderer(GameObject go)

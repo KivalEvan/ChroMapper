@@ -19,10 +19,11 @@ public class Parametric3SliceSpriteControllerData : EnvironmentComponentData<Par
         comp.Renderer = self.GetComponent<Renderer>();
 
         // Good chance env data doesnt have this and it's fine
-        if (comp.Renderer == null || comp.GetComponent<MeshFilter>() == null)
+        var meshFilter = comp.GetComponent<MeshFilter>();
+        if (comp.Renderer == null || meshFilter == null || meshFilter.sharedMesh == null)
         {
-            var mesh = self.GetOrAddComponent<MeshFilter>();
-            mesh.sharedMesh = container.Library.SliceSprite;
+            meshFilter = self.GetOrAddComponent<MeshFilter>();
+            meshFilter.sharedMesh = container.Library.SliceSprite;
             var renderer = self.GetOrAddComponent<MeshRenderer>();
 
             var chromaId = self.GetComponent<ChromaIDMarker>().ChromaID;
