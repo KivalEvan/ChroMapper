@@ -3,26 +3,26 @@ Shader "ChroMapper/Mirror"
 {
     Properties
     {
-        _NormalTex ("Normal Texture", 2D) = "white" {}
+        _NormalTex ("Normal Texture", 2D) = "bump" {}
         _BumpIntensity ("Bump Intensity", float) = 0.1
         _ReflectionIntensity ("Reflection Intensity", float) = 0.5
         _TextureScrolling ("Texture Scrolling", Vector) = (0,0,0,0)
         [Space] _Metallic ("Metallic", Range(0, 1)) = 0
         _Smoothness ("Smoothness", Range(0, 1)) = 0.5
 
-        [ToggleHeader(DETAIL_NORMAL_MAP)] _DetailNormalMap ("Detail Normal Map", float) = 0
+        [Toggle(DETAIL_NORMAL_MAP)] _DetailNormalMap ("Detail Normal Map", float) = 0
         [ShowIfAny(DETAIL_NORMAL_MAP)] _DetailNormalTextureScale ("Detail Normal Texture Scale", float) = 1
         [ShowIfAny(DETAIL_NORMAL_MAP)] _DetailNormalIntensity ("Detail Normal Intensity", float) = 0
         [ShowIfAny(DETAIL_NORMAL_MAP)] _DetailNormalTexScrolling ("Detail Scrolling", Vector) = (0.05,2,0,0)
 
-        [Space(18)] [ToggleHeader(LIGHTMAP)] _EnableLightmap ("Enable Lightmap", float) = 0
-        [Space(12)] [ToggleHeader(DIFFUSE)] _EnableDiffuse ("Enable Diffuse", float) = 0
+        [Toggle(LIGHTMAP)] _EnableLightmap ("Enable Lightmap", float) = 0
+        [Toggle(DIFFUSE)] _EnableDiffuse ("Enable Diffuse", float) = 0
         [ToggleShowIfAny(LIGHT_FALLOFF, DIFFUSE, SPECULAR)] _EnableLightFalloff ("Enable Light Falloff", float) = 0
-        [Space(12)] [ToggleHeader(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 0
+        [Toggle(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 0
         [ShowIfAny(SPECULAR)] _SpecularIntensity ("Specular Intensity", float) = 1
 
         [Space(18)]
-        [ToggleHeader(DIRT)] _EnableDirt ("Enable Dirt", float) = 0
+        [Toggle(DIRT)] _EnableDirt ("Enable Dirt", float) = 0
         [ShowIfAny(DIRT)] _DirtTex ("Dirt Texture", 2D) = "white" {}
         [ShowIfAny(DIRT)] _DirtIntensity ("Dirt Intensity", float) = 1
 
@@ -204,25 +204,27 @@ Shader "ChroMapper/Mirror"
                 float2 normalXY = normalSample.xy * 2 - 1;
 
                 #if defined(DETAIL_NORMAL_MAP)
-                float2 detailUV = normalUV + _DetailNormalTexScrolling.xy * mirrorTime;
+                float2 detailUV = (normalUV + _DetailNormalTexScrolling.xy * mirrorTime) *
+                    _DetailNormalTextureScale;
                 float4 detailSample = tex2D(_NormalTex, detailUV);
                 detailSample.x *= detailSample.w;
-                float2 detailXY = (detailSample.xy * 2 - 1) * _DetailNormalTextureScale;
+                float2 detailXY = detailSample.xy * 2 - 1;
                 normalXY = lerp(normalXY, detailXY, _DetailNormalIntensity);
                 #endif
 
                 float3 diffuseNormalTangent = float3(
                     normalXY,
-                    sqrt(max(1 - dot(normalXY, normalXY), 1e-16)));
+                    max(sqrt(1 - min(dot(normalXY, normalXY), 1)), 1e-16));
                 float2 reflectionNormalXY = normalXY * _BumpIntensity;
 
                 float3 eyeCameraPosition = _WorldSpaceCameraPos;
-                #if defined(UNITY_SINGLE_PASS_STEREO) || defined(STEREO_INSTANCING_ON) || defined(STEREO_MULTIVIEW_ON)
+                #if defined(USING_STEREO_MATRICES)
                 eyeCameraPosition = unity_StereoWorldSpaceCameraPos[unity_StereoEyeIndex];
                 #endif
                 float3 toCamera = i.worldPos - eyeCameraPosition;
                 float viewY = toCamera.y / max(length(toCamera), 1e-16);
-                float2 reflectionUV = i.reflectionPos.xy / i.reflectionPos.w - reflectionNormalXY * viewY;
+                float2 reflectionUV = i.reflectionPos.xy / i.reflectionPos.w -
+                    reflectionNormalXY * viewY;
                 float reflectionIntensity = _ReflectionIntensity * _ReflectionIntensity;
                 float4 reflectionCol = tex2D(_ReflectionTex, reflectionUV) * reflectionIntensity;
 
