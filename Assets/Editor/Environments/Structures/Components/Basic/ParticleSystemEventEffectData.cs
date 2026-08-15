@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class ParticleSystemEventEffectData : EnvironmentComponentData<ParticleSystemEffect>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public bool LightOnStart;
     public int ParticleSystem;
 
@@ -15,7 +15,7 @@ public class ParticleSystemEventEffectData : EnvironmentComponentData<ParticleSy
         comp.ColorSchemeProvider = container.Descriptor.ColorSchemeProvider;
         comp.Effect =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.ParticleSystem = container.GetComponentOrNull<ParticleSystem>(ParticleSystem);
         comp.LightOnStart = LightOnStart;

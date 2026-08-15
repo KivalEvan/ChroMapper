@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class LightRotationEventEffectData : EnvironmentComponentData<LightRotation>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public Vector3 RotationVector;
     public float RotationSpeedMultiplier;
 
@@ -11,7 +11,7 @@ public class LightRotationEventEffectData : EnvironmentComponentData<LightRotati
         comp.enabled = true;
         comp.Effect =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<LightRotationEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.Transform = self.transform;
         comp.StartRotation = self.transform.rotation;

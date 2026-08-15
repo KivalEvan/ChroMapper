@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class HydraulicCarJumpEffectData : EnvironmentComponentData<HydraulicCarJump>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int[] EventValues;
     public Vector3 Impulse;
     public float Randomness = 0.1f;
@@ -14,7 +14,7 @@ public class HydraulicCarJumpEffectData : EnvironmentComponentData<HydraulicCarJ
     {
         comp.Effect =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.Rigidbody = container.GetComponentOrNull<Rigidbody>(Rigidbody);
         comp.EventValues = EventValues;

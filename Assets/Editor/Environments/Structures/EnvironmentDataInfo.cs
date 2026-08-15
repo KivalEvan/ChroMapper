@@ -45,8 +45,10 @@ public class LightTrackDefinitions
     public class BasicTrackDefinition
     {
         [JsonProperty("trackName")] public string TrackName = "";
-        [JsonProperty("eventType")] public string EventType = "";
-        [JsonProperty("toolbarType")] public string ToolbarType = "";
+        [JsonProperty("eventType")]
+        public EnvironmentEventType EventType;
+        [JsonProperty("toolbarType")]
+        public EnvironmentBasicEventKind ToolbarType;
         [JsonProperty("page")] public string Page = "";
     }
 
@@ -86,8 +88,8 @@ public class LightTrackDefinitions
                 new TrackDefinitionBasic
                 {
                     Name = x.TrackName,
-                    Type = ConvertUtils.ToEventType(x.EventType),
-                    Kind = ConvertUtils.ToEventKind(x.ToolbarType)
+                    Type = x.EventType,
+                    Kind = x.ToolbarType
                 })
             .ToList();
 
@@ -97,19 +99,19 @@ public class LightTrackDefinitions
             foreach (var rotation in components.TrackLaneRingsRotationEffectSpawner ?? Array.Empty<TrackLaneRingsRotationEffectSpawnerData>())
             {
                 if (rotation.IsEnabled)
-                    AddComponent(basicTracks, ConvertUtils.ToEventType(rotation.EventType), BasicEventComponent.RingRotation);
+                    AddComponent(basicTracks, rotation.EventType, BasicEventComponent.RingRotation);
             }
 
             foreach (var zoom in components.TrackLaneRingsPositionStepEffectSpawner ?? Array.Empty<TrackLaneRingsPositionStepEffectSpawnerData>())
             {
                 if (zoom.IsEnabled)
-                    AddComponent(basicTracks, ConvertUtils.ToEventType(zoom.EventType), BasicEventComponent.RingZoom);
+                    AddComponent(basicTracks, zoom.EventType, BasicEventComponent.RingZoom);
             }
 
             foreach (var rotation in components.LightRotationEventEffect ?? Array.Empty<LightRotationEventEffectData>())
             {
                 // Match Create from Data, which registers direct light-rotation effects by event type.
-                AddComponent(basicTracks, ConvertUtils.ToEventType(rotation.EventType), BasicEventComponent.LightRotation);
+                AddComponent(basicTracks, rotation.EventType, BasicEventComponent.LightRotation);
             }
 
             foreach (var pair in components.LightPairRotationEventEffect ?? Array.Empty<LightPairRotationEventEffectData>())
@@ -176,12 +178,12 @@ public class LightTrackDefinitions
 
     private static void AddComponentIfValid(
         IEnumerable<TrackDefinitionBasic> tracks,
-        string eventType,
+        int eventType,
         BasicEventComponent component)
     {
         // Paired effects can use VoidEvent for either side, so ignore registrations without a real event type.
-        if (ConvertUtils.ToEventType(eventType, out var type) && type != (int)Beatmap.Enums.EventTypeValue.VoidEvent)
-            AddComponent(tracks, type, component);
+        if (eventType != (int)Beatmap.Enums.EventTypeValue.VoidEvent)
+            AddComponent(tracks, eventType, component);
     }
 }
 

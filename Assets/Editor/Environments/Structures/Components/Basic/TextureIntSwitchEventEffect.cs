@@ -5,7 +5,7 @@ public class TextureIntSwitchEventEffectData : EnvironmentComponentData<TextureI
 {
     public int MaterialPropertyBlockController;
     public string TexturePropertyName;
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int DefaultIndex;
     public TextureValueTuple[] TextureValueTuples;
 
@@ -16,7 +16,7 @@ public class TextureIntSwitchEventEffectData : EnvironmentComponentData<TextureI
     {
         comp.Effect =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.MpbController = container
             .GetComponentOrNull<MaterialPropertyBlockController>(MaterialPropertyBlockController);

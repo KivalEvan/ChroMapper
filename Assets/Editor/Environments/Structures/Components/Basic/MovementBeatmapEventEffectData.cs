@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class MovementBeatmapEventEffectData : EnvironmentComponentData<Movement>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public float TransitionSpeed;
     public MovementDataComponent[] MovementData;
     public string[] Transforms;
@@ -18,7 +18,7 @@ public class MovementBeatmapEventEffectData : EnvironmentComponentData<Movement>
         comp.enabled = true;
         
         comp.Effect = container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-            ConvertUtils.ToEventType(EventType));
+            EventType);
 
         comp.Transforms = Transforms
             .Select(y =>

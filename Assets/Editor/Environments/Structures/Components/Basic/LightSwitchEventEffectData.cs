@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class LightSwitchEventEffectData
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public float OffColorIntensity;
     public bool LightOnStart;
     public int LightsId;

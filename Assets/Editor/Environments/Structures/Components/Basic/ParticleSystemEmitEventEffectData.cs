@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class ParticleSystemEmitEventEffectData : EnvironmentComponentData<ParticleSystemEmitEventEffect>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int ParticleSystemParentTransform;
     public int MaxSpawnedParticleSystems = 4;
 
@@ -15,6 +15,6 @@ public class ParticleSystemEmitEventEffectData : EnvironmentComponentData<Partic
         comp.ParticleSystemParentTransform =
             container.GetComponentOrNull<Transform>(ParticleSystemParentTransform);
         comp.MaxSpawnedParticleSystems = MaxSpawnedParticleSystems;
-        container.Descriptor.BasicEventEffectManager.Register(ConvertUtils.ToEventType(EventType), comp);
+        container.Descriptor.BasicEventEffectManager.Register(EventType, comp);
     }
 }

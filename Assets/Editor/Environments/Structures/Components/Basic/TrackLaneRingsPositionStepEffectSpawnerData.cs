@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class TrackLaneRingsPositionStepEffectSpawnerData : EnvironmentComponentData<TrackLaneRingsPositionSpawner>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int TrackLaneRingsManager;
     public float MinPositionStep;
     public float MaxPositionStep;
@@ -15,7 +15,7 @@ public class TrackLaneRingsPositionStepEffectSpawnerData : EnvironmentComponentD
     {
         comp.EffectManager =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<TrackLaneRingsPositionEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.RingManager = container
             .GetComponentOrNull<TrackLaneRingsManager>(TrackLaneRingsManager);

@@ -2,11 +2,11 @@ using UnityEngine;
 
 public class LightPairRotationEventEffectData : EnvironmentComponentData<LightPairRotation>
 {
-    public string EventTypeL;
+    public EnvironmentEventType EventTypeL;
     public int TransformL;
-    public string EventTypeR;
+    public EnvironmentEventType EventTypeR;
     public int TransformR;
-    public string SwitchOverrideRandomValuesEvent;
+    public EnvironmentEventType SwitchOverrideRandomValuesEvent;
     public Vector3 RotationVector;
     public bool OverrideRandomValues;
     public bool UseZPositionForAngleOffset;
@@ -16,14 +16,14 @@ public class LightPairRotationEventEffectData : EnvironmentComponentData<LightPa
     public override void FillComponents(GameObject self, LightPairRotation comp, CreateContainer container)
     {
         comp.enabled = true;
-        if (ConvertUtils.ToEventType(EventTypeL, out var type) && type != -1)
-            comp.LeftEffect = container.Descriptor.BasicEventEffectManager.GetOrRegister<LightRotationEffect>(type);
-        if (ConvertUtils.ToEventType(EventTypeR, out type) && type != -1)
-            comp.RightEffect = container.Descriptor.BasicEventEffectManager.GetOrRegister<LightRotationEffect>(type);
-        if (ConvertUtils.ToEventType(SwitchOverrideRandomValuesEvent, out type) && type != -1)
+        if (EventTypeL != -1)
+            comp.LeftEffect = container.Descriptor.BasicEventEffectManager.GetOrRegister<LightRotationEffect>(EventTypeL);
+        if (EventTypeR != -1)
+            comp.RightEffect = container.Descriptor.BasicEventEffectManager.GetOrRegister<LightRotationEffect>(EventTypeR);
+        if (SwitchOverrideRandomValuesEvent != -1)
         {
             comp.SwitchEffect = container.Descriptor.BasicEventEffectManager
-                .GetOrRegister<GenericCallbackEventEffect>(type);
+                .GetOrRegister<GenericCallbackEventEffect>(SwitchOverrideRandomValuesEvent);
         }
 
         var lT = container.GetComponentOrNull<Transform>(TransformL);

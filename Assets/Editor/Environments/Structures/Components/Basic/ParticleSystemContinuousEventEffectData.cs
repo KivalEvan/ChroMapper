@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class ParticleSystemContinuousEventEffectData : EnvironmentComponentData<ParticleSystemContinuous>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int[] ParticleSystems;
 
     public override void FillComponents(
@@ -12,7 +12,7 @@ public class ParticleSystemContinuousEventEffectData : EnvironmentComponentData<
         CreateContainer container)
     {
         comp.Effect = container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-            ConvertUtils.ToEventType(EventType));
+            EventType);
 
         comp.ParticleSystems = ParticleSystems
             .Select(container.GetComponentOrNull<ParticleSystem>)

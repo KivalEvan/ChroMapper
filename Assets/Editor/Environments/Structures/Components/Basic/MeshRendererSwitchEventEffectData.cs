@@ -3,14 +3,14 @@ using UnityEngine;
 
 public class MeshRendererSwitchEventEffectData : EnvironmentComponentData<MeshRendererSwitch>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int[] ActivateOnBoostRenderers;
     public int[] DeactivateOnBoostRenderers;
 
     public override void FillComponents(GameObject self, MeshRendererSwitch comp, CreateContainer container)
     {
         comp.Effect = container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-            ConvertUtils.ToEventType(EventType));
+            EventType);
 
         comp.NormalRenderers = DeactivateOnBoostRenderers
             .Select(container.GetComponentOrNull<Renderer>)

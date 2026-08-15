@@ -71,7 +71,7 @@ public partial class EnvironmentSceneCreator
         foreach (var data in lseeData)
         {
             var comp = container.Descriptor.BasicEventEffectManager.Register<BasicLightEffect>(
-                ConvertUtils.ToEventType(data.EventType));
+                data.EventType);
             data.FillComponents(comp.gameObject, comp, container);
             comp.ColorSchemeProvider = container.Descriptor.ColorSchemeProvider;
             comp.ColorBoostEffect = cbe;
@@ -355,7 +355,7 @@ public partial class EnvironmentSceneCreator
                 if (lsee != null)
                 {
                     controller.Kind = LightController.LightKind.Basic;
-                    controller.Type = ConvertUtils.ToEventType(lsee.EventType);
+                    controller.Type = lsee.EventType;
                     controller.ID = order;
                     if (force || !SkipThisShit(controller.transform)) container.Descriptor.Register(controller);
                     continue;

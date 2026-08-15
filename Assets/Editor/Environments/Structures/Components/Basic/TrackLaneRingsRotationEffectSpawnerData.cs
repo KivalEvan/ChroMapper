@@ -2,11 +2,11 @@ using UnityEngine;
 
 public class TrackLaneRingsRotationEffectSpawnerData : EnvironmentComponentData<TrackLaneRingsRotationEffect>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int TrackLaneRingsRotationEffect;
     public float Rotation;
     public float RotationStep;
-    public string RotationStepType;
+    public EnvironmentRotationStepType RotationStepType;
     public int RotationPropagationSpeed;
     public float RotationFlexySpeed;
 
@@ -15,13 +15,13 @@ public class TrackLaneRingsRotationEffectSpawnerData : EnvironmentComponentData<
         TrackLaneRingsRotationEffect comp,
         CreateContainer container)
     {
-        container.Descriptor.BasicEventEffectManager.Register(ConvertUtils.ToEventType(EventType), comp);
+        container.Descriptor.BasicEventEffectManager.Register(EventType, comp);
 
         comp.Effect = container
             .GetComponentOrNull<TrackLaneRingsRotation>(TrackLaneRingsRotationEffect);
         comp.Rotation = Rotation;
         comp.Step = RotationStep;
-        comp.StepType = ConvertUtils.ToRotationStepType(RotationStepType);
+        comp.StepType = RotationStepType;
         comp.PropagationSpeed = RotationPropagationSpeed;
         comp.FlexySpeed = RotationFlexySpeed;
     }

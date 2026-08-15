@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class GameObjectIntSwitchEventEffectData : EnvironmentComponentData<GameObjectIntSwitch>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public int DefaultValue;
     public GameObjectsValue[] GameObjectsValueLists;
 
@@ -17,7 +17,7 @@ public class GameObjectIntSwitchEventEffectData : EnvironmentComponentData<GameO
     {
         comp.Effect =
             container.Descriptor.BasicEventEffectManager.GetOrRegister<GenericCallbackEventEffect>(
-                ConvertUtils.ToEventType(EventType));
+                EventType);
 
         comp.GameObjectsValueContainers =
             GameObjectsValueLists

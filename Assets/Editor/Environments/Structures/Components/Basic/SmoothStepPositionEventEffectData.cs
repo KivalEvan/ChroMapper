@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class SmoothStepPositionEventEffectData : EnvironmentComponentData<SmoothStepPositionEventEffect>
 {
-    public string EventType;
+    public EnvironmentEventType EventType;
     public bool ClampValue;
     public int MinY;
     public int MaxY;
@@ -14,7 +14,7 @@ public class SmoothStepPositionEventEffectData : EnvironmentComponentData<Smooth
         SmoothStepPositionEventEffect comp,
         CreateContainer container)
     {
-        container.Descriptor.BasicEventEffectManager.Register(ConvertUtils.ToEventType(EventType), comp);
+        container.Descriptor.BasicEventEffectManager.Register(EventType, comp);
 
         comp.ClampValue = ClampValue;
         comp.MinY = MinY;
