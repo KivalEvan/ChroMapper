@@ -6,13 +6,13 @@ using UnityEngine.Rendering;
 // scene owns this controller and its command buffer.
 public sealed class PostProcessRenderingController : MonoBehaviour
 {
-    [SerializeField] private PyramidBloomMainEffectController mainEffectController;
+    [SerializeField] private PyramidBloomController pyramidBloomController;
     [SerializeField] private ChromaticAberrationRenderer chromaticAberrationRenderer;
 
     private const CameraEvent postProcessCameraEvent = CameraEvent.BeforeImageEffects;
 
     private static readonly int sourceTextureId = Shader.PropertyToID("_ChroMapperPostProcessSource");
-    private static readonly int mainEffectOutputId = Shader.PropertyToID("_ChroMapperMainEffectOutput");
+    private static readonly int postBloomOutputId = Shader.PropertyToID("_ChroMapperPostBloomOutput");
 
     private Camera activeCamera;
     private CommandBuffer commandBuffer;
@@ -58,7 +58,7 @@ public sealed class PostProcessRenderingController : MonoBehaviour
     {
         if (!active || activeCamera == null || commandBufferAttached) return;
 
-        commandBuffer ??= new CommandBuffer { name = "ChroMapper Main Effect" };
+        commandBuffer ??= new CommandBuffer { name = "Post Process" };
         activeCamera.AddCommandBuffer(postProcessCameraEvent, commandBuffer);
         commandBufferAttached = true;
     }
@@ -77,50 +77,50 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         if (renderingCamera != activeCamera || commandBuffer == null) return;
 
         commandBuffer.Clear();
-        var renderMainEffect = mainEffectController != null && mainEffectController.IsReady;
+        var renderPostBloom = pyramidBloomController != null && pyramidBloomController.IsReady;
         var renderChromaticAberration =
             chromaticAberrationRenderer != null && chromaticAberrationRenderer.IsReady;
-        var renderFade = mainEffectController != null && mainEffectController.IsFadeReady;
-        if (!renderMainEffect && !renderChromaticAberration && !renderFade) return;
+        var renderFade = pyramidBloomController != null && pyramidBloomController.IsFadeReady;
+        if (!renderPostBloom && !renderChromaticAberration && !renderFade) return;
 
         var sourceDescriptor = GetCopyDescriptor(GetCameraTargetDescriptor());
         var sourceWidth = sourceDescriptor.width;
         var sourceHeight = sourceDescriptor.height;
         var cameraTarget = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
 
-        if (!renderMainEffect && !renderChromaticAberration)
+        if (!renderPostBloom && !renderChromaticAberration)
         {
-            mainEffectController.RecordFade(commandBuffer, cameraTarget);
+            pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
             return;
         }
 
         commandBuffer.GetTemporaryRT(sourceTextureId, sourceDescriptor, FilterMode.Bilinear);
         commandBuffer.Blit(cameraTarget, sourceTextureId);
 
-        if (renderMainEffect && renderChromaticAberration)
+        if (renderPostBloom && renderChromaticAberration)
         {
             commandBuffer.GetTemporaryRT(
-                mainEffectOutputId, sourceDescriptor, FilterMode.Bilinear);
-            mainEffectController.RecordRender(
-                commandBuffer, sourceTextureId, sourceWidth, sourceHeight, mainEffectOutputId);
+                postBloomOutputId, sourceDescriptor, FilterMode.Bilinear);
+            pyramidBloomController.RecordRender(
+                commandBuffer, sourceTextureId, sourceWidth, sourceHeight, postBloomOutputId);
             chromaticAberrationRenderer.RecordRender(
-                commandBuffer, mainEffectOutputId, cameraTarget, sourceWidth, sourceHeight);
-            commandBuffer.ReleaseTemporaryRT(mainEffectOutputId);
+                commandBuffer, postBloomOutputId, cameraTarget, sourceWidth, sourceHeight);
+            commandBuffer.ReleaseTemporaryRT(postBloomOutputId);
         }
-        else if (renderMainEffect)
+        else if (renderPostBloom)
         {
-            mainEffectController.RecordRender(
+            pyramidBloomController.RecordRender(
                 commandBuffer, sourceTextureId, sourceWidth, sourceHeight, cameraTarget);
         }
         else if (renderChromaticAberration)
         {
             chromaticAberrationRenderer.RecordRender(
                 commandBuffer, sourceTextureId, cameraTarget, sourceWidth, sourceHeight);
-            if (renderFade) mainEffectController.RecordFade(commandBuffer, cameraTarget);
+            if (renderFade) pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
         }
         else
         {
-            mainEffectController.RecordFade(commandBuffer, cameraTarget);
+            pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
         }
 
         commandBuffer.ReleaseTemporaryRT(sourceTextureId);
@@ -153,6 +153,12 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         descriptor.msaaSamples = 1;
         descriptor.useDynamicScale = false;
         descriptor.useDynamicScaleExplicit = false;
+        // The game composites over an LDR scene buffer, so alpha clamps at
+        // write time. Light-driven alphas intentionally exceed 1 on glow
+        // materials; a UNORM copy preserves the downstream alpha-gate and
+        // boost math the game's binaries encode. 16-bit UNORM keeps that
+        // clamp without adding 8-bit banding on top of the game's look.
+        descriptor.graphicsFormat = GraphicsFormat.R16G16B16A16_UNorm;
         return descriptor;
     }
 }

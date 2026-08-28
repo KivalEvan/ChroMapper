@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 // Custom bloom for the editor cameras, replacing Unity's Post Processing v2
-// stack. The scene owns this component. PyramidBloomMainEffectController calls
+// stack. The scene owns this component. PyramidBloomController calls
 // it to produce the bloom-only texture.
 //
 // The bloom pyramid mirrors the game's PyramidBloomRendererSO.RenderBloom and the
@@ -36,12 +36,11 @@ public class BloomRenderer : MonoBehaviour
     [SerializeField] private float downBloomIntensityOffset = 1f;
     // Game _alphaWeights (default 4): the prefilter's alpha-gate strength
     // (rgb *= saturate(alpha * k)), serialized on the renderer exactly like
-    // the game's PyramidBloomMainEffectSO. Applied to the material's
-    // _BloomThreshold property (the material is runtime-created, so without
-    // this the shader's property default would be the only lever).
+    // the game's PyramidBloomSO. Applied to _BloomParams.z before
+    // the pyramid is recorded.
     [SerializeField] private float bloomThreshold = 4f;
     // Game firstUpsampleBrightness / finalUpsampleBrightness (both authored 1
-    // in PyramidBloomMainEffectSO's RenderBloom call): the game's num8 scales
+    // in PyramidBloomSO's RenderBloom call): the game's num8 scales
     // BOTH merge weights on the first and final (i == 0) upsample merges
     // (PyramidBloomRendererSO.RenderBloom:186-194).
     [SerializeField] private float firstUpsampleBrightness = 1f;
@@ -50,12 +49,12 @@ public class BloomRenderer : MonoBehaviour
     private static readonly int sampleScaleId = Shader.PropertyToID("_SampleScale");
     private static readonly int combineParamsId = Shader.PropertyToID("_CombineParams");
     private static readonly int bloomTexId = Shader.PropertyToID("_BloomTex");
-    private static readonly int bloomThresholdId = Shader.PropertyToID("_BloomThreshold");
+    private static readonly int bloomParamsId = Shader.PropertyToID("_BloomParams");
     private static readonly int bloomTexelSizeId = Shader.PropertyToID("_BloomTexelSize");
     private static readonly int[] mipDownIds =
-        BloomRenderUtility.CreateTextureIds("_MainEffectMipDown_");
+        BloomRenderUtility.CreateTextureIds("_BloomMipDown_");
     private static readonly int[] mipUpIds =
-        BloomRenderUtility.CreateTextureIds("_MainEffectMipUp_");
+        BloomRenderUtility.CreateTextureIds("_BloomMipUp_");
 
     private Material bloomMaterial;
     private bool bloomEnabled;
@@ -85,8 +84,6 @@ public class BloomRenderer : MonoBehaviour
     private void Start()
     {
         bloomMaterial = new Material(bloomShader);
-        bloomMaterial.SetFloat(bloomThresholdId, GetBloomThreshold());
-
         UpdateBloom(Settings.Instance.Bloom);
     }
 
@@ -136,6 +133,8 @@ public class BloomRenderer : MonoBehaviour
         // once before the pyramid (RenderBloom:167). The downsample passes do
         // not read it and the upsample loop overwrites it per merge, so this
         // mirrors the game's driver ordering exactly.
+        commandBuffer.SetGlobalVector(
+            bloomParamsId, new Vector4(0f, 0f, GetBloomThreshold(), 0f));
         commandBuffer.SetGlobalVector(combineParamsId, new Vector4(GetIntensity(), 1f, 0f, 0f));
 
         var lastDown = source;
@@ -147,7 +146,7 @@ public class BloomRenderer : MonoBehaviour
             commandBuffer.SetGlobalVector(
                 bloomTexelSizeId, GetTexelSize(lastDownWidth, lastDownHeight));
             commandBuffer.Blit(
-                lastDown, mipDownIds[i], bloomMaterial, i == 0 ? 0 : 1);
+                lastDown, mipDownIds[i], bloomMaterial, i == 0 ? 0 : 2);
             lastDown = new RenderTargetIdentifier(mipDownIds[i]);
             lastDownWidth = descriptors[i].width;
             lastDownHeight = descriptors[i].height;
@@ -166,7 +165,7 @@ public class BloomRenderer : MonoBehaviour
             commandBuffer.SetGlobalTexture(bloomTexId, mipDownIds[i]);
             SetMergeParams(
                 commandBuffer, i, iterations, i == iterations - 2 ? GetFirstUpsampleBrightness() : 1f);
-            commandBuffer.Blit(lastUp, mipUpIds[i], bloomMaterial, 2);
+            commandBuffer.Blit(lastUp, mipUpIds[i], bloomMaterial, 5);
             lastUp = new RenderTargetIdentifier(mipUpIds[i]);
             lastUpWidth = descriptors[i].width;
             lastUpHeight = descriptors[i].height;
@@ -182,7 +181,7 @@ public class BloomRenderer : MonoBehaviour
 
         // The captured runtime main effect uses UpsampleTent for intermediate
         // and final merges. Auto-exposure and ACES belong only to bloom fog.
-        commandBuffer.Blit(lastUp, destination, bloomMaterial, 2);
+        commandBuffer.Blit(lastUp, destination, bloomMaterial, 5);
 
         commandBuffer.SetGlobalTexture(bloomTexId, Texture2D.blackTexture);
         for (var i = 0; i < iterations; i++) commandBuffer.ReleaseTemporaryRT(mipDownIds[i]);

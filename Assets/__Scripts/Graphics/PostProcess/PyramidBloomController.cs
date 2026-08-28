@@ -1,13 +1,13 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// Scene-owned equivalent of the game's PyramidBloomMainEffectSO. It owns the
-// bloom parameters, the main-effect compositor, and the no-post-process fade.
-public sealed class PyramidBloomMainEffectController : MonoBehaviour
+// Scene-owned equivalent of the game's PyramidBloomSO. It owns the
+// bloom parameters, the post-bloom compositor, and the no-post-process fade.
+public sealed class PyramidBloomController : MonoBehaviour
 {
     [SerializeField] private BloomRenderer bloomRenderer;
     [SerializeField] private Shader fadeShader;
-    [SerializeField] private Shader mainEffectShader;
+    [SerializeField] private Shader postBloomShader;
 
     [SerializeField, Range(0f, 5f)] private float bloomBlendFactor = 0.3f;
     [SerializeField] private int bloomTextureWidth = 928;
@@ -15,19 +15,19 @@ public sealed class PyramidBloomMainEffectController : MonoBehaviour
     [SerializeField, Range(0f, 3f)] private float baseColorBoost = 1f;
     [SerializeField] private float baseColorBoostThreshold;
 
-    private static readonly int mainEffectBloomTextureId = Shader.PropertyToID("_MainEffectBloomTexture");
-    private static readonly int sourceTexelSizeId = Shader.PropertyToID("_MainEffectSourceTexelSize");
+    private static readonly int postBloomTextureId = Shader.PropertyToID("_PostBloomTexture");
+    private static readonly int sourceTexelSizeId = Shader.PropertyToID("_PostBloomSourceTexelSize");
     private static readonly int bloomIntensityId = Shader.PropertyToID("_BloomIntensity");
     private static readonly int fadeId = Shader.PropertyToID("_Fade");
     private static readonly int baseColorBoostId = Shader.PropertyToID("_BaseColorBoost");
     private static readonly int baseColorBoostThresholdId = Shader.PropertyToID("_BaseColorBoostThreshold");
-    private static readonly int bloomTextureId = Shader.PropertyToID("_ChroMapperMainEffectBloomTexture");
+    private static readonly int bloomTextureId = Shader.PropertyToID("_ChroMapperPostBloomTexture");
 
     private Material fadeMaterial;
-    private Material mainEffectMaterial;
+    private Material postBloomMaterial;
 
     public bool IsReady =>
-        isActiveAndEnabled && bloomRenderer != null && bloomRenderer.IsReady && mainEffectMaterial != null;
+        isActiveAndEnabled && bloomRenderer != null && bloomRenderer.IsReady && postBloomMaterial != null;
 
     public bool IsFadeReady =>
         isActiveAndEnabled && fadeMaterial != null && fade < 1f;
@@ -35,13 +35,13 @@ public sealed class PyramidBloomMainEffectController : MonoBehaviour
     private void Awake()
     {
         fadeMaterial = new Material(fadeShader) { hideFlags = HideFlags.HideAndDontSave };
-        mainEffectMaterial = new Material(mainEffectShader) { hideFlags = HideFlags.HideAndDontSave };
+        postBloomMaterial = new Material(postBloomShader) { hideFlags = HideFlags.HideAndDontSave };
     }
 
     private void OnDestroy()
     {
         if (fadeMaterial != null) Destroy(fadeMaterial);
-        if (mainEffectMaterial != null) Destroy(mainEffectMaterial);
+        if (postBloomMaterial != null) Destroy(postBloomMaterial);
     }
 
     public void ApplyPreRenderState()
@@ -65,13 +65,13 @@ public sealed class PyramidBloomMainEffectController : MonoBehaviour
         bloomRenderer.RecordRender(
             commandBuffer, source, sourceWidth, sourceHeight, bloomTextureWidth, bloomTextureId);
 
-        mainEffectMaterial.SetFloat(bloomIntensityId, bloomBlendFactor);
-        mainEffectMaterial.SetFloat(fadeId, fade);
-        commandBuffer.SetGlobalTexture(mainEffectBloomTextureId, bloomTextureId);
+        postBloomMaterial.SetFloat(bloomIntensityId, bloomBlendFactor);
+        postBloomMaterial.SetFloat(fadeId, fade);
+        commandBuffer.SetGlobalTexture(postBloomTextureId, bloomTextureId);
         commandBuffer.SetGlobalVector(
             sourceTexelSizeId, GetTexelSize(sourceWidth, sourceHeight));
-        commandBuffer.Blit(source, destination, mainEffectMaterial);
-        commandBuffer.SetGlobalTexture(mainEffectBloomTextureId, Texture2D.blackTexture);
+        commandBuffer.Blit(source, destination, postBloomMaterial);
+        commandBuffer.SetGlobalTexture(postBloomTextureId, Texture2D.blackTexture);
         commandBuffer.ReleaseTemporaryRT(bloomTextureId);
     }
 

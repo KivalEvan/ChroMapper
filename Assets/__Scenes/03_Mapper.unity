@@ -36505,7 +36505,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: db3cdd86c3834707b85e9368d0bbf01f, type: 3}
   m_Name:
   m_EditorClassIdentifier: Main::PostProcessRenderingController
-  mainEffectController: {fileID: 678098952}
+  pyramidBloomController: {fileID: 678098952}
   chromaticAberrationRenderer: {fileID: 678098949}
 --- !u!114 &678098952
 MonoBehaviour:
@@ -36518,10 +36518,10 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c8d17dfb44f64fdab2e92a660730179b, type: 3}
   m_Name:
-  m_EditorClassIdentifier: Main::PyramidBloomMainEffectController
+  m_EditorClassIdentifier: Main::PyramidBloomController
   bloomRenderer: {fileID: 678098950}
   fadeShader: {fileID: 4800000, guid: 90de19bd116d4f2d9ec078630e27ac32, type: 3}
-  mainEffectShader: {fileID: 4800000, guid: 6b3f83f0a7e14d7a8bb1104ed2a6cb1d, type: 3}
+  postBloomShader: {fileID: 4800000, guid: 6b3f83f0a7e14d7a8bb1104ed2a6cb1d, type: 3}
   bloomBlendFactor: 0.3
   bloomTextureWidth: 928
   fade: 1
@@ -107555,7 +107555,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8c510ecf3c2f463095b7674b8a322015, type: 3}
   m_Name:
   m_EditorClassIdentifier: Main::PerCameraShaderSetupController
-  mainEffectController: {fileID: 678098952}
+  pyramidBloomController: {fileID: 678098952}
 --- !u!1 &2100000071
 GameObject:
   m_ObjectHideFlags: 0
