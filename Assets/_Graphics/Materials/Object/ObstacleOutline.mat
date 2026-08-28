@@ -14,12 +14,7 @@ Material:
   m_ValidKeywords:
   - CUTOUT
   - _BLOOMTYPE_DEFERRED
-  m_InvalidKeywords:
-  - ETC1_EXTERNAL_ALPHA
-  - _CUTOUT_Z
-  - _EMISSION
-  - _FADE_Z
-  - _ZWRITE_ON
+  m_InvalidKeywords: []
   m_LightmapFlags: 1
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
@@ -32,60 +27,24 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _BaseColorBoost: 1
-    - _BaseColorBoostThreshold: 0
     - _BlendDstFactor: 1
     - _BlendDstFactorA: 1
     - _BlendSrcFactor: 1
     - _BlendSrcFactorA: 1
-    - _BloomFactor: 1
     - _BloomType: 1
-    - _BumpScale: 1
-    - _CUTOUT: 2
     - _CullMode: 0
-    - _Cutoff: 0.5
     - _Cutout: 0
     - _CutoutTexScale: 0.2
-    - _CutoutValue: 0
-    - _CutoutZThreshold: -1
-    - _CutoutZWidth: 8
-    - _DetailNormalMapScale: 1
-    - _DstBlend: 0
-    - _EnableCenterCutout: 1
-    - _EnableClipping: 0
-    - _EnableColorInstancing: 0
     - _EnableCutout: 1
-    - _EnableMainEffectWhiteBoost: 1
-    - _EnableTexture: 0
-    - _EnableZCutout: 0
-    - _FadeZ: 1
-    - _FadeZThreshold: -2
-    - _FadeZWidth: 8
     - _FogHeightOffset: 0
     - _FogHeightScale: 2.5
     - _FogScale: 1
     - _FogStartOffset: 7
-    - _FrameWidth: 0.04
-    - _GlossMapScale: 1
-    - _Glossiness: 0
-    - _GlossyReflections: 1
-    - _Metallic: 0
-    - _Mode: 0
-    - _NoiseDithering: 0
-    - _OcclusionStrength: 1
-    - _Offset: 0
-    - _Overglow: 0
-    - _Parallax: 0.02
-    - _SmoothnessTextureChannel: 0
-    - _SpecularHighlights: 1
-    - _SrcBlend: 1
-    - _UVSec: 0
     - _ZTest: 4
     - _ZWrite: 1
     m_Colors:
     - _Color: {r: 1, g: 0, b: 0, a: 1}
     - _CutoutTexOffset: {r: 0, g: 0, b: 0, a: 0}
-    - _EmissionColor: {r: 0.2205882, g: 0.5484784, b: 1, a: 1}
     - _SizeParams: {r: 0.5, g: 0.5, b: 0.5, a: 0.025}
     - _WorldScale: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

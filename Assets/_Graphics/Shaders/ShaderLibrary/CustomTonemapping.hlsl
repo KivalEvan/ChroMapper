@@ -17,7 +17,9 @@ inline float4 ApplyAcesTonemapping(float4 col)
 
 inline float4 ApplyReinhardTonemapping(float4 col)
 {
-    col.rgb = col.rgb / (col.rgb + 1);
+    // Hidden/PostProcessing/Bloom pass 11 (e2c5d62d): the recovered bloom
+    // Reinhard variant includes the quadratic shoulder term.
+    col.rgb = col.rgb * (col.rgb * 0.25 + 1.0) / (col.rgb + 1.0);
     return col;
 }
 

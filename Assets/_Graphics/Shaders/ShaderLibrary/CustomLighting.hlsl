@@ -2,6 +2,7 @@
 #define CHROMAPPER_CUSTOM_LIGHTING_INCLUDED
 
 #include "Data.hlsl"
+#include "Camera.hlsl"
 
 uniform float4 _DirectionalLightPositions[5];
 uniform float _DirectionalLightRadii[5];
@@ -40,30 +41,55 @@ inline float CalculateDirectionalDiffuseTerm(float normalDot,
     #endif
 }
 
+inline float3 CalculateLightDiffuseAccumulation(
+    float3 normalWS, float bothSidesDiffuseMultiplier, bool requireActiveAlpha)
+{
+    float active1 = requireActiveAlpha ?
+        (_DirectionalLightColors[1].a == 0.0 ? 0.0 : 1.0) : 1.0;
+    float3 direct = CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[1].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[1].rgb * active1;
+    float active0 = requireActiveAlpha ?
+        (_DirectionalLightColors[0].a == 0.0 ? 0.0 : 1.0) : 1.0;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[0].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[0].rgb * active0;
+    float active2 = requireActiveAlpha ?
+        (_DirectionalLightColors[2].a == 0.0 ? 0.0 : 1.0) : 1.0;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[2].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[2].rgb * active2;
+    float active3 = requireActiveAlpha ?
+        (_DirectionalLightColors[3].a == 0.0 ? 0.0 : 1.0) : 1.0;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[3].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[3].rgb * active3;
+    float active4 = requireActiveAlpha ?
+        (_DirectionalLightColors[4].a == 0.0 ? 0.0 : 1.0) : 1.0;
+    direct += CalculateDirectionalDiffuseTerm(
+        dot(normalWS, _DirectionalLightDirections[4].xyz),
+        bothSidesDiffuseMultiplier) * _DirectionalLightColors[4].rgb * active4;
+    return direct;
+}
+
 inline float3 CalculateLightDiffuse(float3 normalWS,
                                     float bothSidesDiffuseMultiplier = 1.0)
 {
-    float3 direct = CalculateDirectionalDiffuseTerm(
-        dot(normalWS, _DirectionalLightDirections[1].xyz),
-        bothSidesDiffuseMultiplier) * _DirectionalLightColors[1].rgb;
-    direct += CalculateDirectionalDiffuseTerm(
-        dot(normalWS, _DirectionalLightDirections[0].xyz),
-        bothSidesDiffuseMultiplier) * _DirectionalLightColors[0].rgb;
-    direct += CalculateDirectionalDiffuseTerm(
-        dot(normalWS, _DirectionalLightDirections[2].xyz),
-        bothSidesDiffuseMultiplier) * _DirectionalLightColors[2].rgb;
-    direct += CalculateDirectionalDiffuseTerm(
-        dot(normalWS, _DirectionalLightDirections[3].xyz),
-        bothSidesDiffuseMultiplier) * _DirectionalLightColors[3].rgb;
-    direct += CalculateDirectionalDiffuseTerm(
-        dot(normalWS, _DirectionalLightDirections[4].xyz),
-        bothSidesDiffuseMultiplier) * _DirectionalLightColors[4].rgb;
-    return direct;
+    return CalculateLightDiffuseAccumulation(normalWS, bothSidesDiffuseMultiplier, false);
+}
+
+// LightManager can retain MinIntensity in RGB while an event is off. Its
+// alpha is the authoritative active-state channel for consumers that need it.
+inline float3 CalculateLightDiffuseAlphaGated(
+    float3 normalWS, float bothSidesDiffuseMultiplier = 1.0)
+{
+    return CalculateLightDiffuseAccumulation(normalWS, bothSidesDiffuseMultiplier, true);
 }
 
 inline float3 CalculateViewReflectionDirection(float3 worldPosition, float3 normalWS)
 {
-    float3 viewDirection = normalize(worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float3 viewDirection = normalize(worldPosition - cameraPosition);
     return viewDirection - 2.0 * dot(viewDirection, normalWS) * normalWS;
 }
 

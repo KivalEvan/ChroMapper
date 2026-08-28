@@ -1,15 +1,17 @@
 #ifndef CHROMAPPER_RIM_LIGHT_INCLUDED
 #define CHROMAPPER_RIM_LIGHT_INCLUDED
 
-// Rim light helpers. Per-material inputs are passed in as arguments; the
-// library reads only _WorldSpaceCameraPos, a built-in global. The consumer
-// shader decides which rim-light mode to use by calling one or the other.
+// Rim light helpers. Per-material inputs are passed in as arguments. The
+// consumer shader decides which rim-light mode to use by calling one or the other.
+
+#include "Camera.hlsl"
 
 inline float CalculateRimLightMask(
     float3 worldPosition, float3 normalWS, float rimLightEdgeStart,
     float3 rimPerpendicularAxis)
 {
-    float3 viewDirection = normalize(worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float3 viewDirection = normalize(worldPosition - cameraPosition);
     float rimLight = 1.0 - abs(dot(normalWS, viewDirection));
     rimLight = smoothstep(0.0, 1.0, saturate(
         (rimLight - rimLightEdgeStart) / max(1.0 - rimLightEdgeStart, 0.00001)));
@@ -28,7 +30,7 @@ inline float3 ResolveRimLightTarget(
     float baseColorBoost, float baseColorBoostThreshold)
 {
     float3 target = rimColor * rimScale;
-    #if defined(_RIM_WHITEBOOSTTYPE_MAINEFFECT)
+    #if defined(_RIM_WHITEBOOSTTYPE_MAINEFFECT) && !defined(POST_BLOOM)
     float whiteBoost = rimLight * rimScale;
     whiteBoost = whiteBoost * whiteBoost * baseColorBoost - baseColorBoostThreshold;
     target = saturate(target + whiteBoost) * rimLightWhiteboostMultiplier;

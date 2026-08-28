@@ -1,10 +1,6 @@
 #ifndef CHROMAPPER_LIT_REFLECTION_INCLUDED
 #define CHROMAPPER_LIT_REFLECTION_INCLUDED
 
-// Temporarily disable the custom packed baked reflection probes while their
-// baking pipeline is being reconstructed.
-#define CHROMAPPER_DISABLE_BAKED_REFLECTION_PROBES
-
 #include "Data.hlsl"
 #include "CustomLighting.hlsl"
 
@@ -77,7 +73,8 @@ inline float CalculateLitReflectionTextureRimDim(
     float3 worldPosition, float rimFactor,
     float rimDistanceOffset, float rimDistanceScale, float rimScale)
 {
-    float cameraDistance = length(worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float cameraDistance = length(worldPosition - cameraPosition);
     float rimDistance = max(cameraDistance - rimDistanceOffset, 0.0) *
         rimDistanceScale + rimScale;
     return rimDistance * rimFactor;
@@ -89,7 +86,7 @@ inline float3 ResolveLitReflectionTexture(
     float rimSmoothness, float rimDarkening)
 {
     float smoothness = surface.smoothness;
-#if defined(ENABLE_RIM_DIM)
+#if defined(RIM_DIM)
 smoothness= saturate(smoothness- rimDim* rimSmoothness);
 #endif
 
@@ -104,7 +101,7 @@ reflection*= 1.0 + surface.metallic* (surface.baseColor.rgb- 1.0);
 #endif
 reflection*= 2.0 * (surface.metallic*0.8 + 0.2);
 reflection*= smoothness;
-#if defined(ENABLE_RIM_DIM)
+#if defined(RIM_DIM)
 reflection*= 1.0 - rimDim* rimDarkening;
 #endif
 return reflection;
@@ -173,11 +170,12 @@ inline float CalculateComposableReflectionSmoothness(
     float antiflickerStrength)
 {
     float smoothness = surface.smoothness;
-    #if defined(ENABLE_RIM_DIM)
+    #if defined(RIM_DIM)
     smoothness = saturate(smoothness - rimDim * rimSmoothness);
     #endif
     #if defined(SPECULAR_ANTIFLICKER)
-    float cameraDistance = length(surface.worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float cameraDistance = length(surface.worldPosition - cameraPosition);
     float weight = saturate(
             (antiflickerDistanceOffset - cameraDistance) * antiflickerDistanceScale) *
         antiflickerStrength;
@@ -207,7 +205,7 @@ inline float3 ResolveLitReflection(
     float antiflickerStrength,
     float groundFadeScale, float groundFadeOffset)
 {
-    #if !defined(REFLECTION_PROBE) || defined(CHROMAPPER_DISABLE_BAKED_REFLECTION_PROBES)
+    #if !defined(REFLECTION_PROBE)
     return 0.0;
     #else
     float smoothness = CalculateComposableReflectionSmoothness(
@@ -268,7 +266,7 @@ inline float3 ResolveLitReflection(
         whiteFactor * surface.baseColor.rgb * surface.metallic, 1.0);
     #endif
     reflection *= smoothness;
-    #if defined(ENABLE_RIM_DIM)
+    #if defined(RIM_DIM)
     reflection *= 1.0 - rimDim * rimDarkening;
     #endif
     return reflection;
@@ -285,7 +283,7 @@ inline float3 ResolveLitReflection(
     #endif
     reflection *= 2.0 * (surface.metallic * 0.8 + 0.2);
     reflection *= smoothness * groundFade;
-    #if defined(ENABLE_RIM_DIM)
+    #if defined(RIM_DIM)
     reflection *= 1.0 - rimDim * rimDarkening;
     #endif
     return reflection;

@@ -1,5 +1,11 @@
 Shader "ChroMapper/BloomfogSkybox"
 {
+    // AUDIT FINDINGS (Beat Saber 1.42.2 / 1.44.3 comparison)
+    // BS1 [406575e7, 8111e331]: BLOOM_FOG selects the bloom prepass sample;
+    //     blue-noise dithering is applied after that branch for every route.
+    // BS2 [2c016839, d8ea76ea]: noise coordinates include object translation;
+    //     bloom UV coordinates remain unchanged.
+    // BS3. OVERDRAW_VIEW is a debug route and is intentionally omitted.
     Properties {}
     SubShader
     {
@@ -50,11 +56,11 @@ Shader "ChroMapper/BloomfogSkybox"
                 UNITY_SETUP_INSTANCE_ID(v);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
-#if defined(UNITY_REVERSED_Z)
+                #if defined(UNITY_REVERSED_Z)
                 o.vertex = float4(v.vertex.xy, 0.0, 1.0);
-#else
+                #else
                 o.vertex = float4(v.vertex.xy, 1.0, 1.0);
-#endif
+                #endif
 
                 float2 normalizedPosition =
                     float2(v.vertex.x, v.vertex.y * _ProjectionParams.x) * 0.5 + 0.5;
@@ -62,10 +68,10 @@ Shader "ChroMapper/BloomfogSkybox"
                     (normalizedPosition - 0.5) * _CustomFogTextureToScreenRatio + 0.5,
                     0.0,
                     1.0);
-                o.noiseScreenPos = float4(
-                    normalizedPosition * _GlobalBlueNoiseParams + _GlobalRandomValue,
-                    0.0,
-                    1.0);
+                o.noiseScreenPos = BuildNoiseScreenPosition(
+                    float4(normalizedPosition, 0.0, 1.0), o.vertex,
+                    _GlobalBlueNoiseParams, _GlobalRandomValue,
+                    unity_ObjectToWorld._m03_m13);
                 return o;
             }
 
@@ -73,13 +79,15 @@ Shader "ChroMapper/BloomfogSkybox"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-#if defined(BLOOM_FOG)
+                #if defined(BLOOM_FOG)
+                // Beat Saber's Custom/BloomSkyboxQuad shows the bloom prepass
+                // texture with a blue-noise dither offset, nothing else.
                 half4 col = tex2D(
                     _BloomPrePassTexture,
                     i.bloomScreenPos.xy / i.bloomScreenPos.ww);
-#else
+                #else
                 half4 col = half4(0.1, 0.1, 0.1, 0.0);
-#endif
+                #endif
                 col = ApplyNoiseDither(col, i.noiseScreenPos, _GlobalBlueNoiseTex);
                 col.a = 0;
                 return col;

@@ -2,6 +2,7 @@
 #define CHROMAPPER_PARALLAX_INCLUDED
 
 #include "Data.hlsl"
+#include "Camera.hlsl"
 #include "CustomTime.hlsl"
 #include "Iridescence.hlsl"
 
@@ -18,11 +19,18 @@ inline float4 ApplyParallax(
     sampler2D parallaxMaskingTex, float4 parallaxMaskingTex_ST,
     float parallaxMaskSpeed, float parallaxMaskIntensity,
     float3 iridescenceAxesMultiplier, float iridescenceTiling,
-    float3 parallaxColor)
+    float4 parallaxColor)
 {
     float2 baseUv = surface.uv0 * inputUvMultiplier;
     float4 timeValue = GetTime(timeOffset);
-    float3 directionToCamera = normalize(surface.worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float3 directionToCamera = normalize(surface.worldPosition - cameraPosition);
+    #if defined(_PARALLAX_FLEXIBLE_REFLECTED)
+    float3 parallaxDirection = directionToCamera -
+        2.0 * dot(directionToCamera, surface.normalWS) * surface.normalWS;
+    #else
+    float3 parallaxDirection = directionToCamera;
+    #endif
 
     // Iridescence hue-shift and per-layer color live in Iridescence.hlsl;
     // the reflected-direction variant is selected by _PARALLAX_FLEXIBLE_REFLECTED.
@@ -31,7 +39,7 @@ inline float4 ApplyParallax(
         iridescenceAxesMultiplier, iridescenceTiling);
 
     #if defined(SECONDARY_UVS_PARALLAX) && USE_SECONDARY_UV
-    float2 parallaxUv = surface.uv1 * parallaxTex_ST.xy + parallaxTex_ST.zw;
+    float2 parallaxUv = TransformSecondaryUv(surface, parallaxTex_ST);
     #else
     float2 parallaxUv = baseUv * parallaxTex_ST.xy + parallaxTex_ST.zw;
     #endif
@@ -42,7 +50,7 @@ inline float4 ApplyParallax(
     {
         float layerIndex = floor(layer);
         float offset = offsetStep * layerIndex + startOffset;
-        float2 sampleUv = offset.xx * directionToCamera.xy + parallaxUv;
+        float2 sampleUv = offset.xx * parallaxDirection.xy + parallaxUv;
         float4 parallaxSample = tex2D(parallaxTex, sampleUv);
 
         float3 layerIridescence = ResolveIridescenceLayerColor(hueShift, layerIndex);
@@ -59,10 +67,14 @@ inline float4 ApplyParallax(
         TRANSFORM_TEX(baseUv, parallaxMaskingTex) + parallaxMaskSpeed * timeValue.y);
     layerColor = lerp(layerColor, layerColor * maskSample.r, parallaxMaskIntensity);
     #endif
+    #if defined(PARALLAX_IRIDESCENCE)
     float grayscaleLayer = (layerColor.r + layerColor.g + layerColor.b) * 0.5;
     float3 blended = iridescenceColorInfluence.xxx *
         (grayscaleLayer.xxx * parallaxColor.rgb - layerColor) + layerColor;
-    result.rgb += blended * parallaxColor.rgb;
+    result.rgb += blended * parallaxColor.a;
+    #else
+    result.rgb += layerColor * parallaxColor.rgb;
+    #endif
     return result;
 }
 

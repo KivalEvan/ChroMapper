@@ -9,35 +9,35 @@ Shader "ChroMapper/Lightning"
         [NoScaleOffset] _NoiseTex ("Noise Texture", 2D) = "black" {}
         [NoScaleOffset] _TimingTex ("Timing Texture", 2D) = "black" {}
 
-        [PerRendererData] _TargetPoint ("Target Point", Vector) = (0, 0, 0, 0)
-        [Toggle(TARGET_POINT)] _EnableTargetPoint ("Enable Target Point", Float) = 0
-        [Toggle(TIME_OFFSET)] _EnableTimeOffset ("Enable Time Offset", Float) = 0
-        _TimeOffset ("Time Offset", Float) = 0.1
         _NoiseSmallScale ("Noise Small Scale", Float) = 1
         _SmallScaleNoiseStrength ("Small Scale Noise Strength", Float) = 2
         _SmallScaleNoiseScrollingSpeed ("Small Scale Noise Scrolling Speed", Float) = 5
         [Space] _NoiseBigScale ("Noise Big Scale", Float) = 0.1
         _BigScaleNoiseStrength ("Big Scale Noise Strength", Float) = 5
         _BigScaleNoiseScrollingSpeed ("Big Scale Noise Scrolling Speed", Float) = 1
-        _NoiseScrollingSpeed ("Noise Scrolling Speed", Float) = 5
+        [Space] _NoiseScrollingSpeed ("Noise Scrolling Speed", Float) = 5
         _XNoiseOffsetStrength ("X Noise Offset Strength", Float) = 0.5
         [Space] _Extrude ("Extrude", Float) = 1
-        _ColorBoost ("Color Boost", Float) = 1
-        _WhiteBoost ("White Boost", Float) = 0.2
+        [Space] _ColorBoost ("ColorBoost", Float) = 1
+        _WhiteBoost ("WhiteBoost", Float) = 0.2
         _EdgeFadeStrength ("Edge Fade Strength", Float) = 5
+        [PerRendererData] _TargetPoint ("Target Point", Vector) = (0, 0, 0, 0)
+        [Space] [Toggle(ENABLE_TARGET_POINT)] _EnableTargetPoint ("Enable Target Point", Float) = 0
+        [Toggle(ENABLE_TIME_OFFSET)] _EnableTimeOffset ("Enable Time Offset", Float) = 0
+        [ShowIfAny(ENABLE_TIME_OFFSET)] _TimeOffset ("Time Offset", Float) = 0.1
 
-        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Compare", Float) = 8
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrc ("Blend Source", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDst ("Blend Destination", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrcA ("Blend Source Alpha", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDstA ("Blend Destination Alpha", Float) = 10
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp ("Blend Operation", Float) = 0
-        [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", Float) = 0
-        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencil Pass", Float) = 0
-        _StencilRefValue ("Stencil Reference", Float) = 0
-        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", Float) = 4
+        [Space(12)] [Header(Settings)] [Space] [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrcFactor ("Blend Src", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendDstFactor ("Blend Dst", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrcFactorA ("Blend Src Factor A", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendDstFactorA ("Blend Dst Factor A", Float) = 10
+        [InfoBox(Support on Quest ends after LogicalClear)] [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp ("Blend Operation", Float) = 0
+        [Space] [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", Float) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("ZTest", Float) = 4
         _OffsetFactor ("Offset Factor", Float) = 0
         _OffsetUnits ("Offset Units", Float) = 0
+        [Space] _StencilRefValue ("Stencil Ref Value", Float) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8
+        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencill Pass Op", Float) = 0
     }
 
     SubShader
@@ -49,7 +49,7 @@ Shader "ChroMapper/Lightning"
             "RenderType" = "Transparent"
         }
 
-        Blend [_BlendModeSrc] [_BlendModeDst], [_BlendModeSrcA] [_BlendModeDstA]
+        Blend [_BlendSrcFactor] [_BlendDstFactor], [_BlendSrcFactorA] [_BlendDstFactorA]
         BlendOp [_BlendOp]
         Cull [_CullMode]
         ZTest [_ZTest]
@@ -69,10 +69,12 @@ Shader "ChroMapper/Lightning"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_instancing
-            #pragma shader_feature_local_vertex _ TARGET_POINT
-            #pragma shader_feature_local_vertex _ TIME_OFFSET
+            #pragma multi_compile _ STEREO_INSTANCING_ON
+            #pragma shader_feature_local_vertex _ ENABLE_TARGET_POINT
+            #pragma shader_feature_local_vertex _ ENABLE_TIME_OFFSET
 
             #include "UnityCG.cginc"
+            #include "ShaderLibrary/CustomBloom.hlsl"
 
             sampler2D _MainTex;
             sampler2D _NoiseTex;
@@ -90,6 +92,7 @@ Shader "ChroMapper/Lightning"
             float _ColorBoost;
             float _WhiteBoost;
             float _EdgeFadeStrength;
+            float4 _TimeHelperOffset;
 
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
@@ -100,8 +103,8 @@ Shader "ChroMapper/Lightning"
             struct appdata
             {
                 float4 vertex : POSITION;
-                float2 uv1 : TEXCOORD1;
-                float2 uv2 : TEXCOORD2;
+                float2 mainUv : TEXCOORD0;
+                float2 pathUv : TEXCOORD1;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -122,43 +125,45 @@ Shader "ChroMapper/Lightning"
                 UNITY_TRANSFER_INSTANCE_ID(i, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
-                float2 sourceUv1 = i.uv1;
-                float2 sourceUv2 = i.uv2;
+                float2 sourceMainUv = i.mainUv;
+                float2 sourcePathUv = i.pathUv;
 
                 float3 localPath;
-                #if defined(TARGET_POINT)
+                #if defined(ENABLE_TARGET_POINT)
                 float3 targetLocal = mul(unity_WorldToObject,
                                          float4(UNITY_ACCESS_INSTANCED_PROP(Props, _TargetPoint).xyz, 1)).xyz;
-                localPath = targetLocal * sourceUv2.y;
+                localPath = targetLocal * sourcePathUv.y;
                 localPath.y += i.vertex.y * _XNoiseOffsetStrength;
                 #else
                 localPath = float3(i.vertex.x, i.vertex.y * _XNoiseOffsetStrength, i.vertex.z);
                 #endif
 
                 float objectTime = unity_ObjectToWorld._m03 + unity_ObjectToWorld._m23;
-                #if defined(TIME_OFFSET)
+                #if defined(ENABLE_TIME_OFFSET)
                 float lightningTime = objectTime + UNITY_ACCESS_INSTANCED_PROP(Props, _TimeOffset);
                 #else
-                float lightningTime = objectTime + _Time.y;
+                float lightningTime = objectTime + _Time.x + _TimeHelperOffset.x;
                 #endif
 
                 float timing = tex2Dlod(_TimingTex, float4(lightningTime, 0, 0, 0)).x;
-                float2 smallNoiseUv = float2(sourceUv2.x,
-                                             sourceUv2.y * _NoiseSmallScale + lightningTime *
+                float2 smallNoiseUv = float2(sourcePathUv.x,
+                                             sourcePathUv.y * _NoiseSmallScale + lightningTime *
                                              _SmallScaleNoiseScrollingSpeed +
                                              timing);
-                float2 bigNoiseUv = float2(sourceUv2.x,
-                                           sourceUv2.y * _NoiseBigScale + lightningTime *
+                float2 bigNoiseUv = float2(sourcePathUv.x,
+                                           sourcePathUv.y * _NoiseBigScale + lightningTime *
                                            _BigScaleNoiseScrollingSpeed +
                                            timing);
                 float2 smallNoise = tex2Dlod(_NoiseTex, float4(smallNoiseUv, 0, 0)).xy - 0.5;
                 float2 bigNoise = tex2Dlod(_NoiseTex, float4(bigNoiseUv, 0, 0)).xy - 0.5;
 
-                float edge = 1 - abs(sourceUv2.y - 0.5) * 2;
+                float edge = 1 - abs(sourcePathUv.y - 0.5) * 2;
                 float deformationMask = saturate(edge * edge * _EdgeFadeStrength);
                 float edgeAlpha = saturate(edge * _EdgeFadeStrength);
                 smallNoise *= deformationMask * _SmallScaleNoiseStrength;
                 bigNoise *= deformationMask * _BigScaleNoiseStrength;
+                // _Extrude scales only the first noise channel; the recovered
+                // shader multiplies each XY noise vector by float2(_Extrude, 1).
                 smallNoise.x *= _Extrude;
                 bigNoise.x *= _Extrude;
                 localPath.xy += smallNoise;
@@ -166,24 +171,22 @@ Shader "ChroMapper/Lightning"
 
                 o.vertex = UnityObjectToClipPos(float4(localPath, 1));
                 o.edgeColor = float4(1, 1, 1, edgeAlpha);
-                o.mainUv = sourceUv1;
+                o.mainUv = sourceMainUv;
                 return o;
             }
 
-            half4 frag(v2f i) : SV_Target
+            float4 frag(v2f i) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(i);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-                half4 albedo = tex2D(_MainTex, i.mainUv.yx);
+                float4 albedo = tex2D(_MainTex, i.mainUv.yx);
                 albedo *= i.edgeColor;
                 albedo *= UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
                 albedo.a *= albedo.a;
 
-                half whiteBoost = albedo.a * _WhiteBoost;
-                half3 boostedWhite = 1 - albedo.rgb * whiteBoost;
-                half colorBoost = saturate(albedo.a * _ColorBoost);
-                albedo.rgb = lerp(boostedWhite, albedo.rgb * whiteBoost, colorBoost);
+                albedo.rgb = CalculateLightningBloomComposition(
+                    albedo.rgb, albedo.a, _WhiteBoost, _ColorBoost);
 
                 return albedo;
             }

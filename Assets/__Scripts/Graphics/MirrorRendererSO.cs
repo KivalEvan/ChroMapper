@@ -5,6 +5,8 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "MirrorRendererSO", menuName = "Environment/Mirror Renderer")]
 public class MirrorRendererSO : ScriptableObject
 {
+    private const int mirrorBloomResolution = 512;
+
     public enum MirrorQuality
     {
         None,
@@ -166,7 +168,6 @@ public class MirrorRendererSO : ScriptableObject
 
     private void EnsureMirrorBloomTextures()
     {
-        const int mirrorBloomResolution = 256;
         var format = BloomRenderUtility.GetBloomTextureFormat();
         if (mirrorBloomRaw != null
             && mirrorBloomTexture != null
@@ -185,7 +186,12 @@ public class MirrorRendererSO : ScriptableObject
 
     private static RenderTexture CreateMirrorBloomTexture(string textureName, RenderTextureFormat format)
     {
-        var texture = new RenderTexture(256, 256, 0, format, RenderTextureReadWrite.Linear)
+        var texture = new RenderTexture(
+            mirrorBloomResolution,
+            mirrorBloomResolution,
+            0,
+            format,
+            RenderTextureReadWrite.Linear)
         {
             name = textureName,
             filterMode = FilterMode.Bilinear,

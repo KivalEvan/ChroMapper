@@ -18,13 +18,14 @@ inline float2 SampleSimpleEmissionRaw(
     SurfaceData surface, float4 timeValue, float2 inputUvMultiplier,
     sampler2D emissionTex, float4 emissionTex_ST, float2 emissionTexSpeed)
 {
-    #if defined(SECONDARY_UVS_EMISSION)
-    float2 baseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_EMISSION) && USE_SECONDARY_UV
+    float2 emissionUv = TransformScrollingSecondaryUv(
+        surface, emissionTex_ST, emissionTexSpeed, timeValue.x);
     #else
     float2 baseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 emissionUv = baseUv * emissionTex_ST.xy + emissionTex_ST.zw;
     emissionUv += timeValue.xx * emissionTexSpeed * emissionTex_ST.xy;
+    #endif
     return tex2D(emissionTex, emissionUv).rg;
 }
 
@@ -34,17 +35,24 @@ inline float2 SampleDistortedSimpleEmissionRaw(
     sampler2D distortionTex, float4 distortionTex_ST, float2 distortionPanning,
     float2 distortionAxes, float distortionStrength)
 {
-    #if defined(SECONDARY_UVS_EMISSION)
-    float2 baseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_EMISSION) && USE_SECONDARY_UV
+    float2 distortionUv = TransformScrollingSecondaryUv(
+        surface, distortionTex_ST, distortionPanning * 0.1, timeValue.y);
     #else
     float2 baseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 distortionUv = baseUv * distortionTex_ST.xy + distortionTex_ST.zw;
     distortionUv += timeValue.yy * distortionPanning * distortionTex_ST.xy * 0.1;
+    #endif
     float2 distortion = tex2D(distortionTex, distortionUv).rg;
     distortion = distortion * distortionStrength * 0.1 * distortionAxes * 2.0 - 1.0;
+    #if defined(SECONDARY_UVS_EMISSION) && USE_SECONDARY_UV
+    float2 emissionUv = TransformScrollingSecondaryUv(
+        surface, emissionTex_ST, emissionTexSpeed, timeValue.x);
+    emissionUv += distortion * emissionTex_ST.xy * surface.secondaryUvTiling;
+    #else
     float2 emissionUv = (baseUv + distortion) * emissionTex_ST.xy + emissionTex_ST.zw;
     emissionUv += timeValue.xx * emissionTexSpeed * emissionTex_ST.xy;
+    #endif
     return tex2D(emissionTex, emissionUv).rg;
 }
 
@@ -53,12 +61,12 @@ inline float2 SamplePulseEmissionRaw(
     sampler2D pulseMask, float4 pulseMask_ST,
     float pulseWidth, float pulseSpeed, float pulseSmooth)
 {
-    #if defined(SECONDARY_UVS_PULSE)
-    float2 baseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_PULSE) && USE_SECONDARY_UV
+    float2 pulseUv = TransformSecondaryUv(surface, pulseMask_ST);
     #else
     float2 baseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 pulseUv = baseUv * pulseMask_ST.xy + pulseMask_ST.zw;
+    #endif
     float pulseTexture = tex2D(pulseMask, pulseUv).r;
     #if defined(INVERT_PULSE)
     pulseTexture = 1.0 - pulseTexture;
@@ -77,28 +85,23 @@ inline float2 SamplePulseEmissionRaw(
 inline float2 ApplyPrimaryEmissionMask(
     SurfaceData surface, float4 timeValue, float2 emissionInput,
     float2 inputUvMultiplier, sampler2D emissionMask, float4 emissionMask_ST,
-    float2 emissionMaskSpeed, float emissionMaskIntensity,
-    float secondaryEmissionMaskIntensity)
+    float2 emissionMaskSpeed, float emissionMaskIntensity)
 {
-    #if defined(SECONDARY_UVS_EMISSION_MASK)
-    float2 maskBaseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_EMISSION_MASK) && USE_SECONDARY_UV
+    float2 maskUv = TransformScrollingSecondaryUv(
+        surface, emissionMask_ST, emissionMaskSpeed, timeValue.x);
     #else
     float2 maskBaseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 maskUv = maskBaseUv * emissionMask_ST.xy + emissionMask_ST.zw;
     maskUv += timeValue.xx * emissionMaskSpeed * emissionMask_ST.xy;
+    #endif
     float2 mask = tex2D(emissionMask, maskUv).rg;
     #if defined(_MASKBLEND_ADD)
     emissionInput += mask * emissionMaskIntensity;
     #elif defined(_MASKBLEND_MASKED_ADD)
     emissionInput += emissionInput * mask * emissionMaskIntensity;
     #else
-    #if defined(TEXTURE3D_LOOKUP) && defined(TEXTURE3D_EMISSION)
-    emissionInput *= mask * emissionMaskIntensity +
-        (1.0 - secondaryEmissionMaskIntensity);
-    #else
     emissionInput *= mask * emissionMaskIntensity + (1.0 - emissionMaskIntensity);
-    #endif
     #endif
     return emissionInput;
 }
@@ -113,8 +116,8 @@ inline EmissionData ResolveVertexEmission(
         (1.0 - emissionThreshold));
     threshold = threshold * threshold * (3.0 - 2.0 * threshold) * emissionStrength;
     EmissionData emission = InitializeEmissionData();
-    #if defined(_VERTEX_WHITEBOOSTTYPE_MAINEFFECT) || \
-        defined(_VERTEX_WHITEBOOSTTYPE_ALWAYS)
+    #if defined(_VERTEX_WHITEBOOSTTYPE_ALWAYS) || \
+        (defined(_VERTEX_WHITEBOOSTTYPE_MAINEFFECT) && !defined(POST_BLOOM))
     float4 squaredEmissionColor = emissionColor * emissionColor;
     float whiteBoost = threshold * squaredEmissionColor.a * vertexColor.a;
     whiteBoost = whiteBoost * whiteBoost * baseColorBoost - baseColorBoostThreshold;
@@ -204,30 +207,27 @@ inline float2 ApplySecondaryEmissionMask(
     SurfaceData surface, float4 timeValue, float2 emissionInput,
     float2 inputUvMultiplier, sampler2D secondaryEmissionMask,
     float4 secondaryEmissionMask_ST, float2 secondaryEmissionMaskSpeed,
-    float secondaryEmissionMaskIntensity, float occlusionDetailIntensity)
+    float secondaryEmissionMaskIntensity)
 {
-    #if defined(SECONDARY_UVS_EMISSION_MASK2)
-    float2 maskBaseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_EMISSION_MASK2) && USE_SECONDARY_UV
+    float2 maskUv = TransformScrollingSecondaryUv(
+        surface, secondaryEmissionMask_ST, secondaryEmissionMaskSpeed,
+        timeValue.x);
     #else
     float2 maskBaseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 maskUv = maskBaseUv * secondaryEmissionMask_ST.xy +
         secondaryEmissionMask_ST.zw;
     maskUv += timeValue.xx * secondaryEmissionMaskSpeed *
         secondaryEmissionMask_ST.xy;
+    #endif
     float2 mask = tex2D(secondaryEmissionMask, maskUv).rg;
     #if defined(_SECONDARY_MASK_BLEND_ADD)
     emissionInput += mask * secondaryEmissionMaskIntensity;
     #elif defined(_SECONDARY_MASK_BLEND_MASKED_ADD)
     emissionInput += emissionInput * mask * secondaryEmissionMaskIntensity;
     #else
-    #if defined(TEXTURE3D_LOOKUP) && defined(TEXTURE3D_EMISSION)
-    emissionInput *= mask * secondaryEmissionMaskIntensity +
-        (1.0 - occlusionDetailIntensity);
-    #else
     emissionInput *= mask * secondaryEmissionMaskIntensity +
         (1.0 - secondaryEmissionMaskIntensity);
-    #endif
     #endif
     return emissionInput;
 }
@@ -261,7 +261,6 @@ inline EmissionData ResolveFeatureEmission(
     float emissionMaskIntensity,
     sampler2D secondaryEmissionMask, float4 secondaryEmissionMask_ST,
     float2 secondaryEmissionMaskSpeed, float secondaryEmissionMaskIntensity,
-    float occlusionDetailIntensity,
     float emissionGradientPosition, float emissionGradientPanningSpeed,
     sampler2D emissionGradientTex, float4 emissionGradientTex_ST,
     float emissionGradientIntensity,
@@ -300,7 +299,7 @@ inline EmissionData ResolveFeatureEmission(
     #endif
     #endif
 
-    #if defined(ENABLE_EMISSION_ANGLE_DISAPPEAR)
+    #if defined(EMISSION_ANGLE_DISAPPEAR)
     emissionInput *= emissionAngle;
     #endif
 
@@ -312,15 +311,13 @@ inline EmissionData ResolveFeatureEmission(
     #if defined(EMISSION_MASK)
     emissionInput = ApplyPrimaryEmissionMask(
         surface, timeValue, emissionInput, inputUvMultiplier,
-        emissionMask, emissionMask_ST, emissionMaskSpeed, emissionMaskIntensity,
-        secondaryEmissionMaskIntensity);
+        emissionMask, emissionMask_ST, emissionMaskSpeed, emissionMaskIntensity);
     #endif
     #if defined(SECONDARY_EMISSION_MASK)
     emissionInput = ApplySecondaryEmissionMask(
         surface, timeValue, emissionInput, inputUvMultiplier,
         secondaryEmissionMask, secondaryEmissionMask_ST,
-        secondaryEmissionMaskSpeed, secondaryEmissionMaskIntensity,
-        occlusionDetailIntensity);
+        secondaryEmissionMaskSpeed, secondaryEmissionMaskIntensity);
     #endif
     emissionInput *= emissionBrightness;
 
@@ -343,8 +340,8 @@ inline EmissionData ResolveFeatureEmission(
         emissionGradientTex_ST, emissionGradientIntensity, gradientIntensity);
     emission.bloomAlpha = emissionTexBloomIntensity * gradientIntensity;
     return emission;
-    #elif defined(_EMISSIONCOLORTYPE_MAINEFFECT) || \
-        defined(_EMISSIONCOLORTYPE_WHITEBOOST)
+    #elif defined(_EMISSIONCOLORTYPE_WHITEBOOST) || \
+        (defined(_EMISSIONCOLORTYPE_MAINEFFECT) && !defined(POST_BLOOM))
     return ResolveMainEffectEmission(
         emissionInput, emissionColor, emissionTexWhiteBoostMultiplier,
         emissionTexBloomIntensity, baseColorBoost, baseColorBoostThreshold);

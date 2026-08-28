@@ -1,64 +1,55 @@
 Shader "ChroMapper/Object/Obstacle Distortion"
 {
+    // AUDIT FINDINGS (Beat Saber 1.42.2 / 1.44.3)
+    // 1. ScreenDisplacementHD is authoritative for the game-facing property
+    //     surface, labels, order, and defaults.
+    // 2. SCROLL_UV is retained for the ChroMapper editor scroll route.
+    // 3. Rim and height fog are retained for the ChroMapper preview routes;
+    //     the grab texture and its texel size remain owned by the grab controller.
+    // 4. BLOOM_FOG aliases the runtime-owned BLOOM_FOG route, and
+    //     DEPTH_TEXTURE_ENABLED aliases the runtime-owned DEPTH_TEXTURE route.
+    // 5. OVERDRAW_VIEW is intentionally omitted. It is a debug route in the
+    //     source variants and has no ChroMapper implementation.
+    // 6. Active ObstacleCoreHD formulas were recovered from non-XR binaries
+    //     4cc00a1b29ccdbb and 2626bb764be28656.
+    // 7. _UVScale, tint, add color, and cutout controls are per-instance data.
+    // 8. FOG fades the displaced grab to the original grab by height
+    //     and distance. USE_DISTORTED_TEXTURE_ONLY does not bypass this fade.
     Properties
     {
-        [Header(Displacement)] [Space]
         _MainTex ("Displacement Texture", 2D) = "white" {}
         _DisplacementStrength ("Displacement Strength", Float) = 0.01
-
-        [Space]
-        [Toggle(SCALE_UV)] _ScaleUV ("Scale UV", Float) = 0
-        _UVScale ("UV Scale", Vector) = (1, 1, 1, 0)
-
-        [Space]
-        [Toggle(SCROLL_UV)] _ScrollUV ("Scroll UV", Float) = 0
-        _ScrollUVVelocity ("Scroll UV Velocity", Vector) = (0, 0, 0, 0)
-
-        [Header(Color)] [Space]
-        _Color ("Obstacle Color", Color) = (1, 1, 1, 1)
-        _TintColor ("Core Tint Color", Color) = (1, 1, 1, 1)
-        _AddColor ("Add Color", Color) = (0, 0, 0, 0)
+        [Space] [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", Float) = 0
+        // ChroMapper obstacle renderer compatibility route; supplied through MPB.
+        _Color ("Obstacle Color", Color) = (1,1,1,1)
+        _TintColor ("Tint Color", Vector) = (1,1,1,1)
+        _AddColor ("Add Color", Vector) = (0,0,0,0)
         _DisplacementAlphaMul ("Displacement Alpha Mul", Float) = 1
-        [Toggle(CLIP_LOW_ALPHA)] _ClipLowAlpha ("Clip Low Alpha", Float) = 1
-
-        [Header(Distortion)] [Space]
-        [Toggle(VIEW_ANGLE_AFFECTS_DISTORTION)]
-        _ViewAngleAffectsDistortion ("View Angle Affects Distortion", Float) = 1
-        _ViewAngleDistortionParam ("View Angle Distortion Param", Float) = 4
-
-        [Space]
-        [Toggle(USE_DISTORTED_TEXTURE_ONLY)]
-        _UseDistortedTextureOnly ("Use Distorted Texture Only", Float) = 0
-
-        [Space]
-        [Toggle(DEPTH_AWARE_DISTORTION)]
-        _DepthAwareDistortion ("Depth Aware Distortion", Float) = 0
-
-        [Header(Cutout)] [Space]
-        [Toggle(CUTOUT)] _EnableCutout ("Enable Cutout", Float) = 0
-        _CutoutTexScale ("Cutout Texture Scale", Float) = 1
-        _CutoutTexOffset ("Cutout Texture Offset", Vector) = (0, 0, 0, 0)
-        _Cutout ("Cutout", Range(0, 1)) = 0
-
-        [Header(Rim Dim)] [Space]
-        [Toggle(RIM_DIM)] _EnableRimDim ("Enable Rim Dim", Float) = 0
-        _RimDimScale ("Rim Scale", Float) = 1
-        _RimDimOffset ("Rim Offset", Float) = 1
-
-        [Header(Fog Settings)] [Space]
-        [Toggle(FOG)] _EnableFog ("Enable Fog", Float) = 0
-        _FogStartOffset ("Fog Start Offset", Float) = 0
-        _FogScale ("Fog Scale", Float) = 1
-        [Space]
-        _FogHeightOffset ("Fog Height Offset", Float) = 0
-        _FogHeightScale ("Fog Height Scale", Float) = 1
-
-        [Space]
-        [Toggle(CLIPPING)] _EnableClipping ("Enable Clipping", Float) = 0
-
-        [Header(Settings)] [Space]
-        [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", Float) = 0
-        [Toggle] _ZWrite ("Z Write", Float) = 0
+        [Space] [Toggle(SCALE_UV)] _ScaleUV ("Scale UV", Float) = 0
+        [ShowIfAny(SCALE_UV)] _UVScale ("UV Scale", Vector) = (1, 1, 1, 0)
+        // ChroMapper editor-owned route: animated displacement preview.
+        [Space] [Toggle(SCROLL_UV)] _ScrollUV ("Scroll UV", Float) = 0
+        [ShowIfAny(SCROLL_UV)] _ScrollUVVelocity ("Scroll UV Velocity", Vector) = (0, 0, 0, 0)
+        [Space] [Toggle(FOG)] _EnableFog ("Enable Fog", Float) = 0
+        [ShowIfAny(FOG)] _FogStartOffset ("Fog Start Offset", Float) = 0
+        [ShowIfAny(FOG)] _FogScale ("Fog Scale", Float) = 1
+        [ShowIfAny(FOG)] _FogHeightScale ("Fog Height Scale", Float) = 1
+        [ShowIfAny(FOG)] _FogHeightOffset ("Fog Height Offset", Float) = 0
+        [Space] [Toggle(ZWRITE)] _ZWrite ("Z Write", Float) = 0
+        [Space] [Toggle(CLIP_LOW_ALPHA)] _ClipLowAlpha ("Clip Low Alpha", Float) = 1
+        [Space] [Toggle(VIEW_ANGLE_AFFECTS_DISTORTION)] _ViewAngleAffectsDistortion ("View Angle Affects Distortion", Float) = 1
+        [ShowIfAny(VIEW_ANGLE_AFFECTS_DISTORTION)] _ViewAngleDistortionParam ("View Angle Distortion Param", Float) = 4
+        [Space] [Toggle(USE_DISTORTED_TEXTURE_ONLY)] _UseDistortedTextureOnly ("Use Distorted Texture Only", Float) = 0
+        [Space] [Toggle(DEPTH_AWARE_DISTORTION)] _DepthAwareDistortion ("Depth Aware Distortion", Float) = 0
+        [Space] [Toggle(CUTOUT)] _EnableCutout ("Enable Cutout", Float) = 0
+        [ShowIfAny(CUTOUT)] _CutoutTexScale ("Cutout Texture Scale", Float) = 1
+        [ShowIfAny(CUTOUT)] _CutoutTexOffset ("Cutout Texture Offset", Vector) = (0, 0, 0, 0)
+        [ShowIfAny(CUTOUT)] _Cutout ("Cutout", Range(0, 1)) = 0
+        // ChroMapper editor-owned preview route.
+        [Space] [Toggle(RIM_DIM)] _EnableRimDim ("Enable Rim Dim", Float) = 0
+        [ShowIfAny(RIM_DIM)] _RimDimScale ("Rim Scale", Float) = 1
+        [ShowIfAny(RIM_DIM)] _RimDimOffset ("Rim Offset", Float) = 1
+        [Space] [Toggle(CLIPPING)] _EnableClipping ("Enable Clipping", Float) = 0
 
         [Space]
         [Header(Color Blending)]
@@ -106,9 +97,10 @@ Shader "ChroMapper/Object/Obstacle Distortion"
             #pragma shader_feature_local_fragment CUTOUT
             #pragma shader_feature_local_fragment RIM_DIM
             #pragma shader_feature_local_fragment CLIPPING
+            #pragma shader_feature_local_fragment ZWRITE
 
-            #pragma multi_compile_fragment _ DEPTH_TEXTURE
-            #pragma multi_compile_fragment _ BLOOM_FOG
+            #pragma multi_compile_fragment _ DEPTH_TEXTURE DEPTH_TEXTURE_ENABLED
+            #pragma multi_compile_fragment _ BLOOM_FOG BLOOM_FOG
             #pragma multi_compile_fragment _ CM_PREVIEW_MODE
 
             #pragma shader_feature_local_fragment HEIGHT_FOG
@@ -122,12 +114,12 @@ Shader "ChroMapper/Object/Obstacle Distortion"
             float4 _MainTex_ST;
             sampler2D _ScreenDisplacementGrabTexture;
             float4 _ScreenDisplacementGrabTexture_TexelSize;
-            sampler2D _CameraDepthTexture;
+            UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+            float4 _CameraDepthTexture_TexelSize;
             sampler3D _CutoutTex;
 
             float _DisplacementStrength;
             float _DisplacementAlphaMul;
-            float4 _UVScale;
             float4 _ScrollUVVelocity;
             float _ViewAngleDistortionParam;
             float _CutoutTexScale;
@@ -146,6 +138,7 @@ Shader "ChroMapper/Object/Obstacle Distortion"
                 UNITY_DEFINE_INSTANCED_PROP(float4, _AddColor)
                 UNITY_DEFINE_INSTANCED_PROP(float, _Cutout)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _CutoutTexOffset)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _UVScale)
             UNITY_INSTANCING_BUFFER_END(Props)
 
             struct appdata
@@ -182,9 +175,10 @@ Shader "ChroMapper/Object/Obstacle Distortion"
                 #if defined(SCALE_UV)
                 float3 tangent = v.tangent.xyz;
                 float3 bitangent = cross(tangent, v.normal);
+                float3 uvScale = UNITY_ACCESS_INSTANCED_PROP(Props, _UVScale).xyz;
                 o.uv *= float2(
-                    dot(_UVScale.xyz, tangent),
-                    dot(_UVScale.xyz, bitangent));
+                    dot(uvScale, tangent),
+                    dot(uvScale, bitangent));
                 #endif
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.worldNormal = UnityObjectToWorldNormal(v.normal);
@@ -217,10 +211,9 @@ Shader "ChroMapper/Object/Obstacle Distortion"
                 displacementUv += _ScrollUVVelocity.xy * _Time.y;
                 #endif
 
-                float4 obstacleColor = UNITY_ACCESS_INSTANCED_PROP(Props, _Color);
                 float4 tintColor = UNITY_ACCESS_INSTANCED_PROP(Props, _TintColor);
                 float4 addColor = UNITY_ACCESS_INSTANCED_PROP(Props, _AddColor);
-                float displacementControlAlpha = obstacleColor.a * i.color.a;
+                float displacementControlAlpha = tintColor.a * i.color.a;
 
                 // ScreenDisplacementHD centers the sampled RG channels before scaling
                 // displacement in thousandths.
@@ -241,55 +234,56 @@ Shader "ChroMapper/Object/Obstacle Distortion"
                 #endif
 
                 float2 screenUv = i.screenPos.xy / i.screenPos.w;
+                // ScreenDisplacementHD offsets projected coordinates before perspective division.
                 float2 distortedUv = (i.screenPos.xy + displacement) / i.screenPos.w;
 
-                #if defined(DEPTH_AWARE_DISTORTION) && defined(DEPTH_TEXTURE)
-                float sceneDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, distortedUv));
+                #if defined(DEPTH_AWARE_DISTORTION) && (defined(DEPTH_TEXTURE) || defined(DEPTH_TEXTURE_ENABLED))
+                float2 depthUv = min(
+                    distortedUv,
+                    1.0 - 0.5 * _CameraDepthTexture_TexelSize.xy);
+                #if defined(UNITY_SINGLE_PASS_STEREO) || defined(STEREO_INSTANCING_ON) || defined(STEREO_MULTIVIEW_ON)
+                depthUv = UnityStereoTransformScreenSpaceTex(depthUv);
+                #endif
+                float sceneDepth = LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, depthUv));
                 float surfaceDepth = LinearEyeDepth(i.screenPos.z / i.screenPos.w);
                 distortedUv = lerp(screenUv, distortedUv, step(surfaceDepth - 0.01, sceneDepth));
                 #endif
 
-                float displacementAlpha = saturate(displacementControlAlpha);
-
                 #if defined(CLIP_LOW_ALPHA)
-                clip(displacementAlpha - 0.01);
+                clip(displacementControlAlpha - 0.01);
                 #endif
 
-                // Keep bilinear samples inside the copied render target. The game clamps to
-                // half a texel below the upper edge before sampling its grab texture.
+                // The game clamps to half a texel below the upper edge before sampling.
                 float2 grabUvMax = 1.0 - 0.5 * _ScreenDisplacementGrabTexture_TexelSize.xy;
-                screenUv = min(screenUv, grabUvMax);
                 distortedUv = min(distortedUv, grabUvMax);
 
                 float4 originalColor = tex2D(_ScreenDisplacementGrabTexture, screenUv);
                 float4 distortedColor = tex2D(_ScreenDisplacementGrabTexture, distortedUv)
                     * tintColor + addColor;
+                distortedColor.a *= _DisplacementAlphaMul;
 
                 #if defined(USE_DISTORTED_TEXTURE_ONLY)
-                float4 color = distortedColor;
+                originalColor.a = 0;
+                #if defined(FOG)
+                float distanceVisibility = 1.0 - CalculateCustomFogFactor(
+                    distanceSquared(i.worldPos), _FogStartOffset, _FogScale);
+                float heightVisibility = CalculateCustomHeightFogFactor(
+                    i.worldPos, _FogHeightOffset, _FogHeightScale);
+                float4 color = lerp(originalColor, distortedColor,
+                                    distanceVisibility * heightVisibility);
                 #else
-                float4 color = lerp(originalColor, distortedColor, displacementAlpha);
+                float4 color = distortedColor;
                 #endif
-                // Preserve the grabbed scene's bloom mask. ScreenDisplacementHD
-                // scales sampled alpha instead of replacing it with obstacle opacity.
-                color.a *= _DisplacementAlphaMul;
+                #else
+                float4 color = lerp(
+                    originalColor, distortedColor, saturate(displacementControlAlpha));
+                #endif
 
                 #if defined(RIM_DIM)
                 float3 rimViewDirection = normalize(_WorldSpaceCameraPos - i.worldPos);
                 float rim = saturate((1 - abs(dot(rimViewDirection, normalize(i.worldNormal))))
                     * _RimDimScale + _RimDimOffset);
                 color.rgb *= rim;
-                #endif
-
-                #if defined(CM_PREVIEW_MODE) && defined(FOG)
-                #if defined(BLOOM_FOG) && defined(HEIGHT_FOG)
-                color = ApplyBloomHeightFog(color, i.screenPos, i.worldPos, _FogStartOffset, _FogScale,
-                                            _FogHeightOffset, _FogHeightScale);
-                #elif defined(BLOOM_FOG)
-                color = ApplyBloomFog(color, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
-                #else
-                color = ApplyHeightFog(color, i.worldPos, _FogHeightScale, _FogHeightOffset);
-                #endif
                 #endif
 
                 return color;

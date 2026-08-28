@@ -1,9 +1,25 @@
 ﻿// Replacement for the Beat Saber game shader Custom/Spectrogram.
 Shader "ChroMapper/Spectrogram"
 {
+    // AUDIT FINDINGS (Beat Saber 1.44.3)
+    // S1. The 1.42.2 Custom/Spectrogram Properties block is authoritative.
+    //     ToggleHeader is represented by Unity's standard Toggle attribute.
+    // S2 [vertex-bead5cceaf6dbed1]: UV.x selects uint(max(uv.x * 63, 0)).
+    //     The vertex offset is -uv.y * (1-sample) * _PeakOffset.xyz before the
+    //     object-to-world and clip transforms. POSITION, NORMAL, and UV0 suffice.
+    // S3 [89358b18acd1d3a4,bdc55897e4e396fb]: DIFFUSE, SPECULAR, and
+    //     LIGHT_FALLOFF use the shared five-light equations. The unusual specular
+    //     color is metallic * (diffuseLighting * color - 0.04) + 0.04.
+    // S4 [a629dbe44112ae87,477dc738c669dabd]: height fog is always evaluated.
+    //     ENABLE_BLOOM_FOG maps to ChroMapper's BLOOM_FOG global and combines the
+    //     height-retained and distance-retained factors before sampling bloom fog.
+    // S5. Blue-noise dithering is unconditional in every non-OVERDRAW fragment:
+    //     rgb += (blueNoise.r - 0.5) / 255. Output alpha is always zero.
+    // S6. No white-boost or NOISE_DITHERING keyword variant exists. OVERDRAW_VIEW
+    //     remains omitted. Stage binaries cannot prove ShaderLab render state.
     Properties
     {
-        _Color ("Color", Color) = (1,1,1,1)
+        _Color ("Color", Vector) = (1,1,1,1)
         _PeakOffset ("Peak Offset", Vector) = (0,10,0,1)
 
         _Metallic ("Metallic", Range(0, 1)) = 0
@@ -23,10 +39,7 @@ Shader "ChroMapper/Spectrogram"
         _FogScale ("Fog Scale", float) = 1
 
         [Space(12)]
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("White Boost", float) = 0
-
-        [Space(12)]
-        [Enum(Off, 0, On, 1)] _ZWrite ("Z Write", float) = 1
+        [Toggle] _ZWrite ("Z Write", float) = 1
     }
     SubShader
     {
@@ -52,19 +65,15 @@ Shader "ChroMapper/Spectrogram"
             #pragma shader_feature_local_fragment DIFFUSE
             #pragma shader_feature_local_fragment SPECULAR
             #pragma shader_feature_local_fragment LIGHT_FALLOFF
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
 
             #pragma multi_compile_fragment _ BLOOM_FOG
             #pragma multi_compile_fragment _ ACES_TONE_MAPPING
-            #pragma multi_compile_fragment _ NOISE_DITHERING
-            #pragma multi_compile _ POST_BLOOM
             #pragma multi_compile _ STEREO_INSTANCING_ON
 
             #include "UnityCG.cginc"
             #include "ShaderLibrary/Fog.hlsl"
             #include "ShaderLibrary/CustomLighting.hlsl"
             #include "ShaderLibrary/CustomTonemapping.hlsl"
-            #include "ShaderLibrary/CustomBloom.hlsl"
             #include "ShaderLibrary/PostProcess.hlsl"
             #include "ShaderLibrary/SpectrogramShared.hlsl"
 
@@ -121,9 +130,9 @@ Shader "ChroMapper/Spectrogram"
                 o.worldNormal = normalize(UnityObjectToWorldNormal(i.normal));
                 o.uv.xy = i.uv.xy;
                 o.screenPos = ComputeScreenPosCustom(o.vertex);
-                o.noiseScreenPos.xy = o.screenPos.xy * _GlobalBlueNoiseParams;
-                o.noiseScreenPos.xy += o.vertex.w * _GlobalRandomValue + unity_ObjectToWorld._m03_m13;
-                o.noiseScreenPos.zw = o.vertex.zw;
+                o.noiseScreenPos = BuildNoiseScreenPosition(
+                    o.screenPos, o.vertex, _GlobalBlueNoiseParams,
+                    _GlobalRandomValue, unity_ObjectToWorld._m03_m13);
 
                 return o;
             }
@@ -162,30 +171,18 @@ Shader "ChroMapper/Spectrogram"
                 albedo = ApplyAcesTonemapping(albedo);
                 #endif
 
-                // The source family has no retained white-boost variant. Use the
-                // color alpha as the bloom value, following other opaque environment shaders.
-                albedo = ApplyBloomTypeWhiteBoost(
-                    albedo, 1.0, _Color.a, 1.0,
-                    _BaseColorBoost, _BaseColorBoostThreshold);
-
+                float heightRetained = CalculateCustomHeightFogFactor(
+                    i.worldPos, 0.0, 1.0);
                 #if defined(BLOOM_FOG)
-                float heightRetained = smoothstep(
-                    0, 1, (i.worldPos.y - (_CustomFogHeightFogStartY + _CustomFogHeightFogHeight)) /
-                    _CustomFogHeightFogHeight);
                 float distanceFogFactor = CalculateCustomFogFactor(
                     distanceSquared(i.worldPos), _FogStartOffset, _FogScale);
                 albedo = ApplyBloomFogCalculatedFactor(
                     albedo, i.screenPos, 1 - heightRetained * (1 - distanceFogFactor));
                 #else
-                float heightRetained = smoothstep(
-                    0, 1, (i.worldPos.y - (_CustomFogHeightFogStartY + _CustomFogHeightFogHeight)) /
-                    _CustomFogHeightFogHeight);
                 albedo.rgb = lerp(0.1, albedo.rgb, heightRetained);
                 #endif
 
-                #if defined(NOISE_DITHERING)
                 albedo = ApplyNoiseDither(albedo, i.noiseScreenPos, _GlobalBlueNoiseTex);
-                #endif
                 albedo.a = 0;
 
                 return albedo;

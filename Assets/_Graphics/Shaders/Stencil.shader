@@ -1,4 +1,22 @@
-Shader "Custom/Stencil" {
+// ChroMapper replacement for Beat Saber Custom/SimpleStencil.
+//
+// AUDIT FINDINGS (1.44.3)
+// S1. The authoritative 1.42.2 Properties block contains only the four stencil
+//     and cull controls below. Lattice uses Ref=2; Lizzo uses Ref=1. Both use
+//     Comp=Always, Pass=Replace, and back-face culling.
+// S2 [vertex-e1db43b18c53b97e]: the no-keyword vertex route performs only the
+//     object-to-world and world-to-clip transforms.
+// S3 [vertex-ee83a5e328c2677c]: STEREO_INSTANCING_ON selects the stereo eye and
+//     render-target array through Unity's standard instancing macros.
+// S4 [fragment-8dc2c81abf29c14b,4a7230123d73103c]: both fragment routes output
+//     float4(0,0,0,0). The white output in the 1.42.2 dummy export is incorrect.
+// S5. The pass samples no textures and has no local feature keywords. Its color
+//     blend preserves the destination, ZWrite is disabled, and only the stencil
+//     operation has a visible effect.
+// S6. Queue, blend, depth, cull, and stencil declarations are serialized pass
+//     state and cannot be recovered from stage ASM. They remain the established
+//     ChroMapper parity state; the material values support the stencil mapping.
+Shader "ChroMapper/Stencil" {
     Properties {
         _StencilRefValue ("Stencil Ref Value", Float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8

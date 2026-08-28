@@ -17,18 +17,11 @@ Material:
   - SCALE_UV
   - USE_DISTORTED_TEXTURE_ONLY
   - VIEW_ANGLE_AFFECTS_DISTORTION
-  m_InvalidKeywords:
-  - ETC1_EXTERNAL_ALPHA
-  - FADE_Z
   - ZWRITE
-  - _CUTOUT_Z
-  - _EMISSION
-  - _FADE_Z
-  - _SCROLL_UV
-  - _USE_DISTORTED_TEXTURE_ONLY
-  - _VIEW_ANGLE_AFFECTS_DISTORTION
-  - _ZWRITE
-  - _ZWRITE_ON
+  m_InvalidKeywords:
+  - ENABLE_CUTOUT
+  - ENABLE_FOG
+  - ENABLE_INSTANCED_COLOR
   m_LightmapFlags: 1
   m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
@@ -40,7 +33,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 78ff05385ff645eb996ce4e4c52eaf0f, type: 3}
+        m_Texture: {fileID: 2800000, guid: bc55fce1aaa00ee4d87633e904c23de1, type: 3}
         m_Scale: {x: 0.3, y: 0.3}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -50,72 +43,36 @@ Material:
     - _BlendOp: 0
     - _BlendSrcFactor: 1
     - _BlendSrcFactorA: 1
-    - _BumpScale: 1
     - _ClipLowAlpha: 0
     - _CullMode: 0
-    - _Cutoff: 0.5
     - _Cutout: 0
     - _CutoutTexScale: 0.2
-    - _CutoutZ: 1
-    - _CutoutZThreshold: -1
-    - _CutoutZWidth: 8
     - _DepthAwareDistortion: 0
-    - _DetailNormalMapScale: 1
     - _DisplacementAlphaMul: 0.75
-    - _DisplacementInPixels: 0
     - _DisplacementStrength: 250
-    - _DstBlend: 0
-    - _EnableCenterCutout: 1
     - _EnableClipping: 0
     - _EnableCutout: 1
     - _EnableFog: 1
+    - _EnableInstancedColor: 1
     - _EnableRimDim: 0
-    - _EnableTintLerpToWhite: 0
-    - _EnableZCutout: 1
-    - _FadeZ: 1
-    - _FadeZThreshold: -2
-    - _FadeZWidth: 8
     - _FogHeightOffset: 0
     - _FogHeightScale: 2.5
     - _FogScale: 1
     - _FogStartOffset: 100
-    - _GlossMapScale: 1
-    - _Glossiness: 0.5
-    - _GlossyReflections: 1
-    - _InvFade: 1
-    - _LWScale: 1
-    - _Metallic: 0
-    - _Mode: 0
-    - _OcclusionStrength: 1
-    - _Offset: 0
-    - _Parallax: 0.02
     - _RimDimOffset: 1
     - _RimDimScale: 1
-    - _RimOffset: 1
-    - _RimScale: 1
     - _ScaleUV: 1
     - _ScrollUV: 0
-    - _SmoothnessTextureChannel: 0
-    - _SoftEdges: 0
-    - _SoftFactor: 0
-    - _SpecularHighlights: 1
-    - _SrcBlend: 1
-    - _TintWhiteLerp: 0.75
-    - _UVSec: 0
     - _UseDistortedTextureOnly: 1
-    - _UseMonoScreenTexture: 0
     - _ViewAngleAffectsDistortion: 1
     - _ViewAngleDistortionParam: 1
-    - _ZTest: 0
     - _ZWrite: 1
     m_Colors:
     - _AddColor: {r: 0.13207549, g: 0, b: 0, a: 0.1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _CutoutTexOffset: {r: 0, g: 0, b: 0, a: 0}
-    - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _Offset: {r: 0.02, g: 0.02, b: 0, a: 0}
     - _ScrollUVVelocity: {r: 0, g: 0, b: 0, a: 0}
-    - _TintColor: {r: 1, g: 1, b: 1, a: 1}
-    - _UVScale: {r: 1, g: 1, b: 1, a: 0}
+    - _TintColor: {r: 1, g: 0.7529412, b: 0.7529412, a: 1}
+    - _UVScale: {r: 0.57800007, g: 2.99, b: 16.37, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 0

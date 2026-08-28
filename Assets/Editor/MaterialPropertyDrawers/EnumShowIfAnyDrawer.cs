@@ -25,6 +25,12 @@ public class EnumShowIfAnyDrawer : ShowIfAnyDrawer
         EditorGUI.EndChangeCheck();
     }
 
+    public override void Apply(MaterialProperty prop)
+    {
+        base.Apply(prop);
+        SetKeywords(prop, (int)prop.floatValue);
+    }
+
     private void SetKeywords(MaterialProperty prop, int index)
     {
         foreach (var target in prop.targets)

@@ -5,9 +5,10 @@
 // GetTime(offset) applies the per-material scalar offset in the same convention.
 //   FREEZE    -> offset vector alone
 //   SONG_TIME -> _SongTime + offset vector
-//   Standard  -> _Time + offset vector
+//   Standard  -> _Time + _TimeHelperOffset + offset vector
 
 uniform float4 _SongTime;
+uniform float4 _TimeHelperOffset;
 
 inline float4 GetTimeOffsetVector(float offset)
 {
@@ -21,7 +22,7 @@ inline float4 GetTime(float offset)
     #elif defined(_CUSTOM_TIME_SONG_TIME)
     return _SongTime + GetTimeOffsetVector(offset);
     #else
-    return _Time + GetTimeOffsetVector(offset);
+    return _Time + _TimeHelperOffset + GetTimeOffsetVector(offset);
     #endif
 }
 

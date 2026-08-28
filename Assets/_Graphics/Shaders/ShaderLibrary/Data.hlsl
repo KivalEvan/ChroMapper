@@ -10,6 +10,8 @@ struct SurfaceData
     float3 normalWS;
     float2 uv0;
     float2 uv1;
+    float2 secondaryUvTiling;
+    float2 secondaryUvOffset;
     float4 baseColor;
     float metallic;
     float smoothness;
@@ -47,6 +49,8 @@ inline SurfaceData InitializeSurfaceData(
     surface.normalWS = normalWS;
     surface.uv0 = uv0;
     surface.uv1 = uv1;
+    surface.secondaryUvTiling = 1.0;
+    surface.secondaryUvOffset = 0.0;
     surface.baseColor = baseColor;
     surface.metallic = metallic;
     surface.smoothness = smoothness;
@@ -55,6 +59,20 @@ inline SurfaceData InitializeSurfaceData(
     surface.occlusionDetail = 1.0;
     surface.lightmapUv = 0.0;
     return surface;
+}
+
+inline float2 TransformSecondaryUv(SurfaceData surface, float4 texture_ST)
+{
+    return surface.uv1 * texture_ST.xy * surface.secondaryUvTiling +
+        texture_ST.zw + surface.secondaryUvOffset;
+}
+
+inline float2 TransformScrollingSecondaryUv(
+    SurfaceData surface, float4 texture_ST, float2 speed, float time)
+{
+    float2 scale = texture_ST.xy * surface.secondaryUvTiling;
+    return surface.uv1 * scale + texture_ST.zw + surface.secondaryUvOffset +
+        time * speed * scale;
 }
 
 inline LightingData InitializeLightingData()

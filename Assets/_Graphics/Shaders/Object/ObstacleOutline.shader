@@ -1,5 +1,18 @@
 Shader "ChroMapper/Object/Obstacle Outline"
 {
+    // AUDIT FINDINGS
+    // 1. Source comparison: this editor adapter keeps the source outline's
+    //    face-normal UV frame and bloom composition, but does not replace the
+    //    game's ObstacleCore or add unowned selection animation.
+    // 2. Cube contract: the editor supplies Unity's built-in cube mesh with 24
+    //    face-local vertices/normals and 0..1 UVs. Face dimensions are selected
+    //    by normal: +/-X -> ZY, +/-Y -> XZ, and +/-Z -> XY.
+    // 3. Adapter-only properties: _Color, _WorldScale, _SizeParams, _Cutout,
+    //    and _CutoutTexOffset are instanced inputs written by editor MPBs.
+    //    Fog controls remain because the owned CM_PREVIEW_MODE+BLOOM_FOG route
+    //    passes them to the shared bloom-fog calculation.
+    // 4. OVERDRAW_VIEW is intentionally omitted; no editor owner or render
+    //    path requires that source debug variant.
     Properties
     {
         _FogStartOffset ("Fog Start Offset", Float) = 1
@@ -17,9 +30,6 @@ Shader "ChroMapper/Object/Obstacle Outline"
         [Toggle(CUTOUT)] _EnableCutout ("Enable Cutout", Float) = 0
         _CutoutTexScale ("Cutout Texture Scale", Float) = 1
 
-        [Space]
-        [Toggle(CLIPPING)] _EnableClipping ("Enable Clipping", Float) = 0
-
         [Header(Rendering)]
         [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrcFactor ("Foreground Factor", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _BlendDstFactor ("Background Factor", Float) = 0
@@ -28,12 +38,13 @@ Shader "ChroMapper/Object/Obstacle Outline"
         [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", Float) = 4
         [Toggle] _ZWrite ("Z Write", Float) = 1
 
+        [Space]
         // ChroMapper compatibility. ObstacleContainer and ObjectAnimator write these through an MPB.
-        [HideInInspector] _Color ("Color", Color) = (0.5, 0, 0, 1)
-        [HideInInspector] _WorldScale ("World Scale", Vector) = (1, 1, 1, 1)
-        [HideInInspector] _Cutout ("Cutout", Range(0, 1)) = 0
-        [HideInInspector] _CutoutTexOffset ("Cutout Texture Offset", Vector) = (0, 0, 0, 0)
-        [HideInInspector] _SizeParams ("Size Params", Vector) = (0.5, 0.5, 0.5, 0.025)
+        _Color ("Color", Color) = (0.5, 0, 0, 1)
+        _WorldScale ("World Scale", Vector) = (1, 1, 1, 1)
+        _Cutout ("Cutout", Range(0, 1)) = 0
+        _CutoutTexOffset ("Cutout Texture Offset", Vector) = (0, 0, 0, 0)
+        _SizeParams ("Size Params", Vector) = (0.5, 0.5, 0.5, 0.025)
     }
 
     SubShader
@@ -58,7 +69,6 @@ Shader "ChroMapper/Object/Obstacle Outline"
             #pragma multi_compile_instancing
 
             #pragma shader_feature_local_fragment CUTOUT
-            #pragma shader_feature_local_fragment CLIPPING
             #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
             // Global: the post-process bloom runs (mirrors the game's MAIN_EFFECT_ENABLED gate).
             #pragma multi_compile _ POST_BLOOM
@@ -66,17 +76,14 @@ Shader "ChroMapper/Object/Obstacle Outline"
             #pragma multi_compile_fragment _ BLOOM_FOG
             #pragma multi_compile_fragment _ CM_PREVIEW_MODE
 
-            #pragma shader_feature_local_fragment FOG
-            #pragma shader_feature_local_fragment HEIGHT_FOG
-
             #include "UnityCG.cginc"
             #include "../ShaderLibrary/Fog.hlsl"
             #include "../ShaderLibrary/CustomBloom.hlsl"
             #include "../ShaderLibrary/Cutout.hlsl"
+            #include "../ShaderLibrary/CustomTonemapping.hlsl"
 
             sampler3D _CutoutTex;
             float _CutoutTexScale;
-            float4 _ClippingPlane;
 
             float _FogStartOffset;
             float _FogScale;
@@ -130,10 +137,6 @@ Shader "ChroMapper/Object/Obstacle Outline"
                 UNITY_SETUP_INSTANCE_ID(i);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-                #if defined(CLIPPING)
-                clip(dot(float4(i.worldPos, 1), _ClippingPlane));
-                #endif
-
                 float4 worldScale = abs(UNITY_ACCESS_INSTANCED_PROP(Props, _WorldScale));
                 float2 faceScale;
                 if (abs(i.normal.x) > 0.5)
@@ -145,8 +148,9 @@ Shader "ChroMapper/Object/Obstacle Outline"
 
                 // Preserve the existing cube-mesh frame construction while exposing the HD contract.
                 float4 sizeParams = UNITY_ACCESS_INSTANCED_PROP(Props, _SizeParams);
-                // Scale the recovered source width to match this cube mesh's UV frame construction.
-                float frameWidth = max(sizeParams.w * 1.5, 0.0001);
+                // _SizeParams.w is the source half edge width; the UV frame
+                // needs the full physical edge width on this cube contract.
+                float frameWidth = max(sizeParams.w, 0.0001);
                 float2 distanceFromEdge = 0.5 - abs(0.5 - i.uv);
                 clip(frameWidth - min(distanceFromEdge.x * faceScale.x,
                                       distanceFromEdge.y * faceScale.y));

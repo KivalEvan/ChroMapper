@@ -1,39 +1,11 @@
-// ChroMapper custom bloom.
-//
-// Replaces Unity's Post Processing v2 stack (com.unity.postprocessing is no
-// longer a dependency). The recovered bloom kernels are shared with bloom fog.
-// The scene-owned BloomRenderer records this shader into the main-effect
-// command buffer.
-//
-// Prefilter, pyramid, and final bloom were consolidated with the
-// recovered game pipeline (Hidden/PostProcessing/Bloom): the high-quality
-// route uses the game's 13-tap kernel. Pyramid levels merge with the game's
-// per-level _CombineParams weights. Main bloom ends with a plain tent merge;
-// bloom fog uses the separate final pass that applies its exposure knee and
-// ACES curve. Hidden/MainEffect blends main bloom with the scene.
-// Chromatic aberration moved to its own shader (ChromaticAberration.shader,
-// driven by ChromaticAberrationRenderer; see Assets/_Graphics/Shaders/README.md).
 Shader "ChroMapper/Post Process/Bloom"
 {
     Properties
     {
-        // Registered texture properties. CommandBuffer.Blit binds its source through
-        // the material's property registry (Shader.PropertyToID set by the
-        // framework), and SetTexture updates registered textures - code-only
-        // declarations are not enough for either path: the blit source would
-        // otherwise fall through to Unity's default 16x16 gray texture on
-        // Unity 6 (the sampler never receives the frame).
-        _MainTex ("Texture", 2D) = "white" {}
-        // Alpha gate k = the game's alphaWeights (PyramidBloomMainEffectSO
-        // _alphaWeights = 4): the prefilter scales rgb by saturate(alpha * k).
-        // With k = 4 the gate saturates at alpha >= 0.25 (game cb0[103].z).
-        _BloomThreshold ("Bloom Threshold (alpha gate)", Float) = 4
+        [HideInInspector] _MainTex ("Main Texture", 2D) = "white" {}
     }
 
     HLSLINCLUDE
-
-    // Vertex helper for the Unity 6 blit mesh.
-
     #include "UnityCG.cginc"
     #include "../ShaderLibrary/BloomShared.hlsl"
 
@@ -57,106 +29,134 @@ Shader "ChroMapper/Post Process/Bloom"
     SAMPLER(sampler_BloomTex);
     TEXTURE2D(_GlobalIntensityTex);
     SAMPLER(sampler_GlobalIntensityTex);
-
-    // Per-blit texel size (xy = 1/size, zw = size), set by BloomRenderer so each
-    // pyramid level samples at its own resolution (CommandBuffer.Blit does not update
-    // _MainTex_TexelSize for intermediate render textures).
     float4 _BloomTexelSize;
     float _SampleScale;
-    float _BloomThreshold;
-    // Game _BloomParams (PyramidBloomRendererSO.RenderBloom): x = autoExposureLimit,
-    // y = fractional pyramid LOD, z = alphaWeights, w = legacyAutoExposure flag.
-    // x/w drive the auto-exposure knee in the final bloom pass. z is mirrored
-    // by _BloomThreshold (game alphaWeights = 4) in the prefilter.
     float4 _BloomParams;
-    // Game _CombineParams (PyramidBloomRendererSO.RenderBloom, cb0[102]):
-    // per-level upsample merge weights (x = destination level, y = accumulated
-    // pyramid), set per blit by BloomRenderer.
     float4 _CombineParams;
 
-    float4 FragPrefilter(VaryingsDefault i) : SV_Target
+    float4 FragDownsample13Alpha(VaryingsDefault i) : SV_Target
     {
-        // Recovered game prefilter: 13-tap downsample, then the alpha-driven gate
-        // rgb *= saturate(alpha * k) with k = _BloomThreshold (game cb0[103].z,
-        // _alphaWeights = 4). The alpha channel is the bloom mask: the game's
-        // Deferred route writes alpha = a * bloomMultiplier, so pixels with
-        // alpha 0 never reach the bloom pyramid. With k = 4 the gate saturates
-        // at alpha >= 0.25, so a quarter mask coverage passes full colour.
-        float4 color = BloomDownsample13Classic(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord,
-            _BloomTexelSize.xy);
-        color.rgb *= saturate(color.a * _BloomThreshold);
-        return color;
+        // AUDIT FINDINGS: 0 = 13-tap + alpha gate (5e72a85f).
+        return BloomAlphaGate(BloomDownsample13Classic(
+                                  TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, _BloomTexelSize.xy),
+                              _BloomParams.z);
+    }
+
+    float4 FragDownsample4Alpha(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 1 = 4-tap + alpha gate (58bd8ec1).
+        return BloomAlphaGate(BloomDownsample4(
+                                  TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, abs(_BloomTexelSize.xy)),
+                              _BloomParams.z);
     }
 
     float4 FragDownsample13(VaryingsDefault i) : SV_Target
     {
-        // The game's mid-pyramid levels use the same 13-tap kernel as the
-        // prefilter, without the alpha gate (0x644A670E; 0x77AEF5F8 =
-        // prefilter = this kernel + the saturate(alpha * k) gate). The PPv2
-        // 13-tap kernel has a different layout.
-        float4 color = BloomDownsample13Classic(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord,
-            _BloomTexelSize.xy);
-        return color;
+        // AUDIT FINDINGS: 2 = 13-tap (d3595784).
+        return BloomDownsample13Classic(
+            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, _BloomTexelSize.xy);
     }
 
     float4 FragDownsample4(VaryingsDefault i) : SV_Target
     {
+        // AUDIT FINDINGS: 3 = 4-tap (2529ca1c). UV clamp is retained because
+        // sampler-addressing compatibility is not proven by the corpus.
         return BloomDownsample4(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord,
-            abs(_BloomTexelSize.xy));
+            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, abs(_BloomTexelSize.xy));
+    }
+
+    float4 FragDownsample4Gamma(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 4 = 4-tap + gamma (5afff651).
+        return BloomApplyGamma(FragDownsample4(i));
     }
 
     float4 FragUpsampleTent(VaryingsDefault i) : SV_Target
     {
-        float4 upsampled = BloomUpsampleTent(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, _BloomTexelSize.xy,
-            _SampleScale);
-        float4 level = SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord);
-        return BloomWeightedCombine(
-            level, upsampled, _CombineParams.x, _CombineParams.y);
+        // AUDIT FINDINGS: 5 = tent + combine (e79363d6).
+        float4 upsampled = BloomUpsampleTent(TEXTURE2D_PARAM(_MainTex, sampler_MainTex),
+                                             i.texcoord, _BloomTexelSize.xy, _SampleScale);
+        return BloomWeightedCombine(SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord),
+                                    upsampled, _CombineParams.x, _CombineParams.y);
     }
 
     float4 FragUpsampleBox(VaryingsDefault i) : SV_Target
     {
-        float4 upsampled = BloomUpsampleBox(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, _BloomTexelSize.xy,
-            _SampleScale);
-        float4 level = SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord);
-        return BloomWeightedCombine(
-            level, upsampled, _CombineParams.x, _CombineParams.y);
+        // AUDIT FINDINGS: 6 = box + combine (1845adb3).
+        float4 upsampled = BloomUpsampleBox(TEXTURE2D_PARAM(_MainTex, sampler_MainTex),
+                                            i.texcoord, _BloomTexelSize.xy, _SampleScale);
+        return BloomWeightedCombine(SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord),
+                                    upsampled, _CombineParams.x, _CombineParams.y);
     }
 
-    float4 FragFinalUpsampleTent(VaryingsDefault i) : SV_Target
+    float4 FragUpsampleTentGamma(VaryingsDefault i) : SV_Target
     {
-        float4 upsampled = BloomUpsampleTent(
-            TEXTURE2D_PARAM(_MainTex, sampler_MainTex), i.texcoord, _BloomTexelSize.xy,
-            _SampleScale);
-        float4 level = SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord);
-        float4 combined = BloomWeightedCombine(
-            level, upsampled, _CombineParams.x, _CombineParams.y);
-        float3 globalIntensity = SAMPLE_TEXTURE2D(
-            _GlobalIntensityTex, sampler_GlobalIntensityTex, float2(0.5, 0.5)).rgb;
-        return BloomApplyKneeAndAces(
-            combined, globalIntensity, _BloomParams.x, _BloomParams.w);
+        // AUDIT FINDINGS: 7 = tent + combine + gamma (48c53796).
+        return BloomApplyGamma(FragUpsampleTent(i));
     }
 
+    float4 FragUpsampleBoxGamma(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 8 = box + combine + gamma (5f3df776).
+        return BloomApplyGamma(FragUpsampleBox(i));
+    }
+
+    float4 FragDirectCombine(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 9 = direct weighted combine (36f9dd9c).
+        return SAMPLE_TEXTURE2D(_BloomTex, sampler_BloomTex, i.texcoord) * _CombineParams.x +
+            SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, i.texcoord) * _CombineParams.y;
+    }
+
+    float4 FragDirectCombineGamma(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 10 = direct combine + gamma (4ad8e926).
+        return BloomApplyGamma(FragDirectCombine(i));
+    }
+
+    float4 FragUpsampleReinhard(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 11 = tent + combine + Reinhard (e2c5d62d).
+        return ApplyReinhardTonemapping(FragUpsampleTent(i));
+    }
+
+    float4 FragUpsampleAces(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 12 = tent + combine + ACES (fcba7dc3).
+        return ApplyAcesTonemapping(FragUpsampleTent(i));
+    }
+
+    float4 FragUpsampleAutoExposureAces(VaryingsDefault i) : SV_Target
+    {
+        // AUDIT FINDINGS: 13 = tent + combine + exact auto-exposure + ACES (12b1d368).
+        float4 combined = FragUpsampleTent(i);
+        float3 intensity = SAMPLE_TEXTURE2D(_GlobalIntensityTex, sampler_GlobalIntensityTex,
+                                            float2(0.5, 0.5)).rgb;
+        return BloomApplyKneeAndAces(combined, intensity, _BloomParams.x, _BloomParams.w);
+    }
     ENDHLSL
 
     SubShader
     {
         Cull Off ZWrite Off ZTest Always
-
-        // 0 high-quality prefilter 13-tap
+        // AUDIT FINDINGS: authoritative 14-pass order.
+        // 0: 13-tap + alpha gate
         Pass
         {
             HLSLPROGRAM
             #pragma vertex VertDefault
-            #pragma fragment FragPrefilter
+            #pragma fragment FragDownsample13Alpha
             ENDHLSL
         }
-        // 1 high-quality downsample 13-tap
+        // 1: 4-tap + alpha gate
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragDownsample4Alpha
+            ENDHLSL
+        }
+        // 2: 13-tap
         Pass
         {
             HLSLPROGRAM
@@ -164,23 +164,7 @@ Shader "ChroMapper/Post Process/Bloom"
             #pragma fragment FragDownsample13
             ENDHLSL
         }
-        // 2 high-quality intermediate upsample tent
-        Pass
-        {
-            HLSLPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment FragUpsampleTent
-            ENDHLSL
-        }
-        // 3 bloom-fog final upsample with exposure knee + ACES
-        Pass
-        {
-            HLSLPROGRAM
-            #pragma vertex VertDefault
-            #pragma fragment FragFinalUpsampleTent
-            ENDHLSL
-        }
-        // 4 bloom-fog authored 4-tap downsample
+        // 3: 4-tap
         Pass
         {
             HLSLPROGRAM
@@ -188,12 +172,84 @@ Shader "ChroMapper/Post Process/Bloom"
             #pragma fragment FragDownsample4
             ENDHLSL
         }
-        // 5 low-definition bloom-fog intermediate box upsample
+        // 4: 4-tap + gamma
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragDownsample4Gamma
+            ENDHLSL
+        }
+        // 5: tent + combine
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleTent
+            ENDHLSL
+        }
+        // 6: box + combine
         Pass
         {
             HLSLPROGRAM
             #pragma vertex VertDefault
             #pragma fragment FragUpsampleBox
+            ENDHLSL
+        }
+        // 7: tent + combine + gamma
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleTentGamma
+            ENDHLSL
+        }
+        // 8: box + combine + gamma
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleBoxGamma
+            ENDHLSL
+        }
+        // 9: direct weighted combine
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragDirectCombine
+            ENDHLSL
+        }
+        // 10: direct combine + gamma
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragDirectCombineGamma
+            ENDHLSL
+        }
+        // 11: tent + combine + Reinhard
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleReinhard
+            ENDHLSL
+        }
+        // 12: tent + combine + ACES
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleAces
+            ENDHLSL
+        }
+        // 13: tent + combine + auto-exposure + ACES
+        Pass
+        {
+            HLSLPROGRAM
+            #pragma vertex VertDefault
+            #pragma fragment FragUpsampleAutoExposureAces
             ENDHLSL
         }
     }

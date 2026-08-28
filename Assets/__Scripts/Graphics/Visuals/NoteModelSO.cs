@@ -64,43 +64,24 @@ public class NoteModelSO : ScriptableObject
         foreach (var comp in prefab.GetComponentsInChildren<Renderer>())
         foreach (var mat in comp.sharedMaterials)
         {
+            if (!Settings.Instance.ShaderCompatibility) continue;
             if (mat == null) continue;
             if (mat.shader != null && mat.shader.isSupported) continue;
-            var sourceShaderName = mat.shader != null ? mat.shader.name : null;
+
             var sourceKeywords = mat.shaderKeywords ?? Array.Empty<string>();
-            if (!Settings.Instance.ShaderCompatibility) continue;
-
-            var replacementShader = Shader.Find("ChroMapper/Object/Note");
-            mat.shader = replacementShader;
-
-            if (sourceShaderName != "Custom/NoteHD" || replacementShader == null) continue;
-            mat.SetFloat("_ZWrite", sourceKeywords.Contains("ZWRITE", StringComparer.Ordinal) ? 1 : 0);
-
+            mat.shader = Shader.Find("ChroMapper/Object/Note");
             mat.shaderKeywords = sourceKeywords
                 .Select(keyword => keyword switch
                 {
-                    "ENABLE_COLOR_INSTANCING" => null,
                     "ENABLE_CUTOUT" => "CUTOUT",
                     "ENABLE_PLANE_CUT" => "PLANE_CUT",
                     "ENABLE_RIM_DIM" => "RIM_DIM",
-                    "_WHITEBOOSTTYPE_MAINEFFECT" => "_BLOOMTYPE_DEFERRED",
-                    "_WHITEBOOSTTYPE_ALWAYS" => "_BLOOMTYPE_MIXED",
-                    "ENABLE_BLOOM_FOG" => null,
-                    "MAIN_EFFECT_ENABLED" => null,
-                    "OVERDRAW_VIEW" => null,
-                    "INSTANCING_ON" => null,
-                    "STEREO_INSTANCING_ON" => null,
-                    "ZWRITE" => null,
                     "ACES_TONE_MAPPING" => "ACES_TONE_MAPPING",
                     "ENABLE_HEIGHT_FOG" => "HEIGHT_FOG",
-                    "HEIGHT_FOG" => "HEIGHT_FOG",
-                    "REFLECTION_MAP" => "REFLECTION_MAP",
-                    "_FOGTYPE_ALPHA" => "_FOGTYPE_ALPHA",
-                    "_FOGTYPE_COLOR" => "_FOGTYPE_COLOR",
-                    "_FOGTYPE_LERP" => "_FOGTYPE_LERP",
-                    _ => null,
+                    _ => keyword,
                 })
                 .Where(keyword => keyword != null)
+                .Concat(new[] { "RIM_DIM", "CUTOUT", "_FOGTYPE_LERP", "HEIGHT_FOG" })
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(keyword => keyword, StringComparer.Ordinal)
                 .ToArray();
@@ -241,8 +222,7 @@ public class NoteModelSO : ScriptableObject
         {
             foreach (var visualModel in ownedVisualModels)
             {
-                if (visualModel != null)
-                    Destroy(visualModel);
+                if (visualModel != null) Destroy(visualModel);
             }
         }
 

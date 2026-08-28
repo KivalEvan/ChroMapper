@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[ExecuteAlways]
 public class MaterialPropertyValuesSetter : MonoBehaviour
 {
     [SerializeField] public MaterialPropertyBlockController MpbController;

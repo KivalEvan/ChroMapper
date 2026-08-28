@@ -30,15 +30,24 @@ public class ToggleShowIfAnyDrawer : ShowIfAnyDrawer
         SetKeywords(prop, value);
     }
 
+    public override void Apply(MaterialProperty prop)
+    {
+        base.Apply(prop);
+        SetKeywords(prop, prop.floatValue != 0.0f);
+    }
+
     private void SetKeywords(MaterialProperty prop, bool active)
     {
         foreach (var target in prop.targets)
         {
             var mat = (Material)target;
+            var localKeyword = mat.shader.keywordSpace.FindKeyword(keyword);
+            if (!localKeyword.isValid) continue;
+
             if (active)
-                mat.EnableKeyword(keyword);
+                mat.EnableKeyword(localKeyword);
             else
-                mat.DisableKeyword(keyword);
+                mat.DisableKeyword(localKeyword);
         }
     }
 }

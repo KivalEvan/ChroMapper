@@ -1,17 +1,28 @@
 ﻿// Replacement for the Beat Saber game shader Custom/UnlitSpectrogram.
 Shader "ChroMapper/Spectrogram Unlit"
 {
+    // AUDIT FINDINGS (Beat Saber 1.44.3)
+    // U1. The 1.42.2 Custom/UnlitSpectrogram Properties block is authoritative;
+    //     _BlendMode* are established importer aliases for _Blend*Factor.
+    // U2 [131d5989fe263d58]: UV.x selects uint(max(uv.x * 63, 0)). Visibility
+    //     is step(uv.y, (sample + 0.05) * _SpectrogramScale). RGB is _Color.rgb
+    //     and alpha is visibility * _Color.a.
+    // U3 [80969e1d39b26e44]: ENABLE_BLOOM_FOG maps to ChroMapper's BLOOM_FOG
+    //     global and lerps the complete RGBA value toward the projected bloom
+    //     prepass sample. No white boost, tonemapping, or dithering route exists.
+    // U4 [25a7770007c1a811,65e0d97fd4c2560c]: POSITION and UV0 are the only
+    //     mesh inputs. Instancing selects transforms; stereo selects eye matrices
+    //     and render-target slices. OVERDRAW_VIEW remains omitted.
+    // U5. Stage binaries do not contain ShaderLab render-state metadata. The
+    //     established transparent blend, Cull Off, LEqual, and ZWrite Off remain.
     Properties
     {
-        _Color ("Color", Color) = (1,1,1,1)
+        _Color ("Color", Vector) = (1,1,1,1)
         _SpectrogramScale ("Spectrogram Scale", float) = 0.5
 
         [Space]
         _FogStartOffset ("Fog Start Offset", float) = 0
         _FogScale ("Fog Scale", float) = 1
-
-        [Space]
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("White Boost", float) = 0
 
         [Space]
         [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrc ("Blend Src Factor", float) = 1
@@ -41,15 +52,11 @@ Shader "ChroMapper/Spectrogram Unlit"
             #pragma fragment frag
             #pragma multi_compile_instancing
 
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
-
             #pragma multi_compile_fragment _ BLOOM_FOG
-            #pragma multi_compile _ POST_BLOOM
             #pragma multi_compile _ STEREO_INSTANCING_ON
 
             #include "UnityCG.cginc"
             #include "ShaderLibrary/Fog.hlsl"
-            #include "ShaderLibrary/CustomBloom.hlsl"
             #include "ShaderLibrary/SpectrogramShared.hlsl"
 
             float _SpectrogramData[64];
@@ -103,12 +110,6 @@ Shader "ChroMapper/Spectrogram Unlit"
                 float visible = CalculateSpectrogramVisibility(
                     i.uv.y, _SpectrogramData[index], _SpectrogramScale);
                 float4 albedo = float4(_Color.rgb, _Color.a * visible);
-
-                // The source family has no retained white-boost variant. Use the
-                // masked alpha as the bloom value, following simple transparent shaders.
-                albedo = ApplyBloomTypeWhiteBoost(
-                    albedo, 1.0, albedo.a, 1.0,
-                    _BaseColorBoost, _BaseColorBoostThreshold);
 
                 #if defined(BLOOM_FOG)
                 albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);

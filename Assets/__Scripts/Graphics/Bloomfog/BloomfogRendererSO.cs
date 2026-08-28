@@ -13,6 +13,8 @@ public class BloomfogRendererSO : ScriptableObject
     private static BloomfogVertex[] bloomfogVertices = new BloomfogVertex[startCapacity * 4];
     private static readonly int customFogTextureToScreenRatio =
         Shader.PropertyToID("_CustomFogTextureToScreenRatio");
+    private static readonly int stereoCameraEyeOffsets =
+        Shader.PropertyToID("_StereoCameraEyeOffsets");
 
     // Recovered serialized HD and LD bloom-prepass value.
     public Vector2 FOV = new(130f, 130f);
@@ -55,11 +57,25 @@ public class BloomfogRendererSO : ScriptableObject
 
     public void RenderToTexture(Camera camera, RenderTexture tex, out Vector2 textureToScreenRatio)
     {
-        RenderToTexture(
+        var projectionMatrix = camera.projectionMatrix;
+        var eyeOffsets = Vector2.zero;
+        if (camera.stereoEnabled)
+        {
+            var leftProjectionMatrix = camera.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left);
+            var rightProjectionMatrix = camera.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right);
+            projectionMatrix = leftProjectionMatrix;
+            for (var i = 0; i < 16; i++)
+                projectionMatrix[i] = Mathf.Lerp(leftProjectionMatrix[i], rightProjectionMatrix[i], 0.5f);
+            var t = -(leftProjectionMatrix.m02 - rightProjectionMatrix.m02) * 0.25f;
+            eyeOffsets = new Vector2(-t, t);
+        }
+
+        RenderToTextureInternal(
             camera.worldToCameraMatrix,
-            camera.projectionMatrix,
+            projectionMatrix,
             tex,
-            out textureToScreenRatio);
+            out textureToScreenRatio,
+            eyeOffsets);
     }
 
     public void RenderToTexture(
@@ -68,7 +84,23 @@ public class BloomfogRendererSO : ScriptableObject
         RenderTexture tex,
         out Vector2 textureToScreenRatio)
     {
+        RenderToTextureInternal(
+            viewMatrix,
+            projectionMatrix,
+            tex,
+            out textureToScreenRatio,
+            Vector2.zero);
+    }
+
+    private void RenderToTextureInternal(
+        Matrix4x4 viewMatrix,
+        Matrix4x4 projectionMatrix,
+        RenderTexture tex,
+        out Vector2 textureToScreenRatio,
+        Vector2 eyeOffsets)
+    {
         if (bloomfogCommandBuffer == null || bloomfogMesh == null) Initialize();
+        Shader.SetGlobalVector(stereoCameraEyeOffsets, eyeOffsets);
 
         // Adjust projection matrix to account for FOV
         textureToScreenRatio.x = Mathf.Clamp01(

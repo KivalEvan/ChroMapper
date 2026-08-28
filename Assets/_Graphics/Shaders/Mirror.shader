@@ -1,9 +1,33 @@
 ﻿// Replacement for the Beat Saber game shader Custom/Mirror.
 Shader "ChroMapper/Mirror"
 {
+    // AUDIT FINDINGS (Beat Saber 1.44.3)
+    // M1. The 1.42.2 Custom/Mirror Properties block is authoritative. Runtime
+    //     lightmap textures/bake IDs remain uniforms, not material properties.
+    // M2 [vertex-c51879856e2e11c7]: POSITION and UV0 drive all normal routes;
+    //     LIGHTMAP also reads UV1. Normal UV and scrolling are calculated with
+    //     (_Time.x + _TimeHelperOffset.x) before interpolation.
+    // M3 [8d8f776efaca7ef8,f6c1f193c04091cf]: normal red is multiplied by alpha,
+    //     then XY is unpacked to [-1,1]. Detail scale tiles its UV and detail
+    //     intensity blends the two unpacked XY values before bump distortion.
+    // M4. Reflection UV is projected screen UV minus bumped XY multiplied by
+    //     (worldPos-cameraPos).y / distance. _ReflectionIntensity is squared and
+    //     scales the complete sampled RGBA value.
+    // M5 [c8c83176642bd0a5,f6c1f193c04091cf]: supported composition is optional
+    //     DIFFUSE or LIGHTMAP plus reflection. Reflection alpha is retained.
+    //     SPECULAR remains exposed by the property contract but has no 1.44 binary.
+    // M6 [a2cdd3ecb791db4e]: game ENABLE_DIRT is normalized to ChroMapper's DIRT;
+    //     dirt = 1 + intensity * (sample - 1), multiplied into the full result.
+    // M7 [705d3d71f8b20274]: ENABLE_BLOOM_FOG maps to BLOOM_FOG and lerps full
+    //     RGBA. Blue-noise dithering is unconditional and adds (noise-0.5)/255.
+    // M8. BEATGAMES_STEREO_PASS targets the game's stereo reflection atlas;
+    //     ChroMapper instead renders a per-camera reflection texture. That route,
+    //     general INSTANCING_ON, white boost, and OVERDRAW_VIEW remain omitted.
+    // M9. Stage binaries cannot prove ShaderLab state. Established opaque queue,
+    //     back-face culling, LEqual, ZWrite On, and stencil controls remain.
     Properties
     {
-        _NormalTex ("Normal Texture", 2D) = "bump" {}
+        _NormalTex ("Normal Texture", 2D) = "white" {}
         _BumpIntensity ("Bump Intensity", float) = 0.1
         _ReflectionIntensity ("Reflection Intensity", float) = 0.5
         _TextureScrolling ("Texture Scrolling", Vector) = (0,0,0,0)
@@ -17,7 +41,7 @@ Shader "ChroMapper/Mirror"
 
         [Toggle(LIGHTMAP)] _EnableLightmap ("Enable Lightmap", float) = 0
         [Toggle(DIFFUSE)] _EnableDiffuse ("Enable Diffuse", float) = 0
-        [ToggleShowIfAny(LIGHT_FALLOFF, DIFFUSE, SPECULAR)] _EnableLightFalloff ("Enable Light Falloff", float) = 0
+        [Toggle(LIGHT_FALLOFF)] _EnableLightFalloff ("Enable Light Falloff", float) = 0
         [Toggle(SPECULAR)] _EnableSpecular ("Enable Specular", float) = 0
         [ShowIfAny(SPECULAR)] _SpecularIntensity ("Specular Intensity", float) = 1
 
@@ -26,24 +50,12 @@ Shader "ChroMapper/Mirror"
         [ShowIfAny(DIRT)] _DirtTex ("Dirt Texture", 2D) = "white" {}
         [ShowIfAny(DIRT)] _DirtIntensity ("Dirt Intensity", float) = 1
 
-        [HideInInspector] _LightMap1 ("Source Light Map 1", 2D) = "black" {}
-        [HideInInspector] _LightMap2 ("Source Light Map 2", 2D) = "black" {}
-        [HideInInspector] _LightmapLightBakeIdA ("Lightmap Light Bake ID A", Vector) = (0,0,0,0)
-        [HideInInspector] _LightmapLightBakeIdB ("Lightmap Light Bake ID B", Vector) = (0,0,0,0)
-        [HideInInspector] _LightmapLightBakeIdC ("Lightmap Light Bake ID C", Vector) = (0,0,0,0)
-        [HideInInspector] _LightmapLightBakeIdD ("Lightmap Light Bake ID D", Vector) = (0,0,0,0)
-        [HideInInspector] _LightmapLightBakeIdE ("Lightmap Light Bake ID E", Vector) = (0,0,0,0)
-        [HideInInspector] _LightmapLightBakeIdF ("Lightmap Light Bake ID F", Vector) = (0,0,0,0)
-
         [Space(18)]
-        _TintColor ("Tint Color", Color) = (1,1,1,1)
+        _TintColor ("Tint Color", Vector) = (1,1,1,1)
 
         [Space]
         _FogStartOffset ("Fog Start Offset", float) = 0
         _FogScale ("Fog Scale", float) = 1
-
-        [Space(12)]
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("White Boost", float) = 0
 
         [PerRendererData] _ReflectionTex ("Reflection Texture", 2D) = "white" {}
         [Space(12)] _StencilRefValue ("Stencil Ref Value", float) = 0
@@ -76,29 +88,22 @@ Shader "ChroMapper/Mirror"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma multi_compile_instancing
             #pragma multi_compile _ STEREO_INSTANCING_ON
 
             #pragma shader_feature_local_fragment LIGHTMAP
             #pragma shader_feature_local_fragment DIFFUSE
-            #pragma shader_feature_local_fragment SPECULAR
             #pragma shader_feature_local_fragment LIGHT_FALLOFF
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
 
             #pragma shader_feature_local_fragment DETAIL_NORMAL_MAP
             #pragma shader_feature_local_fragment DIRT
 
             #pragma multi_compile_fragment _ BLOOM_FOG
             #pragma multi_compile_fragment _ ACES_TONE_MAPPING
-            #pragma multi_compile_fragment _ NOISE_DITHERING
-            #pragma multi_compile _ POST_BLOOM
 
             #include "UnityCG.cginc"
             #include "ShaderLibrary/Fog.hlsl"
-            #include "ShaderLibrary/CustomTime.hlsl"
             #include "ShaderLibrary/CustomLighting.hlsl"
             #include "ShaderLibrary/CustomTonemapping.hlsl"
-            #include "ShaderLibrary/CustomBloom.hlsl"
             #include "ShaderLibrary/PostProcess.hlsl"
 
             sampler2D _NormalTex;
@@ -157,7 +162,6 @@ Shader "ChroMapper/Mirror"
                 float4 screenPos : TEXCOORD4;
                 float2 lightmapUV : TEXCOORD5;
                 float4 noiseScreenPos : TEXCOORD6;
-                UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -166,7 +170,6 @@ Shader "ChroMapper/Mirror"
                 v2f o;
 
                 UNITY_SETUP_INSTANCE_ID(i);
-                UNITY_TRANSFER_INSTANCE_ID(i, o);
                 UNITY_INITIALIZE_OUTPUT(v2f, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
@@ -176,9 +179,9 @@ Shader "ChroMapper/Mirror"
                 o.lightmapUV = i.lightmapUV * unity_LightmapST.xy + unity_LightmapST.zw;
                 o.reflectionPos = ComputeScreenPos(o.vertex);
                 o.screenPos = ComputeScreenPosCustom(o.vertex);
-                o.noiseScreenPos.xy = o.screenPos.xy * _GlobalBlueNoiseParams;
-                o.noiseScreenPos.xy += o.vertex.w * _GlobalRandomValue + unity_ObjectToWorld._m03_m13;
-                o.noiseScreenPos.zw = o.vertex.zw;
+                o.noiseScreenPos = BuildNoiseScreenPosition(
+                    o.screenPos, o.vertex, _GlobalBlueNoiseParams,
+                    _GlobalRandomValue, unity_ObjectToWorld._m03_m13);
 
                 return o;
             }
@@ -194,7 +197,6 @@ Shader "ChroMapper/Mirror"
 
             float4 frag(v2f i) : SV_Target
             {
-                UNITY_SETUP_INSTANCE_ID(i);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
                 float mirrorTime = _Time.x + _TimeHelperOffset.x;
@@ -234,18 +236,6 @@ Shader "ChroMapper/Mirror"
                     (1 - _Metallic) * _TintColor.rgb;
                 #endif
 
-                #if defined(SPECULAR)
-                #if defined(LIGHT_FALLOFF)
-                float3 specularLighting = CalculateLightFalloffSpecular(
-                    i.worldPos, diffuseNormalTangent, _Smoothness);
-                #else
-                float3 specularLighting = CalculateLightSpecular(
-                    i.worldPos, diffuseNormalTangent, _Smoothness);
-                #endif
-                float3 specularColor = _Metallic * (_TintColor.rgb - 0.04) + 0.04;
-                lighting += specularLighting * specularColor * _SpecularIntensity;
-                #endif
-
                 #if defined(LIGHTMAP)
                 float3 lightmap1 = tex2D(_LightMap1, i.lightmapUV).rgb;
                 float3 lightmap2 = tex2D(_LightMap2, i.lightmapUV).rgb;
@@ -259,15 +249,15 @@ Shader "ChroMapper/Mirror"
                 lighting += decodedLightmap * 4.594793 * (1 - _Metallic) * _TintColor.rgb;
                 #endif
 
-                #if defined(ACES_TONE_MAPPING) && (defined(DIFFUSE) || defined(SPECULAR) || defined(LIGHTMAP))
+                #if defined(ACES_TONE_MAPPING) && (defined(DIFFUSE) || defined(LIGHTMAP))
                 float4 lightingColor = float4(lighting, 0);
                 lightingColor = ApplyAcesTonemapping(lightingColor);
                 lighting = lightingColor.rgb;
                 #endif
 
                 float4 albedo = reflectionCol;
-                #if defined(DIFFUSE) || defined(SPECULAR) || defined(LIGHTMAP)
-                albedo = float4(lighting + reflectionCol.rgb, 0);
+                #if defined(DIFFUSE) || defined(LIGHTMAP)
+                albedo = float4(lighting + reflectionCol.rgb, reflectionCol.a);
                 #endif
 
                 #if defined(DIRT)
@@ -276,17 +266,11 @@ Shader "ChroMapper/Mirror"
                 albedo *= dirt;
                 #endif
 
-                albedo = ApplyBloomTypeWhiteBoost(
-                    albedo, 1.0, reflectionCol.a, 1.0,
-                    _BaseColorBoost, _BaseColorBoostThreshold);
-
                 #if defined(BLOOM_FOG)
                 albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
                 #endif
 
-                #if defined(NOISE_DITHERING)
                 albedo = ApplyNoiseDither(albedo, i.noiseScreenPos, _GlobalBlueNoiseTex);
-                #endif
 
                 return albedo;
             }

@@ -17,7 +17,7 @@ public class AudioTimeSyncController : MonoBehaviour,
     public static readonly string PrecisionSnapName = "PrecisionSnap";
 
     private static readonly int songTimeId = Shader.PropertyToID("_SongTime");
-    private static readonly int songTimeSecondsId = Shader.PropertyToID("_SongTimeSeconds");
+    private static readonly int songBpmTimeId = Shader.PropertyToID("_SongBpmTime");
     private static readonly int songTimeOriginId = Shader.PropertyToID("_SongTimeOrigin");
     private static readonly int viewStartId = Shader.PropertyToID("_ViewStart");
     private static readonly int viewEnd = Shader.PropertyToID("_ViewEnd");
@@ -464,8 +464,8 @@ public class AudioTimeSyncController : MonoBehaviour,
 
     private void UpdateMovables()
     {
-        Shader.SetGlobalVector(songTimeId, Vector4Extensions.ToTimeVector(currentSongBpmTime));
-        Shader.SetGlobalVector(songTimeSecondsId, Vector4Extensions.ToTimeVector(currentSeconds));
+        Shader.SetGlobalVector(songTimeId, Vector4Extensions.ToTimeVector(currentSeconds));
+        Shader.SetGlobalVector(songBpmTimeId, Vector4Extensions.ToTimeVector(currentSongBpmTime));
         Shader.SetGlobalFloat(songTimeOriginId, VisualBeatOriginJsonTime);
 
         // set view range based on track length

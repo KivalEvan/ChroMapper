@@ -105,16 +105,20 @@ inline float4 BloomWeightedCombine(
     return source * sourceWeight + destination * destinationWeight;
 }
 
+inline float4 BloomAlphaGate(float4 color, float alphaWeights)
+{
+    color.rgb *= saturate(color.a * alphaWeights);
+    return color;
+}
+
 // Rec601 luminance drives the recovered auto-exposure knee.
 inline float BloomRec601AutoExposureKnee(
     float3 globalIntensity, float autoExposureLimit, float legacyAutoExposure)
 {
     // Keep the exposure-cap denominator positive. Preserve zero luminance for
     // the legacy exposure calculation so a black probe still produces zero.
-    float luminance = max(
-        dot(globalIntensity, float3(0.3, 0.59, 0.11)),
-        0.0);
-    float exposureCap = 0.1 / sqrt(max(luminance, 1e-5));
+    float luminance = dot(globalIntensity, float3(0.3, 0.59, 0.11));
+    float exposureCap = 0.1 / sqrt(luminance);
     return legacyAutoExposure > 0.0
         ? min(luminance * autoExposureLimit, exposureCap)
         : min(0.004 * autoExposureLimit, exposureCap);

@@ -1,19 +1,23 @@
-// ChroMapper/Set Depth Only
 // Replacement for the Beat Saber game shader Custom/SetDepthOnly.
-// Vertex: standard object-to-clip transform, passes through the saturated
-// vertex color (the game reads the mesh color via TEXCOORD0 and saturates it
-// in the vertex stage with mov_sat).
-// Fragment: passes the interpolated color straight through (o0 = v0).
-// The pass exists to stamp the stencil buffer (and occupy depth) for geometry
-// that will be redrawn by a stencil-tested pass (e.g. portals); the color
-// output is the saturated vertex color.
-// Render state recovered from game material dumps (1.44.3): Stencil Comp 8
-// (Always), Pass 2 (Replace), StencilRef per material (1), ZWrite off.
 Shader "ChroMapper/Set Depth Only" {
+    // AUDIT FINDINGS (Beat Saber 1.44.3)
+    // D1. The 1.42.2 Custom/SetDepthOnly Properties block contains exactly the
+    //     four controls below. Defaults are Ref=0, Always, Keep, and ZWrite On.
+    // D2 [vertex-66aea619521c0b3f]: the no-keyword vertex reads POSITION and
+    //     COLOR, saturates COLOR, and performs object-to-world then world-to-clip.
+    // D3 [vertex-d5d8e882c98a2cc8]: STEREO_INSTANCING_ON selects the eye matrix
+    //     and render-target slice. No general INSTANCING_ON variant was compiled.
+    // D4 [fragment-058977666c847ef9,6c57a8d760f7e76d]: both fragments return the
+    //     interpolated saturated vertex color without textures or other features.
+    // D5. All 35 recovered game materials use Ref=1, Always, Replace, ZWrite Off.
+    //     Their explicit material overrides differ intentionally from shader defaults.
+    // D6. Stage binaries cannot prove pass state. The established destination-
+    //     preserving blend, Cull Off, LEqual default, and Geometry-1 queue remain.
     Properties {
-        _StencilRefValue ("Stencil Ref Value", Float) = 1
+        _StencilRefValue ("Stencil Ref Value", Float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8
-        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencil Pass Op", Float) = 2
+        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencill Pass Op", Float) = 0
+        [Toggle] _ZWrite ("Z Write", Float) = 1
     }
     SubShader {
         Tags {
@@ -24,7 +28,7 @@ Shader "ChroMapper/Set Depth Only" {
             Name ""
             Blend Zero One, Zero One
             ZClip On
-            ZWrite Off
+            ZWrite [_ZWrite]
             Cull Off
 
             Stencil {
@@ -36,7 +40,6 @@ Shader "ChroMapper/Set Depth Only" {
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma multi_compile_instancing
             #pragma multi_compile _ STEREO_INSTANCING_ON
 
             #include "UnityCG.cginc"

@@ -56,7 +56,6 @@
 
             #pragma shader_feature_local_fragment FOG
             #pragma shader_feature_local_fragment HEIGHT_FOG
-            #pragma shader_feature_local_fragment _FOGTYPE_ALPHA
 
             #include "UnityCG.cginc"
             #include "../ShaderLibrary/Camera.hlsl"
@@ -79,7 +78,7 @@
             float _FogHeightOffset;
             float _FogHeightScale;
 
-            uniform float4 _SongTime;
+            uniform float4 _SongBpmTime;
             uniform float _EditorDistance;
             uniform float _TrackLaneYPosition; // we are keeping this name because Vivify uses this too
 
@@ -122,7 +121,7 @@
                 float objectTime = UNITY_ACCESS_INSTANCED_PROP(Props, _ObjectTime);
 
                 o.rotatedPos = CalculateRotatedObjectPosition(
-                    o.worldPos, offset.xyz, rotationInRadians, objectTime, _SongTime.y);
+                    o.worldPos, offset.xyz, rotationInRadians, objectTime, _SongBpmTime.y);
                 o.screenPos = ComputeScreenPosCustom(o.vertex);
 
                 return o;
@@ -150,51 +149,30 @@
                 float4 tex = tex2D(_MainTex, i.uv);
                 float4 albedo = float4(color.rgb, edgeFade * tex.a * color.a);
 
-                #if defined(FOG) && defined(_FOGTYPE_ALPHA)
+                #if defined(FOG)
                 // Recovered PRECISE_FOG + _FOGTYPE_ALPHA fragment (fragment-5500cb795b66e75f):
                 // the shared distance fog factor (CalculateCustomFogFactor; the per-frame
                 // globals _CustomFogAttenuation/_CustomFogOffset are set by
                 // BloomfogRenderingController) applies to alpha as transmission, and the
                 // white-boost bloom value is alpha * fog^3 (out alpha * fog^2).
-                {
-                    float fogAmount = CalculateCustomFogFactor(
-                        distanceSquared(i.worldPos), _FogStartOffset, _FogScale);
-                    float fogTransmission = 1.0 - fogAmount;
-                    albedo.a *= fogTransmission;
-                    albedo.rgb = CalculateBloomComposition(albedo.rgb, albedo.a,
-                        albedo.a * fogTransmission * fogTransmission, 1, _BaseColorBoost,
-                        _BaseColorBoostThreshold);
-                }
-                #else
-                // Recovered no-fog white-boost composition (bloomValue = alpha,
-                // premultiplied additive, alpha preserved).
-                albedo.rgb = CalculateBloomComposition(albedo.rgb, albedo.a, albedo.a, 1,
-                    _BaseColorBoost, _BaseColorBoostThreshold);
-
-                #if defined(FOG) && defined(BLOOM_FOG)
-                // ChroMapper extension: the game's fog prepass is pipeline-level; this route
-                // blends toward the bloom prepass texture instead.
-                #if defined(HEIGHT_FOG)
-                albedo = ApplyBloomHeightFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale,
-                                       _FogHeightOffset, _FogHeightScale);
-                #else
-                albedo = ApplyBloomFog(albedo, i.screenPos, i.worldPos, _FogStartOffset, _FogScale);
-                #endif
-                #endif
+                float fogAmount = CalculateCustomFogFactor(
+                    distanceSquared(i.worldPos), _FogStartOffset, _FogScale);
+                float fogTransmission = 1.0 - fogAmount;
+                albedo.a *= fogTransmission;
+                albedo.rgb = CalculateBloomComposition(albedo.rgb, albedo.a,
+                                                       albedo.a * fogTransmission * fogTransmission, 0.6,
+                                                       _BaseColorBoost,
+                                                       _BaseColorBoostThreshold);
                 #endif
 
                 #if defined(CM_PREVIEW_MODE)
-
                 float fadeSize = UNITY_ACCESS_INSTANCED_PROP(Props, _FadeSize);
-
                 float distance = i.rotatedPos.z - 1;
                 float startDistance = fadeSize;
                 float endDistance = _EditorDistance - fadeSize;
-
                 float fade = 1;
                 if (distance <= startDistance) fade = saturate(distance / startDistance);
                 else if (distance >= endDistance) fade = 1 - saturate((distance - endDistance) / fadeSize);
-
                 albedo *= fade;
                 #endif
 

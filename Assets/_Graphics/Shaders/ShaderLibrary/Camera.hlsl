@@ -1,7 +1,7 @@
 #ifndef CHROMAPPER_CAMERA_INCLUDED
 #define CHROMAPPER_CAMERA_INCLUDED
 
-float _StereoCameraEyeOffset;
+float2 _StereoCameraEyeOffsets;
 
 inline float3 GetStereoAwareCameraPosition()
 {
@@ -16,9 +16,7 @@ inline float4 ComputeScreenPosCustom(float4 pos)
 {
     float4 screenPos = ComputeNonStereoScreenPos(pos);
     #if defined(UNITY_SINGLE_PASS_STEREO) || defined(STEREO_INSTANCING_ON) || defined(STEREO_MULTIVIEW_ON)
-    float eyeOffset = (unity_StereoEyeIndex * (_StereoCameraEyeOffset + _StereoCameraEyeOffset)) + -
-        _StereoCameraEyeOffset;
-    screenPos.x = pos.w * eyeOffset + screenPos.x;
+    screenPos.x += pos.w * _StereoCameraEyeOffsets[unity_StereoEyeIndex];
     #if !UNITY_UV_STARTS_AT_TOP
     screenPos.y = -screenPos.y + pos.w;
     #endif

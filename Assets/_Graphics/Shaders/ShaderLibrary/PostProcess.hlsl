@@ -21,7 +21,7 @@ inline float4 ApplyNoiseDither(
 {
     float2 noiseUv = noiseScreenPosition.xy / noiseScreenPosition.ww;
     float noise = tex2D(globalBlueNoiseTex, noiseUv).r - 0.5;
-    result.rgb += noise.xxx * 0.00392157;
+    result.rgb += noise.xxx * (1.0 / 255.0);
     return result;
 }
 
@@ -31,12 +31,22 @@ inline float4 ScaleNoiseScreenPosition(float4 screenPosition, float2 noiseScale)
     return screenPosition;
 }
 
+inline float4 BuildNoiseScreenPosition(
+    float4 screenPosition, float4 clipPosition, float2 noiseScale,
+    float randomValue, float2 objectTranslation)
+{
+    screenPosition.xy *= noiseScale;
+    screenPosition.xy += clipPosition.w * randomValue + objectTranslation;
+    screenPosition.zw = clipPosition.zw;
+    return screenPosition;
+}
+
 inline float3 ApplyNoiseDitherMasked(
     float3 result, float4 noiseScreenPosition, sampler2D globalBlueNoiseTex, float mask)
 {
     float2 noiseUv = noiseScreenPosition.xy / noiseScreenPosition.ww;
     float noise = tex2D(globalBlueNoiseTex, noiseUv).r - 0.5;
-    return result + noise.xxx * 0.00392157 * mask;
+    return result + noise.xxx * (1.0 / 255.0) * mask;
 }
 
 inline float4 ApplyHighlightSelection(

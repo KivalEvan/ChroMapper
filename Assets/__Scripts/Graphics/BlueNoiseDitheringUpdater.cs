@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.XR;
 
 [ExecuteAlways]
 public sealed class BlueNoiseDitheringUpdater : MonoBehaviour
@@ -17,8 +18,10 @@ public sealed class BlueNoiseDitheringUpdater : MonoBehaviour
     private void HandleCameraPreRender(Camera renderingCamera)
     {
         randomValueToShader.SetRandomValueToShaders();
+        var width = renderingCamera.stereoEnabled ? XRSettings.eyeTextureWidth : renderingCamera.pixelWidth;
+        var height = renderingCamera.stereoEnabled ? XRSettings.eyeTextureHeight : renderingCamera.pixelHeight;
         blueNoiseDithering.SetBlueNoiseShaderParams(
-            Mathf.Max(renderingCamera.pixelWidth, 1),
-            Mathf.Max(renderingCamera.pixelHeight, 1));
+            Mathf.Max(width, 1),
+            Mathf.Max(height, 1));
     }
 }

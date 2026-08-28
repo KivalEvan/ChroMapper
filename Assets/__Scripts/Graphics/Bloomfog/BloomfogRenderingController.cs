@@ -16,6 +16,7 @@ public class BloomfogRenderingController : MonoBehaviour
         internal readonly float sampleScale;
         internal readonly Texture bloomTex;
         internal readonly Texture globalIntensityTex;
+        internal readonly Vector4 stereoCameraEyeOffsets;
 
         internal GlobalState(
             Texture bloomTexture,
@@ -27,7 +28,8 @@ public class BloomfogRenderingController : MonoBehaviour
             Vector4 bloomTexelSize,
             float sampleScale,
             Texture bloomTex,
-            Texture globalIntensityTex)
+            Texture globalIntensityTex,
+            Vector4 stereoCameraEyeOffsets)
         {
             this.bloomTexture = bloomTexture;
             this.textureToScreenRatio = textureToScreenRatio;
@@ -39,14 +41,15 @@ public class BloomfogRenderingController : MonoBehaviour
             this.sampleScale = sampleScale;
             this.bloomTex = bloomTex;
             this.globalIntensityTex = globalIntensityTex;
+            this.stereoCameraEyeOffsets = stereoCameraEyeOffsets;
         }
     }
 
     private const int skyboxLayer = 29;
-    private const int downscalePass = 4;
-    private const int upscalePass = 2;
-    private const int finalUpscalePass = 3;
-    private const int boxUpscalePass = 5;
+    private const int downscalePass = 3;
+    private const int upscalePass = 5;
+    private const int finalUpscalePass = 13;
+    private const int boxUpscalePass = 6;
     private const string bloomFogKeyword = "BLOOM_FOG";
     private const string acesToneMappingKeyword = "ACES_TONE_MAPPING";
 
@@ -61,6 +64,8 @@ public class BloomfogRenderingController : MonoBehaviour
     private static readonly int bloomPrePassTextureId = Shader.PropertyToID("_BloomPrePassTexture");
     private static readonly int customFogTextureToScreenRatioId =
         Shader.PropertyToID("_CustomFogTextureToScreenRatio");
+    private static readonly int stereoCameraEyeOffsetsId =
+        Shader.PropertyToID("_StereoCameraEyeOffsets");
 
     [SerializeField] private Shader blurShader;
     [SerializeField] private BeatmapRuntimeContext context;
@@ -102,7 +107,6 @@ public class BloomfogRenderingController : MonoBehaviour
     private bool bloomFogEnabled;
     private bool settingsCallbackSubscribed;
     private bool bloomFogKeywordWasEnabled;
-    private bool acesToneMappingKeywordWasEnabled;
     private float bloomFogAutoExposureLimit = 1000f;
     private bool bloomFogLegacyAutoExposure;
 
@@ -118,7 +122,8 @@ public class BloomfogRenderingController : MonoBehaviour
         Shader.GetGlobalVector(bloomTexelSizeId),
         Shader.GetGlobalFloat(sampleScaleId),
         Shader.GetGlobalTexture(bloomTexId),
-        Shader.GetGlobalTexture(globalIntensityTexId));
+        Shader.GetGlobalTexture(globalIntensityTexId),
+        Shader.GetGlobalVector(stereoCameraEyeOffsetsId));
 
     public void RestoreGlobalState(GlobalState state)
     {
@@ -132,6 +137,7 @@ public class BloomfogRenderingController : MonoBehaviour
         Shader.SetGlobalFloat(sampleScaleId, state.sampleScale);
         Shader.SetGlobalTexture(bloomTexId, state.bloomTex);
         Shader.SetGlobalTexture(globalIntensityTexId, state.globalIntensityTex);
+        Shader.SetGlobalVector(stereoCameraEyeOffsetsId, state.stereoCameraEyeOffsets);
     }
 
     public void RenderReflection(
@@ -196,7 +202,6 @@ public class BloomfogRenderingController : MonoBehaviour
         bloomfogRenderer.Initialize();
         InitializeSkyboxQuad();
         bloomFogKeywordWasEnabled = Shader.IsKeywordEnabled(bloomFogKeyword);
-        acesToneMappingKeywordWasEnabled = Shader.IsKeywordEnabled(acesToneMappingKeyword);
 
         if (context != null && context.Descriptor != null)
             HandleEnvironmentLoaded(context.Descriptor);
@@ -232,10 +237,12 @@ public class BloomfogRenderingController : MonoBehaviour
             }
         }
         if (wasActive) SetKeyword(bloomFogKeyword, bloomFogKeywordWasEnabled);
-        if (wasActive) SetKeyword(acesToneMappingKeyword, acesToneMappingKeywordWasEnabled);
+        // PerCameraShaderSetupController owns the ACES lifecycle. Bloom fog only
+        // selects ACES for its bounded render passes and must not restore a stale snapshot here.
         Shader.SetGlobalTexture(bloomPrePassTextureId, null);
         Shader.SetGlobalVector("_CustomFogTextureToScreenRatio", Vector2.zero);
         Shader.SetGlobalFloat("_CustomFogOffset", 0f);
+        Shader.SetGlobalVector(stereoCameraEyeOffsetsId, Vector2.zero);
         Shader.SetGlobalFloat("_CustomFogHeightFogStartY", 0f);
         Shader.SetGlobalFloat("_CustomFogHeightFogHeight", 0f);
         Shader.SetGlobalFloat("_CustomFogAttenuation", 0f);

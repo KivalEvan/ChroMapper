@@ -4,70 +4,80 @@
 //   fragment-119bc5fdf0893e09.hlsl (+ dither variant 485a517d5978ccac)
 //   vertex-1effd9ad752a9c6e.glsl
 //
-// Verified line-by-line 2026-08-07 against the recovered programs:
-//   - The swirl wave is multiplied by _Time.y:  angle = (v.x + wave * time) / v.z
-//   - The wave carries the inverted sign of the phase: sign(-sin(v.z*12.345))
-//   - The noise scroll runs on _Time.x (the slow time component), the swirl
-//     on _Time.y.  scroll = _WorldNoiseScrolling.xy * _Speed * _Time.x
-//   - The dither blend factor is `1 - heightFade * distFade` (the height fade
-//     *reduces* the blending), not `distFade * heightFade`.
-//   - The dither noise is sampled at raw NDC (v5.xy / v5.w), not mapped to
-//     0..1 UV space first.
-//   - The noise UV is sampled from the WORLD xz position, not the local one.
-//   (The _Offset property is present in the game material data but is not
-//   referenced by any program operand; it is kept for API compatibility.)
+// AUDIT FINDINGS (2026-08-16):
+// O1. The strict Properties block is the authoritative material-property source;
+//     _Offset is retained because material evidence contains it, although no
+//     recovered program operand references it.
+// O2. Normalized keywords are DIFFUSE, BOTH_SIDES_DIFFUSE, WORLD_NOISE,
+//     INVERT_DIFFUSE_NORMAL, FOG, NOISE_DITHERING, and BLOOM_FOG.
+// O3. DIFFUSE uses the shared five-light route (CalculateLightDiffuse), including
+//     BOTH_SIDES and INVERT; no private or ambient light route is present.
+// O4. vertex-1effd9ad maps _Speed to the swirl phase: _Speed * (_Time.y +
+//     _TimeHelperOffset.y). O5. _WorldNoiseScrolling.xy scrolls directly with
+//     (_Time.x + _TimeHelperOffset.x), without _Speed.
+// O6. Fog and the normal use the pre-noise world position; only clip position
+//     receives world-noise displacement.
+// O7. NOISE_DITHERING scales projected coordinates in the vertex with
+//     _GlobalBlueNoiseParams, then uses PostProcess.hlsl; the additive term is
+//     (blueNoise - 0.5) / 255 (fragment-19822184).
+// O8. Ordinary fog is 1 - heightFade (fragment-72154a52). O9. BLOOM_FOG samples
+//     through Fog.hlsl/SampleBloomPrePass and uses 1 - heightFade * distanceFade
+//     (fragment-119bc5fd), with the recovered distance ordering unchanged.
+// O10. The recovered route has no ACES operation (ACES is a no-op here).
+// O11. Alpha is always zero (fragment-40070c00). O12. The debug/white-boost
+//     route is omitted because it is absent from the recovered keyword matrix.
 // Vertex (recovered):
 //   phase  = sin(v.vertex.z * 12.345)
 //   wave   = sign(-phase) * (phase * 0.5 + 1.0) * _WorldNoiseIntensityScale
-//   angle  = (v.vertex.x + wave * _Time.y) / v.vertex.z   (time rotates the swirl)
+//   angle  = (v.vertex.x + wave * _Speed *
+//             (_Time.y + _TimeHelperOffset.y)) / v.vertex.z
+//            (time rotates the swirl)
 //   pos    = (sin(angle) * v.z, v.y, cos(angle) * v.z)    (swirl around Y)
 //   world  = ObjectToWorld * pos
 //   pos.y += tex2Dlod(_NoiseTex, world.xz * _NoiseTex_ST + scroll).x
 //            * _WorldNoiseScale + _WorldNoiseIntensityOffset   (world noise)
-//   scroll = _WorldNoiseScrolling.xy * _Speed * _Time.x
-// Outputs world position, inverted world-origin normal (-normalize(world)) and
-// the main texture UV; dither UVs are derived from NDC in the fragment.
+//   scroll = _WorldNoiseScrolling.xy * (_Time.x + _TimeHelperOffset.x)
+// Outputs world position, inverted world-origin normal (-normalize(world)), the
+// main texture UV, and projected coordinates for fog and blue-noise sampling.
 // Fragment (recovered):
-//   distFade = 1 / (1 + max(0, dist2 * _FogScale + _FogStartOffset))
-//   heightFade = smoothstep vertical band around _HeightFogOffset
-//   ditherBlend = 1 - heightFade * distFade
+//   distFade = 1 / (1 + max(0, max(0, dist2 - customOffset) *
+//                customAttenuation - _FogStartOffset) * _FogScale)
+//   heightFade = smoothstep vertical band using the custom height globals
 //   color = saturate(tex * vertexColor * light) with light = 5-light sum
-//   ENABLE_NOISE_DITHERING:  color = lerp(color, noise(NDC), ditherBlend)
-//   (The recovered shader samples the dither noise at raw NDC through vertex
-//   TEXCOORD5; ChroMapper instead scales/offsets the NDC with _NoiseTex_ST in
-//   the fragment, the closest equivalent for an editor runtime.) alpha = 0.
+//   NOISE_DITHERING: color += (blueNoise(scaledProjectedPosition)-0.5)/255
+//   (The recovered shader uses the global blue-noise texture.) alpha = 0.
 Shader "ChroMapper/Clouds Opaque"
 {
     Properties
     {
         _MainTex ("Main Texture", 2D) = "white" {}
-        _NoiseTex ("Noise Texture", 2D) = "black" {}
+        [ShowIfAny(WORLD_NOISE)] _NoiseTex ("Noise Texture", 2D) = "white" {}
 
         [Space(20)]
-        _WorldNoiseScale ("World Noise Scale", float) = 0.02
-        _WorldNoiseIntensityScale ("World Noise Intensity Scale", float) = 2
-        _WorldNoiseIntensityOffset ("World Noise Intensity Offset", float) = -1
-        _WorldNoiseScrolling ("World Noise Scrolling", Vector) = (0.2, 0.2, 0, 1)
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseScale ("World Noise Scale", float) = 1
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseIntensityScale ("World Noise Intensity Scale", float) = 1
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseIntensityOffset ("World Noise Intensity Offset", float) = 0
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseScrolling ("World Noise Scrolling", Vector) = (0, 0, 0, 1)
 
         [Space(20)]
-        _Speed ("Speed", float) = 0.1
+        [ShowIfAny(WORLD_NOISE)] _Speed ("Speed", float) = 1
         _Offset ("Offset", float) = 0
 
         [Space(20)]
-        _FogStartOffset ("Fog Start Offset", float) = 0
-        _FogScale ("Fog Scale", float) = 0.08
-        _HeightFogOffset ("Height Fog Offset", float) = 1
+        [ShowIfAny(FOG)] _FogStartOffset ("Fog Start Offset", float) = 0
+        [ShowIfAny(FOG)] _FogScale ("Fog Scale", float) = 1
+        [ShowIfAny(FOG)] _HeightFogOffset ("Height Fog Offset", float) = 1
 
         [Space(20)]
-        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", float) = 0
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", float) = 2
 
         [Space(20)]
         [Toggle(DIFFUSE)] _EnableDiffuse ("Enable Diffuse", float) = 1
-        [Toggle(WORLD_NOISE)] _EnableWorldNoise ("Enable World Noise", float) = 1
-        [Toggle(INVERT_DIFFUSE_NORMAL)] _InvertDiffuseNormal ("Invert Diffuse Normal", float) = 1
+        [ToggleShowIfAny(BOTH_SIDES_DIFFUSE, DIFFUSE)] _EnableBothSidesDiffuse ("Both Sides Diffuse", float) = 0
+        [ToggleShowIfAny(INVERT_DIFFUSE_NORMAL, DIFFUSE)] _InvertDiffuseNormal ("Invert Diffuse Normal", float) = 0
+        [Toggle(WORLD_NOISE)] _EnableWorldNoise ("Enable World Noise", float) = 0
         [Toggle(FOG)] _EnableFog ("Enable Fog", float) = 1
         [Toggle(NOISE_DITHERING)] _EnableNoiseDithering ("Noise Dithering", float) = 0
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("White Boost", float) = 0
     }
     SubShader
     {
@@ -90,15 +100,18 @@ Shader "ChroMapper/Clouds Opaque"
             #pragma multi_compile _ STEREO_INSTANCING_ON
 
             #pragma shader_feature_local_fragment DIFFUSE
+            #pragma shader_feature_local_fragment BOTH_SIDES_DIFFUSE
             #pragma shader_feature_local_vertex WORLD_NOISE
             #pragma shader_feature_local_fragment INVERT_DIFFUSE_NORMAL
             #pragma shader_feature_local_fragment FOG
             #pragma shader_feature_local_fragment NOISE_DITHERING
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
-            #pragma multi_compile _ POST_BLOOM
+            #pragma multi_compile_fragment _ BLOOM_FOG
 
             #include "UnityCG.cginc"
-            #include "ShaderLibrary/CustomBloom.hlsl"
+            #include "ShaderLibrary/Camera.hlsl"
+            #include "ShaderLibrary/Fog.hlsl"
+            #include "ShaderLibrary/CustomLighting.hlsl"
+            #include "ShaderLibrary/PostProcess.hlsl"
 
             struct appdata
             {
@@ -114,6 +127,8 @@ Shader "ChroMapper/Clouds Opaque"
                 float4 color    : TEXCOORD1;
                 float3 world    : TEXCOORD2;
                 float3 nor      : TEXCOORD3;
+                float4 screenPos : TEXCOORD4;
+                float4 noiseScreenPos : TEXCOORD5;
                 float4 position : SV_POSITION;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
@@ -123,6 +138,9 @@ Shader "ChroMapper/Clouds Opaque"
             float4 _MainTex_ST;
             sampler2D _NoiseTex;
             float4 _NoiseTex_ST;
+            sampler2D _GlobalBlueNoiseTex;
+            float2 _GlobalBlueNoiseParams;
+            float4 _TimeHelperOffset;
             float _WorldNoiseScale;
             float _WorldNoiseIntensityScale;
             float _WorldNoiseIntensityOffset;
@@ -132,7 +150,6 @@ Shader "ChroMapper/Clouds Opaque"
             float _FogStartOffset;
             float _FogScale;
             float _HeightFogOffset;
-
             v2f vert(appdata v)
             {
                 v2f o;
@@ -141,11 +158,16 @@ Shader "ChroMapper/Clouds Opaque"
                 UNITY_TRANSFER_INSTANCE_ID(v, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
+                // vertex-1effd9ad (1effd9ad): phase, swirl, world-noise sample,
+                // and the pre-noise world position passed to the fragment.
                 #if defined(WORLD_NOISE)
                 float phase = sin(v.vertex.z * 12.345);
                 float wave = sign(-phase) * (phase * 0.5 + 1.0) * _WorldNoiseIntensityScale;
 
-                float angle = (v.vertex.x + wave * _Time.y) / v.vertex.z;
+                // The swirl rides _Time.y + _TimeHelperOffset.y (cb0[15].y +
+                // cb0[159].y in the recovered vertex).
+                float angle = (v.vertex.x + wave * _Speed *
+                    (_Time.y + _TimeHelperOffset.y)) / v.vertex.z;
                 float3 pos = float3(sin(angle) * v.vertex.z, v.vertex.y, cos(angle) * v.vertex.z);
                 #else
                 float3 pos = v.vertex.xyz;
@@ -161,13 +183,17 @@ Shader "ChroMapper/Clouds Opaque"
                 o.color = v.color;
 
                 #if defined(WORLD_NOISE)
-                float2 scroll = _WorldNoiseScrolling.xy * _Speed * _Time.x;
+                float2 scroll = _WorldNoiseScrolling.xy *
+                    (_Time.x + _TimeHelperOffset.x);
                 float2 nuv = world.xz * _NoiseTex_ST.xy + _NoiseTex_ST.zw + scroll;
                 float noise = tex2Dlod(_NoiseTex, float4(nuv, 0, 0)).x;
                 world.y += noise * _WorldNoiseScale + _WorldNoiseIntensityOffset;
                 #endif
 
                 o.position = mul(unity_MatrixVP, float4(world, 1.0));
+                o.screenPos = ComputeScreenPosCustom(o.position);
+                o.noiseScreenPos = ScaleNoiseScreenPosition(
+                    o.screenPos, _GlobalBlueNoiseParams);
                 return o;
             }
 
@@ -180,13 +206,20 @@ Shader "ChroMapper/Clouds Opaque"
                 cameraPosition = unity_StereoWorldSpaceCameraPos[unity_StereoEyeIndex];
                 #endif
                 float3 d = i.world - cameraPosition;
+                // fragment-119bc5fd (119bc5fd): custom distance fog is applied
+                // after the local start offset and attenuation, not as a direct
+                // `dist2 * scale + offset` expression.
                 float dist2 = dot(d, d);
-                float distFade = 1.0 / (1.0 + max(0.0, dist2 * _FogScale + _FogStartOffset));
+                float distFade = 1.0 / (1.0 +
+                    max(0.0, max(0.0, dist2 - _CustomFogOffset) *
+                    _CustomFogAttenuation - _FogStartOffset) * _FogScale);
 
                 // recovered: t = clamp((world.y + _HeightFogOffset - band) / band),
                 // then smoothstep-style t*t*(3-2t)
-                float t = saturate((i.world.y + _HeightFogOffset) / _HeightFogOffset);
-                float hFade = t * t * (3 - 2 * t);
+                // fragment-72154a (72154a52): ordinary FOG uses this height
+                // ramp. fragment-119bc5fd adds the distance term for BLOOM_FOG.
+                float hFade = CalculateCustomHeightFogFactor(
+                    i.world, _HeightFogOffset, 1.0);
                 float fade = 1.0 - distFade * hFade;
 
                 float3 normal = normalize(i.nor);
@@ -195,26 +228,34 @@ Shader "ChroMapper/Clouds Opaque"
                 #endif
                 float3 color = tex2D(_MainTex, i.uv).rgb * i.color.rgb;
                 #if defined(DIFFUSE)
-                float NdL = saturate(dot(normal, normalize(_WorldSpaceLightPos0.xyz)));
-                color *= NdL * _LightColor0.rgb + unity_AmbientSky.rgb * 0.5;
+                // fragment-119bc5fd (119bc5fd): the game sums five directional
+                // lights against the inverted world normal; no ambient term.
+                color *= CalculateLightDiffuse(normal);
                 #endif
                 color = saturate(color);
 
                 #if defined(FOG)
-                color = lerp(color, 0.1.xxx, fade);
+                #if defined(BLOOM_FOG)
+                // fragment-119bc5fd: Fog.hlsl applies the centered texture ratio.
+                color = lerp(color, SampleBloomPrePass(i.screenPos).rgb, fade);
+                #else
+                // fragment-72154a52: ordinary fog lerps toward 0.1 with
+                // 1 - t*t*(3-2*t) as the factor (inverse of the height ramp).
+                color = lerp(color, 0.1.xxx, 1.0 - hFade);
+                #endif
                 #endif
 
                 #if defined(NOISE_DITHERING)
-                float2 scr = i.position.xy / i.position.w;
-                float noise = tex2D(_NoiseTex, scr * _NoiseTex_ST.xy + _NoiseTex_ST.zw).r;
-                color = lerp(color, noise.xxx, fade);
-                #endif
+                // fragment-19822184: additive blue-noise dither is independent
+                // of fog; PostProcess.hlsl supplies the /255 term.
+                float4 result = ApplyNoiseDither(
+                    float4(color, 0), i.noiseScreenPos, _GlobalBlueNoiseTex);
+            #else
+                float4 result = float4(color, 0);
+            #endif
 
-                float4 albedo = float4(color, 0);
-                albedo = ApplyBloomTypeWhiteBoost(
-                    albedo, 1.0, i.color.a, 1.0,
-                    _BaseColorBoost, _BaseColorBoostThreshold);
-                return albedo;
+                // fragment-40070c00: all cloud routes clear alpha.
+                return result;
             }
             ENDHLSL
         }

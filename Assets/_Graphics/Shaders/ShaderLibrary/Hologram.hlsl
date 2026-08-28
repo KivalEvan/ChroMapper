@@ -4,6 +4,8 @@
 // Hologram inputs are passed in as arguments; the library does not read
 // uniforms the consumer shader must declare (instanced props included).
 
+#include "Camera.hlsl"
+
 inline float ResolveHologramTime(float4 timeValue, float4 timeHelperOffset)
 {
     return timeHelperOffset.w + timeValue.w;
@@ -19,7 +21,8 @@ inline float3 ResolveGridHologram(
     time = haltScan > 0.5 ? 0.0 : time;
 
     float3 gridPhase = time * float3(0.0, stripeSpeed, stripeSpeed * 0.5);
-    float cameraDistance = length(worldPosition - _WorldSpaceCameraPos);
+    float3 cameraPosition = GetStereoAwareCameraPosition();
+    float cameraDistance = length(worldPosition - cameraPosition);
     float distanceFactor = saturate(cameraDistance * 0.1333333);
     distanceFactor = 1.0 - (1.0 - distanceFactor) * (1.0 - distanceFactor);
     float resolvedGridSize = gridSize - distanceFactor * 10.0;

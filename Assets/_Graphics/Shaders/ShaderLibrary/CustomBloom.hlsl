@@ -31,6 +31,18 @@ inline float3 CalculateBloomComposition(float3 rgb, float premultiplyAlpha, floa
     return saturate(rgb * premultiplyAlpha + whiteBoost);
 }
 
+// Custom/SimpleLightning fragment-39d9df0b4d17297c. The recovered final MAD
+// adds the color contribution to the boosted-white contribution; it is not a lerp.
+inline float3 CalculateLightningBloomComposition(float3 rgb, float alpha,
+                                                  float whiteBoostMultiplier,
+                                                  float colorBoostMultiplier)
+{
+    float3 colorContribution = rgb * (alpha * whiteBoostMultiplier);
+    float3 whiteContribution = 1.0 - colorContribution;
+    float colorBoost = saturate(alpha * colorBoostMultiplier);
+    return colorContribution + whiteContribution * colorBoost;
+}
+
 // Post-process bloom route (game: MAIN_EFFECT_ENABLED on, ChroMapper global
 // POST_BLOOM on): the post-process bloom provides the glow, so the white-boost
 // term compiles out. Plain premultiplied composition with alpha scaled by the

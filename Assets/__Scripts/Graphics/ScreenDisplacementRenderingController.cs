@@ -3,11 +3,12 @@ using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
-// Built-in pipeline equivalent of Beat Saber 1.44.1's screen-displacement
+// Built-in pipeline equivalent of Beat Saber 1.44.2's URP screen-displacement
 // passes. Registered displacement renderers are excluded from the normal
 // camera pass and drawn after the other transparent objects.
 public sealed class ScreenDisplacementRenderingController : MonoBehaviour
 {
+    private const int maxInstancedRenderers = 1023;
     private const CameraEvent displacementCameraEvent = CameraEvent.AfterForwardAlpha;
 
     private static readonly int grabTextureId = Shader.PropertyToID("_ScreenDisplacementGrabTexture");
@@ -16,6 +17,22 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
     [SerializeField, Range(0, 31)] private int displacementLayer = 31;
 
     private readonly List<ScreenDisplacementRenderer> sortedRenderers = new();
+    private readonly Matrix4x4[] instanceMatrices = new Matrix4x4[maxInstancedRenderers];
+    private readonly Vector4[] instanceColors = new Vector4[maxInstancedRenderers];
+    private readonly Vector4[] instanceTintColors = new Vector4[maxInstancedRenderers];
+    private readonly Vector4[] instanceAddColors = new Vector4[maxInstancedRenderers];
+    private readonly float[] instanceCutouts = new float[maxInstancedRenderers];
+    private readonly Vector4[] instanceCutoutTexOffsets = new Vector4[maxInstancedRenderers];
+    private readonly Vector4[] instanceUvScales = new Vector4[maxInstancedRenderers];
+    private MaterialPropertyBlock sourcePropertyBlock;
+    private MaterialPropertyBlock instancedPropertyBlock;
+
+    private static readonly int colorId = Shader.PropertyToID("_Color");
+    private static readonly int tintColorId = Shader.PropertyToID("_TintColor");
+    private static readonly int addColorId = Shader.PropertyToID("_AddColor");
+    private static readonly int cutoutId = Shader.PropertyToID("_Cutout");
+    private static readonly int cutoutTexOffsetId = Shader.PropertyToID("_CutoutTexOffset");
+    private static readonly int uvScaleId = Shader.PropertyToID("_UVScale");
 
     private Camera activeCamera;
     private CommandBuffer commandBuffer;
@@ -137,15 +154,119 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
             new Vector4(1f / sourceWidth, 1f / sourceHeight, sourceWidth, sourceHeight));
         commandBuffer.SetRenderTarget(cameraTarget);
 
-        foreach (var displacementRenderer in sortedRenderers)
-        {
-            var renderer = displacementRenderer.TargetRenderer;
-            commandBuffer.DrawRenderer(renderer, renderer.sharedMaterial, 0, -1);
-        }
+        DrawRenderers();
 
         commandBuffer.SetGlobalTexture(grabTextureId, Texture2D.blackTexture);
         commandBuffer.SetGlobalVector(grabTextureTexelSizeId, Vector4.zero);
         commandBuffer.ReleaseTemporaryRT(grabTextureId);
+    }
+
+    private void DrawRenderers()
+    {
+        // Existing MonoBehaviours can survive a script reload without running new
+        // field initializers. Initialize the native-backed blocks at their use boundary.
+        sourcePropertyBlock ??= new MaterialPropertyBlock();
+        instancedPropertyBlock ??= new MaterialPropertyBlock();
+
+        var instanceCount = 0;
+        Mesh batchMesh = null;
+        Material batchMaterial = null;
+        var batchSortingLayer = 0;
+        var batchSortingOrder = 0;
+        var batchRenderQueue = 0;
+
+        foreach (var displacementRenderer in sortedRenderers)
+        {
+            var renderer = displacementRenderer.TargetRenderer;
+            var material = renderer.sharedMaterial;
+            if (!TryGetInstancingMesh(renderer, material, out var mesh))
+            {
+                FlushInstancedBatch(ref instanceCount, ref batchMesh, ref batchMaterial);
+                commandBuffer.DrawRenderer(renderer, material, 0, -1);
+                continue;
+            }
+
+            var compatible = instanceCount == 0
+                || (mesh == batchMesh
+                    && material == batchMaterial
+                    && renderer.sortingLayerID == batchSortingLayer
+                    && renderer.sortingOrder == batchSortingOrder
+                    && material.renderQueue == batchRenderQueue);
+            if (!compatible)
+                FlushInstancedBatch(ref instanceCount, ref batchMesh, ref batchMaterial);
+
+            if (instanceCount == 0)
+            {
+                batchMesh = mesh;
+                batchMaterial = material;
+                batchSortingLayer = renderer.sortingLayerID;
+                batchSortingOrder = renderer.sortingOrder;
+                batchRenderQueue = material.renderQueue;
+            }
+
+            AddInstancedRenderer(renderer, material, instanceCount++);
+            if (instanceCount == maxInstancedRenderers)
+                FlushInstancedBatch(ref instanceCount, ref batchMesh, ref batchMaterial);
+        }
+
+        FlushInstancedBatch(ref instanceCount, ref batchMesh, ref batchMaterial);
+    }
+
+    private bool TryGetInstancingMesh(Renderer renderer, Material material, out Mesh mesh)
+    {
+        mesh = null;
+        if (!SystemInfo.supportsInstancing || material == null || !material.enableInstancing)
+            return false;
+        if (renderer is not MeshRenderer) return false;
+
+        var meshFilter = renderer.GetComponent<MeshFilter>();
+        mesh = meshFilter == null ? null : meshFilter.sharedMesh;
+        return mesh != null && mesh.subMeshCount > 0;
+    }
+
+    private void AddInstancedRenderer(Renderer renderer, Material material, int index)
+    {
+        if (index >= maxInstancedRenderers)
+            throw new System.ArgumentOutOfRangeException(nameof(index));
+
+        instanceMatrices[index] = renderer.transform.localToWorldMatrix;
+        sourcePropertyBlock.Clear();
+        renderer.GetPropertyBlock(sourcePropertyBlock);
+        instanceColors[index] = sourcePropertyBlock.HasProperty(colorId)
+            ? sourcePropertyBlock.GetColor(colorId) : material.GetColor(colorId);
+        instanceTintColors[index] = sourcePropertyBlock.HasProperty(tintColorId)
+            ? sourcePropertyBlock.GetColor(tintColorId) : material.GetColor(tintColorId);
+        instanceAddColors[index] = sourcePropertyBlock.HasProperty(addColorId)
+            ? sourcePropertyBlock.GetColor(addColorId) : material.GetColor(addColorId);
+        instanceCutouts[index] = sourcePropertyBlock.HasProperty(cutoutId)
+            ? sourcePropertyBlock.GetFloat(cutoutId) : material.GetFloat(cutoutId);
+        instanceCutoutTexOffsets[index] = sourcePropertyBlock.HasProperty(cutoutTexOffsetId)
+            ? sourcePropertyBlock.GetVector(cutoutTexOffsetId) : material.GetVector(cutoutTexOffsetId);
+        instanceUvScales[index] = sourcePropertyBlock.HasProperty(uvScaleId)
+            ? sourcePropertyBlock.GetVector(uvScaleId) : material.GetVector(uvScaleId);
+
+        // DrawRenderer broke GPU batching; carry MPB values as instanced arrays instead.
+    }
+
+    private void FlushInstancedBatch(
+        ref int instanceCount, ref Mesh batchMesh, ref Material batchMaterial)
+    {
+        if (instanceCount == 0) return;
+        if (instanceCount > maxInstancedRenderers)
+            throw new System.InvalidOperationException("Screen displacement instance batch exceeds Unity's 1023 limit.");
+
+        instancedPropertyBlock.Clear();
+        instancedPropertyBlock.SetVectorArray(colorId, instanceColors);
+        instancedPropertyBlock.SetVectorArray(tintColorId, instanceTintColors);
+        instancedPropertyBlock.SetVectorArray(addColorId, instanceAddColors);
+        instancedPropertyBlock.SetFloatArray(cutoutId, instanceCutouts);
+        instancedPropertyBlock.SetVectorArray(cutoutTexOffsetId, instanceCutoutTexOffsets);
+        instancedPropertyBlock.SetVectorArray(uvScaleId, instanceUvScales);
+        commandBuffer.DrawMeshInstanced(
+            batchMesh, 0, batchMaterial, -1, instanceMatrices, instanceCount, instancedPropertyBlock);
+        instanceCount = 0;
+        batchMesh = null;
+        batchMaterial = null;
     }
 
     private void CollectRenderers()

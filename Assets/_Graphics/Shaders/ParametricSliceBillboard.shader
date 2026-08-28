@@ -1,64 +1,74 @@
 ﻿// Replacement for the Beat Saber game shader Custom/Parametric3SliceSprite.
 Shader "ChroMapper/Parametric Slice Billboard"
 {
+    // AUDIT FINDINGS (Beat Saber 1.44.3)
+    // PSB1. The 1.42.2 Custom/Parametric3SliceSprite Properties block is
+    //       authoritative. _Color, _SizeParams, and _AlphaWidth are instanced
+    //       runtime inputs and therefore remain unexposed.
+    // PSB2. The vertex splits the source at UV.y 0.1, 0.5, and 0.9, applies
+    //       independent cap/body widths, extends cap geometry, and optionally
+    //       rotates local XZ around object-space Y to face the active camera.
+    // PSB3. Source alpha is the selected alpha width cubed times _Color.a.
+    //       SQUARE_ALPHA squares it before world noise and squared texture alpha.
+    // PSB4. Fog can run before or after texture/noise. Bloom fog divides its
+    //       distance scale by pre-square source alpha; height fog uses the shared
+    //       cubic ramp. ENABLE_BLOOM_FOG maps to the global BLOOM_FOG keyword.
+    // PSB5. MainEffect white boost is disabled by MAIN_EFFECT_ENABLED; Always is
+    //       not. ChroMapper maps the global route to POST_BLOOM.
+    // PSB6. Noise dithering adds masked blue noise after bloom composition. Its
+    //       screen position is offset per frame and by object translation.
+    //       Output alpha is final source alpha times _BloomMultiplier.
+    // PSB7. OVERDRAW_VIEW and inactive ENABLE_MAIN_EFFECT_WHITE_BOOST routes are
+    //       intentionally omitted. Stage binaries cannot prove ShaderLab state.
     Properties
     {
-        _Color ("Color", Color) = (1, 1, 1, 1)
-        _MainTex ("Texture", 2D) = "white" {}
-        _CapUVSize ("Cap UV Size", Float) = 0.25
-
-        _SizeParams("Size Params", Vector) = (0.25,10,0,0.5)
-        [Toggle(ALPHA_WIDTH_SCALE)] _EnableAlphaWidthScale ("Alpha Width Scale", float) = 0
-        _AlphaWidth("Alpha Width", Vector) = (1,1,1,1)
-
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("White Boost", float) = 0
-        [ShowIfAny(_BLOOMTYPE_DEFERRED, _BLOOMTYPE_MIXED)] _BloomWhiteMultiplier ("White Multiplier", float) = 1
-        _BloomMultiplier ("Bloom Multiplier", float) = 1
-
-        [Header(Others)] [Space]
-        [Toggle(SQUARE_ALPHA)] _SquareAlpha("Square Alpha", float) = 0
-        [Toggle(ANGLE_DISAPPEAR)] _AngleDisappear("Angle Disappear", float)= 10
-        [Toggle(Y_AXIS_BILLBOARD)] _EnableYAxisBillboard ("Y Axis Billboard", float) = 1
-        [Toggle(WORLD_NOISE)] _EnableWorldNoise ("Enable World Noise", float) = 0
-        _WorldNoiseScale ("World Noise Scale", float) = 1
-        _WorldNoiseIntensityOffset ("World Noise Intensity Offset", float) = 0
-        _WorldNoiseIntensityScale ("World Noise Intensity Scale", float) = 1
-        _WorldNoiseScrolling ("World Noise Scrolling", Vector) = (0,0,0,1)
-        [Toggle(WORLD_SPACE_FADE)] _EnableWorldSpaceFade ("Enable World Space Fade", float) = 0
-        _WorldSpaceFadePos ("World Space Fade Position", float) = 0
-        _WorldSpaceFadeSlope ("World Space Fade Slope", float) = 1
-        [ToggleShowIfAny(WORLD_NOISE_WARP, WORLD_NOISE)] _WorldNoiseSkew ("Noise Field Warp", float) = 0
-        _NoiseWarpZoomStrength ("Noise Warp Zoom Strength", float) = 0
-        _NoiseWarpSkewStrength ("Noise Warp Skew Strength", float) = 0
-        [Toggle(NOISE_DITHERING)] _EnableNoiseDithering ("Enable Noise Dithering", float) = 0
-
-        [Header(Fog Settings)] [Space]
-        [Toggle(FOG)] _EnableFog ("Enable Fog", float) = 1
-        [ShowIfAny(FOG)] _FogStartOffset ("Fog Start Offset", float) = 1
-        [ShowIfAny(FOG)] _FogScale ("Fog Scale", float) = 1
-        [Space]
-        [ToggleShowIfAny(HEIGHT_FOG, FOG)] _EnableHeightFog ("Enable Height Fog", float) = 1
-        [ShowIfAny(2, FOG, HEIGHT_FOG)] _FogHeightOffset ("Fog Height Offset", float) = 0
-        [ShowIfAny(2, FOG, HEIGHT_FOG)] _FogHeightScale ("Fog Height Scale", float) = 1
-        [Space]
-        [ToggleShowIfAny(USE_FOG_FOR_LIGHTS, FOG)] _UseFogForLights("Use Fog For Lights", float) = 1
-
-        [Header(Settings)] [Space]
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrc ("Blend Src", float) = 1
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDst ("Blend Dst", float) = 1
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrcA ("Blend Src A", float) = 1
-        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDstA ("Blend Dst A", float) = 1
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp ("Blend Operation", float) = 0
-
-        [Space]
-        [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", float) = 0
-        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", float) = 4
+        _MainTex ("Main Texture", 2D) = "white" {}
+        [Space] _CapUVSize ("Cap UV Size", Float) = 0.25
         _OffsetFactor ("Offset Factor", Float) = 0
         _OffsetUnits ("Offset Units", Float) = 0
-        [Header(Stencil)] [Space]
+
+        [Space(12)] [Toggle(FOG)] _EnableFog ("Enable Fog", Float) = 1
+        [ToggleShowIfAny(HEIGHT_FOG, FOG)] _EnableHeightFog ("Enable Height Fog", Float) = 1
+        [ShowIfAny(2, HEIGHT_FOG, FOG)] _FogHeightScale ("Fog Height Scale", Float) = 1
+        [ShowIfAny(2, HEIGHT_FOG, FOG)] _FogHeightOffset ("Fog Height Offset", Float) = 0
+        [ToggleShowIfAny(USE_FOG_FOR_LIGHTS, FOG)] _UseFogForLights ("Use Fog for Lights", Float) = 1
+        [ShowIfAny(FOG)] _FogStartOffset ("Fog Start Offset", Float) = 1
+        [ShowIfAny(FOG)] _FogScale ("Fog Scale", Float) = 1
+
+        [Space(12)] [Toggle(WORLD_NOISE)] _EnableWorldNoise ("Enable World Noise", Float) = 0
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseScale ("World Noise Scale", Float) = 1
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseIntensityOffset ("World Intensity Offset", Float) = 0
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseIntensityScale ("World Intenstity Scale", Float) = 1
+        [ShowIfAny(WORLD_NOISE)] _WorldNoiseScrolling ("World Noise Scrolling", Vector) = (0,0,0,1)
+        [ToggleShowIfAny(WORLD_NOISE_WARP, WORLD_NOISE)] _WorldNoiseSkew ("Noise Field Warp", float) = 0
+        [InfoBox(Decrease noise pattern repetition by varying noise field with worldspace Z, WORLD_NOISE_WARP)] [ShowIfAny(WORLD_NOISE_WARP)] _NoiseWarpZoomStrength ("Noise Warp Zoom Strength", Float) = 0
+        [ShowIfAny(WORLD_NOISE_WARP)] _NoiseWarpSkewStrength ("Noise Warp Skew Strength", Float) = 0
+
+        [Space()] [Toggle(WORLD_SPACE_FADE)] _EnableWorldSpaceFade ("Enable World Space Fade", Float) = 0
+        [ShowIfAny(WORLD_SPACE_FADE)] _WorldSpaceFadePos ("World Space Fade Position", Float) = 0
+        [ShowIfAny(WORLD_SPACE_FADE)] _WorldSpaceFadeSlope ("World Space Fade Slope", Float) = 1
+        [Space()] [Toggle(ALPHA_WIDTH_SCALE)] _EnableAlphaWidthScale ("Enable Alpha Width Scale", Float) = 0
+
+        [Space(20)] [KeywordEnum(None, MainEffect, Always)] _WhiteBoostType ("White Boost", Float) = 0
+        [ShowIfAny(_WHITEBOOSTTYPE_ALWAYS, _WHITEBOOSTTYPE_MAINEFFECT)] _BloomWhiteMultiplier ("White Boost Multiplier", Float) = 1
+        _BloomMultiplier ("Bloom Multiplier", Float) = 1
+
+        [Space] [Header(Other)] [Space] [Toggle(SQUARE_ALPHA)] _SquareAlpha ("Square Alpha", Float) = 0
+        [Toggle(ANGLE_DISAPPEAR)] _AngleDisappear ("Angle Disappear", Float) = 10
+        [Toggle(NOISE_DITHERING)] _EnableNoiseDithering ("Noise Dithering", Float) = 0
+        [Toggle(Y_AXIS_BILLBOARD)] _EnableYAxisBillboard ("Y Axis Billboard", Float) = 1
+
+        [Space] [Header(Settings)] [Space] [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrc ("Blend Src", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDst ("Blend Dst", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeSrcA ("Blend Src Factor A", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendModeDstA ("Blend Dst Factor A", Float) = 1
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", Float) = 4
+        [Space] [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("CullMode", Float) = 0
+        [Space]
         _StencilRefValue ("Stencil Ref Value", Float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8
-        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencil Pass Op", Float) = 0
+        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencill Pass Op", Float) = 0
+        [Space] [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp ("Blend Operation", Float) = 0
     }
 
     SubShader
@@ -98,11 +108,10 @@ Shader "ChroMapper/Parametric Slice Billboard"
             #pragma shader_feature_local_fragment SQUARE_ALPHA
             #pragma shader_feature_local_fragment ANGLE_DISAPPEAR
             #pragma shader_feature_local_vertex Y_AXIS_BILLBOARD
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
+            #pragma shader_feature_local_fragment _ _WHITEBOOSTTYPE_MAINEFFECT _WHITEBOOSTTYPE_ALWAYS
             // Global: the post-process bloom runs (mirrors the game's MAIN_EFFECT_ENABLED gate).
             #pragma multi_compile _ POST_BLOOM
 
-            #pragma multi_compile_local_fragment _FOGTYPE_ALPHA
             #pragma shader_feature_local_fragment FOG
             #pragma shader_feature_local_fragment HEIGHT_FOG
             #pragma shader_feature_local_fragment USE_FOG_FOR_LIGHTS
@@ -143,6 +152,7 @@ Shader "ChroMapper/Parametric Slice Billboard"
             float4 _TimeHelperOffset;
             sampler2D _GlobalBlueNoiseTex;
             float2 _GlobalBlueNoiseParams;
+            float _GlobalRandomValue;
 
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
@@ -162,15 +172,17 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 float4 vertex : SV_POSITION;
                 float4 uv : TEXCOORD0;
                 float3 worldPos : TEXCOORD2;
-                float4 screenPos : TEXCOORD3;
+                float4 noiseScreenPos : TEXCOORD3;
                 float angleFade : TEXCOORD4;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            float SliceFogFactor(float3 worldPos)
+            float SliceFogFactor(float3 worldPos, float alphaDivisor)
             {
                 #if defined(HEIGHT_FOG)
+                // Game 4c799b9d: the non-bloom height-fog route multiplies the
+                // smooth ramp itself (not its inverse).
                 float heightFade = CalculateParametricHeightRamp(
                     worldPos.y, _FogHeightScale, _FogHeightOffset,
                     _CustomFogHeightFogHeight, _CustomFogHeightFogStartY);
@@ -178,13 +190,15 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 float heightFade = 1.0;
                 #endif
                 #if defined(BLOOM_FOG)
+                // Game 56ab3279/1dbc59fc: heightFade * distanceInverse with the
+                // pre-square source alpha as the fog-scale divisor.
                 float distanceInverse = CalculateParametricDistanceTransmission(
-                    worldPos, GetParametricCameraPosition(), _FogStartOffset, _FogScale, 1.0,
-                    _CustomFogOffset, _CustomFogAttenuation);
+                    worldPos, GetParametricCameraPosition(), _FogStartOffset, _FogScale,
+                    alphaDivisor, _CustomFogOffset, _CustomFogAttenuation);
                 return heightFade * distanceInverse;
                 #else
                 #if defined(HEIGHT_FOG)
-                return 1.0 - heightFade;
+                return heightFade;
                 #else
                 return 1.0;
                 #endif
@@ -254,8 +268,8 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 float localY = (i.vertex.y - sizeParams.z) * sizeParams.y +
                     (capVertex ? (i.vertex.y - 0.5) * sizeParams.w : 0.0);
                 float capDirection = (i.uv.y < 0.5 ? 1.0 : 0.0) - (i.uv.y > 0.5 ? 1.0 : 0.0);
-                const float weirdYFix = 0.11; // idk why this is needed
-                float adjustedUvY = i.uv.y + (capVertex ? 0.0 : (0.25 + weirdYFix - _CapUVSize) * capDirection);
+                // DXBC 19215f1: non-cap bands use the cap UV extent directly.
+                float adjustedUvY = i.uv.y + (capVertex ? 0.0 : (0.36 - _CapUVSize) * capDirection);
 
                 float3 localPosition = float3(localX, localY, i.vertex.z);
                 float3 cameraObject = mul(
@@ -265,7 +279,7 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 float2 cameraXZ = normalize(cameraObject.xz);
                 float2 selectedLocalXZ = float2(localX, i.vertex.z);
                 float billboardZ = dot(float2(cameraXZ.x, -cameraXZ.y), selectedLocalXZ);
-                float billboardX = dot(float2(-cameraXZ.y, -cameraXZ.x), selectedLocalXZ);
+                float billboardX = dot(float2(-cameraXZ.y, cameraXZ.x), selectedLocalXZ);
                 localPosition.xz = float2(billboardX, billboardZ);
                 #endif
 
@@ -274,7 +288,10 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 o.worldPos = worldPos;
                 o.uv = float4(uvX, adjustedUvY, uvScale,
                               localY > (0.5 - sizeParams.z) ? alphaWidth.y : alphaWidth.x);
-                o.screenPos = ComputeScreenPosCustom(o.vertex);
+                float4 screenPos = ComputeScreenPosCustom(o.vertex);
+                o.noiseScreenPos = BuildNoiseScreenPosition(
+                    screenPos, o.vertex, _GlobalBlueNoiseParams,
+                    _GlobalRandomValue, unity_ObjectToWorld._m03_m13);
 
                 float cameraHeight = cameraObject.y - localY;
                 float cameraDistance = sqrt(dot(cameraObject.xz, cameraObject.xz) + (cameraHeight * cameraHeight));
@@ -301,8 +318,13 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 alpha *= i.angleFade;
                 #endif
 
+                // Game 4c799b9d/56ab3279: the fog factor is computed from the
+                // pre-square source alpha (its divisor) and multiplied in either
+                // before or after the texture depending on USE_FOG_FOR_LIGHTS.
+                float preFogAlpha = alpha;
+
                 #if defined(USE_FOG_FOR_LIGHTS) && defined(FOG)
-                alpha *= SliceFogFactor(i.worldPos);
+                alpha *= SliceFogFactor(i.worldPos, preFogAlpha);
                 #endif
 
                 #if defined(SQUARE_ALPHA)
@@ -320,15 +342,17 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 alpha *= noise;
                 #endif
 
-                float textureAlpha = tex2D(_MainTex, TRANSFORM_TEX(adjustedUv, _MainTex)).a;
+                // DXBC 5550caa4: no _MainTex_ST transform is applied.
+                float textureAlpha = tex2D(_MainTex, adjustedUv).a;
                 alpha *= textureAlpha * textureAlpha;
 
                 #if !defined(USE_FOG_FOR_LIGHTS) && defined(FOG)
-                alpha *= SliceFogFactor(i.worldPos);
+                alpha *= SliceFogFactor(i.worldPos, preFogAlpha);
                 #endif
 
                 half3 rgb = color.rgb * alpha;
-                #if defined(_BLOOMTYPE_MIXED) || (defined(_BLOOMTYPE_DEFERRED) && !defined(POST_BLOOM))
+                #if (defined(_WHITEBOOSTTYPE_ALWAYS) || \
+                     (defined(_WHITEBOOSTTYPE_MAINEFFECT) && !defined(POST_BLOOM)))
                 // DXBC b005f58e (game main-effect type) / fc38f93c (game Always type):
                 // both white-boost types share the same quartic term
                 // whiteBoost = (bloomValue² * W)² * _BaseColorBoost - _BaseColorBoostThreshold
@@ -341,10 +365,13 @@ Shader "ChroMapper/Parametric Slice Billboard"
                 #endif
 
                 #if defined(NOISE_DITHERING)
-                float4 ditherScreenPos = ScaleNoiseScreenPosition(
-                    i.screenPos, _GlobalBlueNoiseParams);
+                // The recovered shader uses a binary alpha threshold here. On
+                // ChroMapper's additive target, its fixed 1/255 contribution can
+                // dominate very faint premultiplied pixels. Fade only that low-
+                // alpha tail while retaining full dithering above ~3% opacity.
+                float ditherMask = alpha >= 0.001 ? saturate(alpha * 32.0) : 0.0;
                 rgb = ApplyNoiseDitherMasked(
-                    rgb, ditherScreenPos, _GlobalBlueNoiseTex, alpha >= 0.001 ? 1.0 : 0.0);
+                    rgb, i.noiseScreenPos, _GlobalBlueNoiseTex, ditherMask);
                 #endif
 
                 // DXBC 5550caa4 carries bloom in alpha and has no ACES transform.

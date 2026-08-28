@@ -53,7 +53,7 @@ Shader "ChroMapper/Editor/Spectrogram"
             uniform float _Spectrogram_Shift = 1;
             uniform float _Spectrogram_BilinearFiltering = 0;
 
-            uniform float4 _SongTimeSeconds;
+            uniform float4 _SongTime;
             uniform float _ViewStart = 0;
             uniform float _ViewEnd = 1;
 
@@ -228,7 +228,7 @@ Remap(value, GradientKeys[lowerGradientIdx],
                                 GradientKeys[upperGradientIdx], 0, 1));
 
                 // Add 0.2 to each component if we are within outline
-                if (abs(currentSeconds - _SongTimeSeconds.y) < _OutlineWidth / _EditorScale / (_SongBPM / 120))
+                if (abs(currentSeconds - _SongTime.y) < _OutlineWidth / _EditorScale / (_SongBPM / 120))
                 {
                     color += float4(0.5, 0.5, 0.5, 0.5);
                 }

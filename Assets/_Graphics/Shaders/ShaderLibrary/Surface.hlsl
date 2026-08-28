@@ -45,12 +45,12 @@ inline void ResolveSurfaceMaterial(
     #endif
 
     #if defined(METAL_SMOOTHNESS_TEXTURE)
-    #if defined(SECONDARY_UVS_MPM)
-    float2 mpmBaseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_MPM) && USE_SECONDARY_UV
+    float2 mpmUv = TransformSecondaryUv(surface, metalSmoothnessTex_ST);
     #else
     float2 mpmBaseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 mpmUv = mpmBaseUv * metalSmoothnessTex_ST.xy + metalSmoothnessTex_ST.zw;
+    #endif
     surface.mpm = tex2D(metalSmoothnessTex, mpmUv);
 
     #if defined(_METALLIC_TEXTURE_MPM_R)
@@ -76,12 +76,12 @@ inline void ResolveSurfaceMaterial(
     #if defined(_OCCLUSION_SOURCE_MPM_B) && defined(METAL_SMOOTHNESS_TEXTURE)
     float primaryOcclusionSample = surface.mpm.b;
     #else
-    #if defined(SECONDARY_UVS_OCCLUSION)
-    float2 occlusionBaseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_OCCLUSION) && USE_SECONDARY_UV
+    float2 occlusionUv = TransformSecondaryUv(surface, dirtTex_ST);
     #else
     float2 occlusionBaseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 occlusionUv = occlusionBaseUv * dirtTex_ST.xy + dirtTex_ST.zw;
+    #endif
     float primaryOcclusionSample = tex2D(dirtTex, occlusionUv).r;
     #endif
     surface.occlusion = occlusionIntensity * primaryOcclusionSample +
@@ -89,19 +89,14 @@ inline void ResolveSurfaceMaterial(
     #endif
 
     #if defined(OCCLUSION_DETAIL)
-    #if defined(SECONDARY_UVS_OCCLUSION_DETAIL)
-    float2 detailBaseUv = surface.uv1;
+    #if defined(SECONDARY_UVS_OCCLUSION_DETAIL) && USE_SECONDARY_UV
+    float2 detailUv = TransformSecondaryUv(surface, dirtDetailTex_ST);
     #else
     float2 detailBaseUv = surface.uv0 * inputUvMultiplier;
-    #endif
     float2 detailUv = detailBaseUv * dirtDetailTex_ST.xy + dirtDetailTex_ST.zw;
-    #if defined(TEXTURE3D_LOOKUP) && defined(TEXTURE3D_EMISSION)
-    surface.occlusionDetail = occlusionDetailIntensity *
-        tex2D(dirtDetailTex, detailUv).r + (1.0 - emissionMaskIntensity);
-    #else
+    #endif
     surface.occlusionDetail = occlusionDetailIntensity *
         tex2D(dirtDetailTex, detailUv).r + (1.0 - occlusionDetailIntensity);
-    #endif
     #endif
 }
 

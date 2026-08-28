@@ -1,65 +1,109 @@
 ﻿Shader "ChroMapper/Object/Note"
 {
+    // AUDIT FINDINGS
+    // 1. Properties are the ordered union of the exact 1.42.2 NoteHD and NoteLW
+    //    contracts. The final section contains only ChroMapper-owned adapter/MPB data.
+    // 2. The sole authoritative default conflict is _BlendSrcFactorA: HD=1, LW=0.
+    //    The union uses HD=1; migrated editor materials retain their authored state.
+    // 3. The 1.44.3 corpora contain all 768 NoteHD variants (154 binaries) and all
+    //    1024 NoteLW variants (201 binaries); _shader.json reports no unreliable rows.
+    // 4. COLOR_INSTANCING selects the instanced _Color; otherwise _SimpleColor
+    //    is selected. All five ChroMapper materials enable the instanced route so MPBs
+    //    continue to own note color without changing their serialized fallback colors.
+    // 5. No NoteHD or NoteLW variant contains CLOSE_TO_CAMERA_CUTOUT, although
+    //    all three controlling properties are authoritative. The properties remain in
+    //    the contract, but no inert shader_feature or guessed formula is registered.
+    // 6. OVERDRAW_VIEW is present in the corpus but intentionally omitted: affected
+    //    binaries collapse to the diagnostic overdraw program, not note rendering.
+    // 7. _ZTest is the only non-authoritative render-state property. ChroMapper owns it
+    //    so editor placement can retain the existing target-side depth contract.
+    // 8. Full binary evidence: HD reflection/final-color/plane/cutout is
+    //    17ebe636fa11ba3112838446ee6736849924049501e7cfb169c9675d0970d758;
+    //    LW final color is 7bb6ae1661a9efa2d3c219607fa2df254ff51635e342a2cac29e7e46a04e63b6;
+    //    LW fake mirror is f30427033415f21d3d528bbb0b74706d4e19be97c20febe4e285e30d55999229.
+    // 9. The corpora contain no PRECISE_FOG or close-camera keyword and do not expose
+    //     the global distortion texture/parameter names. Those routes are not guessed
+    //     or registered; their authoritative material properties remain serialized.
+    // 10. Cross-check binaries: HD fog/plane/color is
+    //     dda161eb2095b1b12dd7005daf98f2e60730b775ae33213e6047957d7b9d0f94;
+    //     LW fog/plane is 86db107c7f908d3710bee18b0f87b64496d357c83ab819188b45e29bcc1e20bf;
+    //     LW simple-color/fake-mirror is
+    //     71f57659a4cb741ec6fb89ed87ea1842e6c8f1b8f6b8349a68ef22d13329fd68.
+    // 11. No 1.44 row contains REFLECTION_PROBE, FLIP_WORLD_NORMAL_Y,
+    //     _WHITEBOOSTTYPE_ALWAYS, _FOGTYPE_COLOR, or _FOGTYPE_ALPHA. Their exact
+    //     authoritative properties stay in the union, but guessed variants do not.
     Properties
     {
+        _Smoothness ("Smoothness", Range(0, 1)) = 1
+        _NoteSize ("NoteSize", Float) = 0.25
+
         _Color ("Color", Color) = (0, 0, 0, 0)
+        _ColorMultiplier ("Color Multiplier", Range(0, 10)) = 1
+
+        // NoteLW-only authoritative block.
+        [Space(12)] [Toggle(FAKE_MIRROR_TRANSPARENCY)] _FakeMirrorTransparencyEnabled ("Fake Mirror Transparency", Float) = 0
+        [ShowIfAny(FAKE_MIRROR_TRANSPARENCY)] _FakeMirrorTransparencyMultiplier ("Mirror Transparency Multiplier", Float) = 1
+
+        [Space(12)] [Toggle(REFLECTION_MAP)] _EnableReflectionMap ("Enable Reflection Map", Float) = 1
+        [ShowIfAny(REFLECTION_MAP)] _EnvironmentReflectionCube ("Environment Reflection", Cube) = "" {}
+
+        [Space(12)] [KeywordEnum(None, Alpha, Color, Lerp)] _FogType ("Fog Type", Float) = 0
+        [ShowIfAny(_FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _FogStartOffset ("Fog Start Offset", Float) = 0
+        [ShowIfAny(_FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _FogScale ("Fog Scale", Range(0, 1)) = 1
+        [ToggleShowIfAny(HEIGHT_FOG, _FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _EnableHeightFog ("Enable Height Fog", Float) = 0
+        [ShowIfAny(HEIGHT_FOG, _FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _FogHeightScale ("Fog Height Scale", Range(0, 1)) = 1
+        [ShowIfAny(HEIGHT_FOG, _FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _FogHeightOffset ("Fog Height Offset", Float) = 0
+        [ToggleShowIfAny(PRECISE_FOG, _FOGTYPE_ALPHA, _FOGTYPE_LERP, _FOGTYPE_COLOR)] _PreciseFog ("High (Frag) Precision", Float) = 0
+
+        [Space(12)] [Toggle(CUTOUT)] _EnableCutout ("Enable Cutout", Float) = 0
+        [ShowIfAny(CUTOUT)] _Cutout("Cutout", Range(0, 1)) = 0.0
+        [ShowIfAny(CUTOUT)] _CutoutTexOffset("Cutout Tex Offset", Vector) = (0, 0, 0, 0)
+        // NoteHD-only authoritative property.
+        [ShowIfAny(CUTOUT)] _CutoutTexScale ("Cutout Texture Scale", Float) = 1
+
+        [Space(12)] [Toggle(PLANE_CUT)] _EnablePlaneCut ("Plane Cut", Float) = 0
+        [ShowIfAny(PLANE_CUT)] _CutPlaneEdgeGlowWidth ("Plane Edge Glow Width", Float) = 0.01
+        [ShowIfAny(PLANE_CUT)] _CutPlane ("Cut Plane", Vector) = (1, 0, 0, 0)
+
+        [Space(12)] [Toggle(RIM_DIM)] _EnableRimDim ("Rim Dim", Float) = 0
+        [ShowIfAny(RIM_DIM)] _RimScale ("Rim Scale", Range(0, 10)) = 1
+        [ShowIfAny(RIM_DIM)] _RimOffset ("Rim Offset", Range(0, 10)) = 1
+        [ShowIfAny(RIM_DIM)] _RimCameraDistanceOffset ("Rim Camera Distance Offset", Range(0, 10)) = 2
+        [ShowIfAny(RIM_DIM)] _RimCameraDistanceScale ("Rim Camera Distance Scale", Range(0, 10)) = 0.3
+        [ShowIfAny(RIM_DIM)] _RimDarkening ("Rim Darkening", Range(0, 1)) = 0
+
+        // NoteHD-only authoritative property.
+        [Space(12)] [Enum(None, 0, MainEffect, 1, Always, 2)] _WhiteBoostType ("White Boost", Float) = 0
+
+        [Space(16)] [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", Float) = 0
+        // NoteLW-only authoritative stencil block.
+        [Space(16)] _StencilRefValue ("Stencil Ref Value", Float) = 0
+        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil Comp Func", Float) = 8
+        [Enum(UnityEngine.Rendering.StencilOp)] _StencilPass ("Stencill Pass Op", Float) = 0
+        [Space(16)] [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrcFactor ("Blend Src", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendDstFactor ("Blend Dst", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrcFactorA ("Blend Src Factor A", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendDstFactorA ("Blend Dst Factor A", Float) = 0
+        [Space(12)] [Toggle] _ZWrite ("Z Write", Float) = 1
+
+        // ChroMapper-owned MPB/adapter properties. These are not game properties.
+        [Header(Editor)]
+        // Preview rendering samples this registered texture. A declaration alone
+        // does not provide Unity 6's material default-texture binding.
+        _MainTex ("Albedo", 2D) = "white" {}
+        // NoteContainer, ChainContainer, and ObjectAnimator.
+        _AnimationSpawned("Animation Spawned", float) = 0
+        _ObjectTime ("Object Time", float) = 9999
+        _Rotation("Rotation", float) = 0
+        // GLSGroupAppearanceSO and GLSEventAppearanceSO.
         _StrobeColor ("Strobe Color", Color) = (0, 0, 0, 0)
         [Toggle] _StrobeColorEnabled ("Strobe Color Enabled", Float) = 0
-        _ColorMultiplier ("Color Multiplier", Range(0, 10)) = 1
-        _MainTex ("Albedo", 2D) = "white" {}
-        _Smoothness ("Smoothness", Range(0, 1)) = 0.95
-
-        [Header(Recovered Note)] [Space]
-        [Toggle(CUTOUT)] _EnableCutout ("Cutout", float) = 0
-        [Toggle(PLANE_CUT)] _EnablePlaneCut ("Plane Cut", float) = 0
-        [Toggle(REFLECTION_MAP)] _EnableReflectionMap ("Reflection Map", float) = 0
-        [KeywordEnum(None, Deferred, Mixed)] _BloomType ("Bloom Type", float) = 0
-        [HideInInspector] _FinalColorMul ("Final Color Multiplier", float) = 1
-        [HideInInspector] _CutoutTexScale ("Cutout Texture Scale", float) = 0.25
-        [HideInInspector] _CutPlaneThreshold ("Cut Plane Threshold", float) = 0
-        [HideInInspector] _CutPlaneEdgeGlowWidth ("Cut Plane Edge Glow Width", float) = 0.005
-        _EnvironmentReflectionCube ("Environment Reflection", Cube) = "" {}
-
-        [Header(Beat Saber)] [Space]
-        _Cutout("Cutout", Range(0, 1)) = 0.0
-        _CutoutSize("CutoutSize", Range(0.2,10)) = 1
-        _CutoutEdgeWidth("Cutout Edge Width", Range(0, 0.2)) = 0.05
-        _CutoutEdgeGlow("Cutout Edge Glow", Range(0, 1)) = 0.5
-        _CutoutTexOffset("Cutout Tex Offset", Vector) = (0, 0, 0, 0)
-        _CutPlane("Cut Plane", Vector) = (0, 0, 0, 0)
-
-        [Header(Rim Dim)] [Space]
-        [Toggle(RIM_DIM)] _EnableRimDim("Rim Dim", float) = 1
-        _RimScale ("Rim Scale", Range(0, 4)) = 2
-        _RimOffset ("Rim Offset", Range(-1, 1)) = 0
-        _RimCameraDistanceScale ("Rim Camera Distance Scale", Range(0, 4)) = 0.03
-        _RimCameraDistanceOffset ("Rim Camera Distance Offset", float) = 5
-        _RimDarkening ("Rim Darkening", Range(0, 1)) = 0
-
-        [Header(Animation)] [Space]
+        // ChroMapper timeline-interface adapter.
         _OutlineWidth("Outline Width", float) = 0.05
         _OverNoteInterfaceColor("Over Note Interface Color", Color) = (1, 1, 1, 0)
-        _Rotation("Rotation", float) = 0
-        _AnimationSpawned("Animation Spawned", float) = 0
-
-        [Header(Fog Settings)] [Space]
-        [Toggle(_FOGTYPE_LERP)] _EnableFog ("Enable Fog", float) = 1
-        _FogStartOffset ("Fog Start Offset", float) = 1
-        _FogScale ("Fog Scale", float) = 1
-        [Space]
-        [Toggle(HEIGHT_FOG)] _EnableHeightFog ("Enable Height Fog", float) = 0
-        _FogHeightOffset ("Fog Height Offset", float) = 0
-        _FogHeightScale ("Fog Height Scale", float) = 1
-
-        [Header(Editor)] [Space]
+        // Placement and passed-object controllers.
         [Toggle] _AlwaysTranslucent("Always Translucent", float) = 0
         _TranslucentAlpha("Translucent Alpha", float) = 0.5
-        _ObjectTime ("Object Time", float) = 9999
-
-        [Header(Settings)] [Space]
-        [Enum(UnityEngine.Rendering.CullMode)] _CullMode ("Cull Mode", float) = 2
-        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("Z Test", float) = 4
-        [Toggle] _ZWrite ("Z Write", float) = 1
     }
     SubShader
     {
@@ -71,8 +115,12 @@
         // The recovered shader does not contain recoverable ShaderLab state. Keep the
         // opaque ChroMapper states from Note.shader as the target-side adapter.
         Cull [_CullMode]
-        ZTest [_ZTest]
         ZWrite [_ZWrite]
+        Blend [_BlendSrcFactor] [_BlendDstFactor], [_BlendSrcFactorA] [_BlendDstFactorA]
+        Stencil
+        {
+            Ref [_StencilRefValue] Comp [_StencilComp] Pass [_StencilPass]
+        }
 
         Pass
         {
@@ -82,13 +130,16 @@
 
             // These are the canonical target declarations for the recovered source
             // families. Do not restore the source aliases here.
-            #pragma shader_feature_local CUTOUT
             #pragma shader_feature_local PLANE_CUT
-            #pragma shader_feature_local REFLECTION_MAP
-            #pragma shader_feature_local RIM_DIM
-            #pragma shader_feature_local_fragment HEIGHT_FOG
-            #pragma shader_feature_local_fragment _ _FOGTYPE_LERP _FOGTYPE_COLOR _FOGTYPE_ALPHA
-            #pragma shader_feature_local_fragment _ _BLOOMTYPE_DEFERRED _BLOOMTYPE_MIXED
+            #pragma shader_feature_local ZWRITE
+            #pragma shader_feature_local FAKE_MIRROR_TRANSPARENCY
+            // These are global/overridable in the recovered HD family.
+            #pragma multi_compile _ CUTOUT
+            #pragma multi_compile _ REFLECTION_MAP
+            #pragma multi_compile _ RIM_DIM
+            #pragma multi_compile_fragment _ _WHITEBOOSTTYPE_MAINEFFECT
+            #pragma multi_compile_fragment _ HEIGHT_FOG
+            #pragma multi_compile_fragment _ _FOGTYPE_LERP
             // Global: the post-process bloom runs (mirrors the game's MAIN_EFFECT_ENABLED gate).
             #pragma multi_compile _ POST_BLOOM
 
@@ -111,9 +162,9 @@
             samplerCUBE _EnvironmentReflectionCube;
 
             float _Smoothness;
-            float _FinalColorMul;
+            float _NoteSize;
+            float _FakeMirrorTransparencyMultiplier;
             float _CutoutTexScale;
-            float _CutPlaneThreshold;
             float _CutPlaneEdgeGlowWidth;
 
             float _RimScale;
@@ -128,7 +179,7 @@
             float _FogHeightOffset;
             float _FogHeightScale;
 
-            float4 _SongTime;
+            float4 _SongBpmTime;
 
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
@@ -138,9 +189,6 @@
                 UNITY_DEFINE_INSTANCED_PROP(float4, _OverNoteInterfaceColor)
                 UNITY_DEFINE_INSTANCED_PROP(float, _TranslucentAlpha)
                 UNITY_DEFINE_INSTANCED_PROP(float, _Cutout)
-                UNITY_DEFINE_INSTANCED_PROP(float, _CutoutSize)
-                UNITY_DEFINE_INSTANCED_PROP(float, _CutoutEdgeWidth)
-                UNITY_DEFINE_INSTANCED_PROP(float, _CutoutEdgeGlow)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _CutoutTexOffset)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _CutPlane)
                 UNITY_DEFINE_INSTANCED_PROP(float, _Rotation)
@@ -217,7 +265,7 @@
                 float rotationInRadians = UNITY_ACCESS_INSTANCED_PROP(Props, _Rotation) * (3.141592653 / 180.0);
                 float objectTime = UNITY_ACCESS_INSTANCED_PROP(Props, _ObjectTime);
                 o.rotatedPos = CalculateRotatedObjectPosition(
-                    worldPosition, offset.xyz, rotationInRadians, objectTime, _SongTime.y);
+                    worldPosition, offset.xyz, rotationInRadians, objectTime, _SongBpmTime.y);
                 o.rotatedPos.z -= 1.0;
 
                 return o;
@@ -245,31 +293,23 @@
                 float animation = UNITY_ACCESS_INSTANCED_PROP(Props, _AnimationSpawned);
                 float translucentAlpha = UNITY_ACCESS_INSTANCED_PROP(Props, _TranslucentAlpha);
                 float cutout = UNITY_ACCESS_INSTANCED_PROP(Props, _Cutout);
-                float cutoutSize = UNITY_ACCESS_INSTANCED_PROP(Props, _CutoutSize);
-                float cutoutEdgeWidth = max(
-                    UNITY_ACCESS_INSTANCED_PROP(Props, _CutoutEdgeWidth), 0.0);
-                float cutoutEdgeGlow = max(
-                    UNITY_ACCESS_INSTANCED_PROP(Props, _CutoutEdgeGlow), 0.0);
                 float4 cutoutTexOffset = UNITY_ACCESS_INSTANCED_PROP(Props, _CutoutTexOffset);
 
-                #if defined(CM_PREVIEW_MODE)
                 // Preview texturing follows face selection and _ColorMultiplier.
                 color.rgb *= tex2D(_MainTex, TRANSFORM_TEX(i.uv, _MainTex)).rgb;
-                #endif
 
                 float cutoutMask = 0.0;
 
                 #if defined(CUTOUT)
                 float3 objectOrigin = mul(unity_ObjectToWorld, float4(0, 0, 0, 1)).xyz;
                 float3 cutoutPosition = (i.worldPos.xyz - objectOrigin + cutoutTexOffset.xyz) *
-                    (_CutoutTexScale * cutoutSize);
+                    _CutoutTexScale;
                 float noiseA = tex3D(_CutoutTex, cutoutPosition).a;
-                float cutoutDistance = noiseA - 1.1 * cutout + 0.1;
+                float cutoutSample = noiseA - 1.1 * cutout;
+                float cutoutDistance = cutoutSample + 0.1;
                 if (cutoutDistance < 0.0)
                     discard;
-                // The defaults reproduce the recovered 0.05-wide binary edge mask.
-                // These properties retain ChroMapper's runtime note-shader contract.
-                cutoutMask = cutoutDistance < cutoutEdgeWidth ? cutoutEdgeGlow : 0.0;
+                cutoutMask = saturate(1.0 - round(cutoutSample + 0.55));
                 #endif
 
                 #if defined(PLANE_CUT)
@@ -279,7 +319,7 @@
                 // not justify an additional family constraint.
                 float4 cutPlane = UNITY_ACCESS_INSTANCED_PROP(Props, _CutPlane);
                 float planeDistance = dot(i.localPos.xyz, cutPlane.xyz) + cutPlane.w;
-                float planeThreshold = cutout * (_CutPlaneThreshold + cutPlane.w);
+                float planeThreshold = cutout * (_NoteSize + cutPlane.w);
                 planeDistance -= planeThreshold;
                 if (planeDistance < 0.0)
                     discard;
@@ -294,14 +334,16 @@
                 #if !defined(CM_PREVIEW_MODE)
                 // Apply the editor timeline marker before transparent dithering.
                 // This changes RGB only, so source reflection and cutout alpha remain intact.
+                if (abs(i.rotatedPos.z) < _OutlineWidth)
+                    return interfaceColor;
                 color.rgb = ApplyTimelineWhitening(color.rgb, interfaceColor.rgb,
                                                    i.rotatedPos.z, _OutlineWidth, isTranslucent);
                 #endif
 
                 float editorAlpha = animation < 1.0 &&
-                                    (isTranslucent >= 1.0 || i.rotatedPos.w <= 0.0)
-                                        ? translucentAlpha
-                                        : 1.0;
+                                           (isTranslucent >= 1.0 || i.rotatedPos.w <= 0.0)
+                                               ? translucentAlpha
+                                               : 1.0;
                 // Dither is a ChroMapper editor adapter. Source CUTOUT/PLANE_CUT
                 // discard and mask evaluation above always happen first.
                 if (editorAlpha < 1.0)
@@ -309,6 +351,8 @@
 
                 float frontBack = isFrontFace ? 1.0 : 0.2592592537;
                 float4 result = 0.0;
+                float reflectionFactor = frontBack *
+                    (1.0 - i.reflectionData.w * _RimDarkening);
 
                 #if defined(REFLECTION_MAP)
                 float reflectionFaceSign = isFrontFace ? 1.0 : -1.0;
@@ -320,9 +364,9 @@
                 float4 environment = texCUBElod(
                     _EnvironmentReflectionCube,
                     float4(environmentReflectionDirection, reflectionLod));
-
-                float reflectionFactor = frontBack * _FinalColorMul *
-                    (1.0 - i.reflectionData.w * _RimDarkening);
+                // cb105.z in HD binary 17ebe636fa11ba31... and the corresponding
+                // LW slot in 7bb6ae1661a9efa2... prove that _FinalColorMul scales
+                // the recovered reflection/color factor before cutout edge mixing.
                 float3 reflected = reflectionFactor * color.rgb * environment.rgb;
                 float3 weightedReflection = reflected * color.a;
                 float3 baseMix = color.rgb - weightedReflection;
@@ -330,25 +374,20 @@
                 #else
                 // Recovered no-reflection family: F0 is front/back dependent,
                 // and color is the recovered _Color slot.
-                result.rgb = frontBack * _FinalColorMul * color.rgb * color.a;
+                result.rgb = frontBack * color.rgb * color.a * reflectionFactor;
                 #endif
-                // Alpha is the deferred bloom mask. Keep cutout and plane-cut
-                // edge glow active when runtime keywords disable reflections.
-                result.a = cutoutMask;
+                // HD alpha is the deferred bloom/cut-edge mask.
+                result.a = max(result.a, cutoutMask);
 
                 #if defined(ACES_TONE_MAPPING)
                 result = ApplyAcesTonemapping(result);
                 #endif
 
-                // There is no target main-effect route in this shader. Apply the
-                // recovered white boost only after ACES and keep alpha.
-                // Both routes use the shared Lit white-boost term (bloomValue = alpha,
-                // multiplier = 1); Mixed is a ChroMapper extension that keeps its
-                // white boost when POST_BLOOM is on. Deferred compiles the boost out,
-                // matching the game's MAIN_EFFECT_ENABLED fragments.
-                result = ApplyBloomTypeComposition(
-                    result, result.rgb, 1, result.a, 1,
-                    _BaseColorBoost, _BaseColorBoostThreshold, 0, result.a);
+                #if defined(_WHITEBOOSTTYPE_MAINEFFECT) && !defined(POST_BLOOM)
+                result.rgb = CalculateBloomComposition(
+                    result.rgb, result.a, result.a, 1.0,
+                    _BaseColorBoost, _BaseColorBoostThreshold);
+                #endif
 
                 float distanceSquared = i.worldPos.w * i.worldPos.w;
                 #if defined(BLOOM_FOG) && (defined(_FOGTYPE_LERP) || defined(_FOGTYPE_COLOR) || defined(_FOGTYPE_ALPHA) || defined(HEIGHT_FOG))
@@ -377,6 +416,15 @@
                 float heightFogAmount = 1.0 - CalculateCustomHeightFogFactor(
                     i.worldPos.xyz, _FogHeightOffset, _FogHeightScale);
                 result.rgb = lerp(result.rgb, 0.1.xxx, heightFogAmount);
+                #endif
+
+                #if defined(FAKE_MIRROR_TRANSPARENCY)
+                // LW f30427033415f21d... applies the mirror multiplier at the final
+                // premultiplied-output stage, after ACES and fog. Rebuild LW source
+                // alpha from its color/reflection path instead of HD's edge mask.
+                result.a = color.a * reflectionFactor * _ColorMultiplier *
+                    _FakeMirrorTransparencyMultiplier;
+                result.rgb *= result.a;
                 #endif
 
                 return result;
