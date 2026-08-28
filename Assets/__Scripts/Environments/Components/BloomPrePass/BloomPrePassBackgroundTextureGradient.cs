@@ -4,7 +4,7 @@ using UnityEngine;
 [ExecuteAlways]
 public abstract class BloomPrePassBackgroundTextureGradient : BloomPrePassNonLightPass
 {
-    [SerializeField] public Color TintColor = Color.white;
+    public Color TintColor = Color.white;
 
     private static readonly int gradientTexId = Shader.PropertyToID("_GradientTex");
     private static readonly int inverseProjectionMatrixId = Shader.PropertyToID("_InverseProjectionMatrix");

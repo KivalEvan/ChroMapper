@@ -11,19 +11,27 @@ public class SDFArrayManager : MonoBehaviour
 
     private static readonly int sdfPointsArray = Shader.PropertyToID("_SDFPointArray");
 
-    protected void Awake() => InitIfNeeded();
-
-    private void InitIfNeeded()
+    protected void Awake()
     {
-        if (isInitialized) return;
+        if (SDFPointArray is { Length: > 0 }) SetSdfPoints(SDFPointArray);
+    }
+
+    public void SetSdfPoints(SDFPoint[] points)
+    {
+        if (points == null || points.Length != 3)
+            throw new InvalidOperationException("SDF array manager requires exactly three points.");
+        if (Array.Exists(points, point => point == null))
+            throw new InvalidOperationException("SDF array manager points must not be null.");
+
+        SDFPointArray = points;
+        sdfArrayValues = new Vector4[3];
         isInitialized = true;
-        sdfArrayValues = new Vector4[SDFPointArray.Length];
     }
 
     protected void Update()
     {
-        InitIfNeeded();
-        for (var i = 0; i < SDFPointArray.Length; i++)
+        if (!isInitialized) return;
+        for (var i = 0; i < 3; i++)
         {
             var position = SDFPointArray[i].transform.position;
             sdfArrayValues[i] = new Vector4(position.x, position.y, position.z, SDFPointArray[i].SqrtRadius);

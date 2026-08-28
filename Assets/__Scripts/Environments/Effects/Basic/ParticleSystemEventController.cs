@@ -23,5 +23,5 @@ public class ParticleSystemEventController : MonoBehaviour
             ParticleSystem.Simulate(time - StartTime, true, true);
     }
 
-    public void Stop() => ParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+    public void Stop() => ParticleSystem.Stop();
 }

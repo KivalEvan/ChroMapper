@@ -18,8 +18,8 @@ public class
         TextureProcessor3DMappingFloatFx comp,
         CreateContainer container)
     {
-        comp.Material = container.Library.Materials.GetSafe(Material);
-        comp.SlaveMaterial = container.Library.Materials.GetSafe(SlaveMaterial);
+        comp.Material = container.GetMaterialSafe(Material);
+        comp.SlaveMaterial = container.GetMaterialSafe(SlaveMaterial);
         comp.UseSlave = UseSlave;
         comp.Mapping = (TextureProcessor3DMappingFloatFx.TextureProcessor3DMapping)Mapping;
         comp.ValueBounds = ValueBounds;

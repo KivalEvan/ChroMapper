@@ -510,6 +510,7 @@ public class ParticleSystemData : EnvironmentComponentData<ParticleSystem>
         public int InstanceId;
 
         public string RenderMode;
+        public string[] Meshes;
         public float NormalDirection;
         public string Material;
         public string SortMode;
@@ -527,12 +528,23 @@ public class ParticleSystemData : EnvironmentComponentData<ParticleSystem>
         public string MotionVectorGenerationMode;
         public int SortingLayerId;
         public string ReflectionProbeUsage;
+        public bool? UseCustomVertexStreams;
+        public string[] VertexStreams;
+        public bool? UseCustomTrailVertexStreams;
+        public string[] TrailVertexStreams;
+        public float? VelocityScale;
+        public float? LengthScale;
+        public float? CameraVelocityScale;
+        public bool? FreeformStretching;
+        public bool? RotateWithStretchDirection;
+        public bool? EnableGPUInstancing;
+        public string MeshDistribution;
 
         public void CopyTo(ParticleSystemRenderer module, CreateContainer container)
         {
             module.renderMode = Enum.Parse<ParticleSystemRenderMode>(RenderMode);
             module.normalDirection = NormalDirection;
-            module.material = container.Library.Materials.GetSafe(Material);
+            module.material = container.GetMaterialSafe(Material);
             module.sortMode = Enum.Parse<ParticleSystemSortMode>(SortMode);
             module.sortingFudge = SortingFudge;
             module.minParticleSize = MinParticleSize;
@@ -548,6 +560,31 @@ public class ParticleSystemData : EnvironmentComponentData<ParticleSystem>
             module.motionVectorGenerationMode = Enum.Parse<MotionVectorGenerationMode>(MotionVectorGenerationMode);
             module.sortingLayerID = SortingLayerId;
             module.reflectionProbeUsage = Enum.Parse<ReflectionProbeUsage>(ReflectionProbeUsage);
+            if (UseCustomVertexStreams == true && VertexStreams != null)
+                module.SetActiveVertexStreams(
+                    VertexStreams.Select(Enum.Parse<ParticleSystemVertexStream>).ToList());
+            if (UseCustomTrailVertexStreams == true && TrailVertexStreams != null)
+                module.SetActiveTrailVertexStreams(
+                    TrailVertexStreams.Select(Enum.Parse<ParticleSystemVertexStream>).ToList());
+            if (VelocityScale.HasValue) module.velocityScale = VelocityScale.Value;
+            if (LengthScale.HasValue) module.lengthScale = LengthScale.Value;
+            if (CameraVelocityScale.HasValue) module.cameraVelocityScale = CameraVelocityScale.Value;
+            if (FreeformStretching.HasValue) module.freeformStretching = FreeformStretching.Value;
+            if (RotateWithStretchDirection.HasValue)
+                module.rotateWithStretchDirection = RotateWithStretchDirection.Value;
+            if (EnableGPUInstancing.HasValue) module.enableGPUInstancing = EnableGPUInstancing.Value;
+            if (!string.IsNullOrEmpty(MeshDistribution))
+                module.meshDistribution = Enum.Parse<ParticleSystemMeshDistribution>(MeshDistribution);
+
+            if (Meshes is { Length: > 0 })
+            {
+                var meshes = Meshes
+                    .Select(hash => container.Library.Meshes.GetSafe(hash)
+                        ?? throw new InvalidOperationException(
+                            $"Mesh hash '{hash}' for particle system renderer {InstanceId} was not found."))
+                    .ToArray();
+                module.SetMeshes(meshes);
+            }
         }
     }
 
@@ -574,18 +611,35 @@ public class ParticleSystemData : EnvironmentComponentData<ParticleSystem>
     {
         public string Mode;
         public Color Color;
+        public Color ColorMin;
+        public Color ColorMax;
         public GradientData Gradient;
         public GradientData GradientMin;
         public GradientData GradientMax;
 
         public ParticleSystem.MinMaxGradient Create() =>
-            new()
+            Mode switch
             {
-                mode = Enum.Parse<ParticleSystemGradientMode>(Mode),
-                color = Color,
-                gradient = Gradient?.Create(),
-                gradientMin = GradientMin?.Create(),
-                gradientMax = GradientMax?.Create()
+                "Color" => new ParticleSystem.MinMaxGradient(Color),
+                "Gradient" => new ParticleSystem.MinMaxGradient(Gradient?.Create()),
+                "TwoColors" => new ParticleSystem.MinMaxGradient(ColorMin, ColorMax),
+                "TwoGradients" => new ParticleSystem.MinMaxGradient(GradientMin?.Create(), GradientMax?.Create()),
+                "RandomColor" => new ParticleSystem.MinMaxGradient
+                {
+                    mode = ParticleSystemGradientMode.RandomColor,
+                    colorMin = ColorMin,
+                    colorMax = ColorMax
+                },
+                _ => new ParticleSystem.MinMaxGradient
+                {
+                    mode = Enum.Parse<ParticleSystemGradientMode>(Mode),
+                    color = Color,
+                    colorMin = ColorMin,
+                    colorMax = ColorMax,
+                    gradient = Gradient?.Create(),
+                    gradientMin = GradientMin?.Create(),
+                    gradientMax = GradientMax?.Create()
+                }
             };
     }
 

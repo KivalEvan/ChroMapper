@@ -4,7 +4,7 @@ using UnityEngine;
 public class BloomPrePassBackgroundColorsGradientData : EnvironmentComponentData<BloomPrePassBackgroundColorsGradient>
 {
     public int ExecutionTimeType;
-    public Color TintColor;
+    public Color TintColor = Color.white;
     public ElementComponent[] Elements;
 
     public class ElementComponent

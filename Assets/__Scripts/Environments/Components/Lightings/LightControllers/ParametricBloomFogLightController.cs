@@ -116,8 +116,7 @@ public class ParametricBloomFogLightController : LightController
             ? Mathf.Lerp(StartAlpha, EndAlpha, Mathf.InverseLerp(0f, Length, CalculatedCollisionLength))
             : EndAlpha;
 
-    public float CollisionEndAlpha =>
-        CalculatedCollisionEndAlpha * multiplyLengthByAlphaMultiplier;
+    public float CollisionEndAlpha => CalculatedCollisionEndAlpha * multiplyLengthByAlphaMultiplier;
 
     private float CalculatedCollisionLength => !UseCollision ? Length : Mathf.Min(CollisionLength, Length);
 
@@ -146,6 +145,7 @@ public class ParametricBloomFogLightController : LightController
             }
 
             BoxLight.InitIfNeeded();
+            EnabledRenderers = BoxLight.Renderer != null && BoxLight.Renderer.enabled;
         }
 
         if (hasSpriteLight)
@@ -166,10 +166,7 @@ public class ParametricBloomFogLightController : LightController
         return true;
     }
 
-    private void OnEnable()
-    {
-        shouldRefresh = true;
-    }
+    private void OnEnable() => shouldRefresh = true;
     private void OnDisable() => shouldRefresh = false;
 
     public override bool ShouldInclude => true;
@@ -187,26 +184,13 @@ public class ParametricBloomFogLightController : LightController
         if (!shouldRefresh && !UpdateAlways) return;
 
         var rendered = !DisableRenderersOnZeroAlpha || Color.a > 0.01f;
-        if (hasBloomFog) BloomFog.DisableRenderersOnZeroAlpha = DisableRenderersOnZeroAlpha;
-        if (!rendered && !EnabledRenderers)
-        {
-            shouldRefresh = false;
-            return;
-        }
+        if (!rendered && !EnabledRenderers) return;
 
         if (EnabledRenderers != rendered)
         {
             EnabledRenderers = rendered;
-            if (hasBoxLight)
-            {
-                if (BoxLight.Renderer != null) BoxLight.Renderer.enabled = rendered;
-                else Debug.LogError($"[ParametricBloomFogLightController] BoxLight.Renderer is null on '{name}' during Refresh.");
-            }
-            if (hasSpriteLight)
-            {
-                if (SpriteLight.Renderer != null) SpriteLight.Renderer.enabled = rendered;
-                else Debug.LogError($"[ParametricBloomFogLightController] SpriteLight.Renderer is null on '{name}' during Refresh.");
-            }
+            if (hasBoxLight) BoxLight.Renderer.enabled = rendered;
+            if (hasSpriteLight) SpriteLight.Renderer.enabled = rendered;
         }
 
         var lengthFactor = 1f;

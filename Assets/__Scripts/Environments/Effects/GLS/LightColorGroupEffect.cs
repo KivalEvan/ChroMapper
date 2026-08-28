@@ -17,7 +17,6 @@ public class
     [SerializeField] public ColorSchemeProvider ColorSchemeProvider;
 
     [SerializeField] private List<LightController> lightEntries = new();
-    private readonly Dictionary<int, List<ILightColorEventEffect>> eventEffects = new();
     private LightColorGroupContainer[] idToContainer = Array.Empty<LightColorGroupContainer>();
     private LightColorGroupContainer[] activeContainers = Array.Empty<LightColorGroupContainer>();
 
@@ -28,19 +27,9 @@ public class
 
     public void Unregister(LightController controller) => lightEntries.Remove(controller);
 
-    public void Register(int elementId, ILightColorEventEffect effect)
-    {
-        if (!eventEffects.TryGetValue(elementId, out var effects))
-        {
-            effects = new List<ILightColorEventEffect>();
-            eventEffects.Add(elementId, effects);
-        }
-
-        effects.Add(effect);
-    }
-
     private void HandleBoostChange(bool boost)
     {
+        var time = Atsc.CurrentSongBpmTime;
         for (var i = 0; i < activeContainers.Length; i++)
         {
             var container = activeContainers[i];
@@ -60,23 +49,20 @@ public class
             container.Tween.EndStrobeColor = endState.Base.StrobeColor ?? endColor;
 
             // A paused preview has no subsequent time tick to apply the retinted GLS tween to its controllers. Apply the color change immediately.
-            container.Tween.UpdateTime(Atsc.CurrentSongBpmTime);
+            container.Tween.UpdateTime(time);
             foreach (var controller in container.Lights)
-            {
-                controller.SetColor(container.Tween.Color);
-            }
+                controller.SetColor(container.Tween.Color, container.EventContainer.CurrentState, time);
         }
     }
 
     public override void Initialize()
     {
         idToContainer = new LightColorGroupContainer[Count];
-        foreach (var elementId in lightEntries.Select(x => x.ID).Concat(eventEffects.Keys).Distinct())
+        foreach (var elementId in lightEntries.Select(x => x.ID).Distinct())
         {
             if (elementId < 0 || elementId >= Count)
             {
-                Debug.LogError(
-                    $"Element {elementId} is outside the supported range for group {ID}:{Count}.");
+                Debug.LogError($"Element {elementId} is outside the supported range for group {ID}:{Count}.");
                 continue;
             }
 
@@ -133,13 +119,14 @@ public class
 
     public override void Refresh()
     {
+        var time = Atsc.CurrentSongBpmTime;
         foreach (var container in activeContainers)
         {
-            container.EventContainer.SetStateAt(Atsc.CurrentSongBpmTime);
+            container.EventContainer.SetStateAt(time);
             UpdateObject(container);
-            container.Tween.UpdateTime(Atsc.CurrentSongBpmTime);
-            foreach (var controller in container.Lights) controller.SetColor(container.Tween.Color);
-            UpdateEventEffects(container, false, Atsc.CurrentSongBpmTime);
+            container.Tween.UpdateTime(time);
+            foreach (var controller in container.Lights)
+                controller.SetColor(container.Tween.Color, container.EventContainer.CurrentState, time);
         }
     }
 
@@ -148,23 +135,10 @@ public class
         foreach (var container in activeContainers)
         {
             if (!container.EventContainer.IsCurrentOrFindState(time, isPlaying)) UpdateObject(container);
-            if (container.Tween.UpdateTime(time))
-                foreach (var controller in container.Lights) controller.SetColor(container.Tween.Color);
-            UpdateEventEffects(container, isPlaying, time);
+            if (!container.Tween.UpdateTime(time)) continue;
+            foreach (var controller in container.Lights)
+                controller.SetColor(container.Tween.Color, container.EventContainer.CurrentState, time);
         }
-    }
-
-    private void UpdateEventEffects(LightColorGroupContainer container, bool isPlaying, float time)
-    {
-        if (!eventEffects.TryGetValue(container.ElementId, out var effects)) return;
-
-        var state = container.EventContainer.CurrentState;
-        var activeState = (LightColorEventStateData)(state.UsePrevious ? state.Previous : state);
-        var startTime = Atsc.GetSecondsFromBeat(activeState.StartTime);
-        var endTime = Atsc.GetSecondsFromBeat(activeState.EndTime);
-        var currentTime = Atsc.GetSecondsFromBeat(time);
-        foreach (var effect in effects)
-            effect.UpdateFireState(isPlaying, currentTime, startTime, endTime, activeState.Brightness);
     }
 
     private void UpdateObject(LightColorGroupContainer container)
@@ -209,8 +183,7 @@ public class
     private static float StrobeFrequencyFor(BaseLightColorBase lightColorBase)
     {
         // A 0-light-level node with no strobe flash is not a strobe, regardless of strobeInterval or strobeColor.
-        if (lightColorBase.Brightness <= 0f && lightColorBase.StrobeBrightness <= 0f)
-            return 0f;
+        if (lightColorBase.Brightness <= 0f && lightColorBase.StrobeBrightness <= 0f) return 0f;
 
         // customData.strobeInterval is the period in beats per strobe cycle; the in-editor tween expects cycles per beat.
         return lightColorBase.ChromaStrobeInterval is { } interval && interval > 0f
@@ -268,24 +241,18 @@ public class
             .Box
             .Events
             .Select((x, i) =>
-                {
-                    var affected = !(i == 0 && state.Box.BrightnessAffectFirst != 1);
-                    var d = new LightColorEventStateData(
-                        x,
-                        (float)BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(
-                            state.Base.JsonTime + x.RelativeJsonTime + (state.DurationOrder * state.BeatStep)),
-                        affected ? distributionOffset : 0f);
-                    return d;
-                }
-            )
+            {
+                var affected = !(i == 0 && state.Box.BrightnessAffectFirst != 1);
+                var d = new LightColorEventStateData(
+                    x,
+                    (float)BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(
+                        state.Base.JsonTime + x.RelativeJsonTime + (state.DurationOrder * state.BeatStep)),
+                    affected ? distributionOffset : 0f);
+                return d;
+            })
             .Where(x => state.Base.JsonTime + x.Base.RelativeJsonTime + (state.DurationOrder * state.BeatStep)
                 <= maxRelativeJsonTime)
             .ToArray();
-}
-
-public interface ILightColorEventEffect
-{
-    void UpdateFireState(bool isPlaying, float currentTime, float startTime, float endTime, float brightness);
 }
 
 public class LightColorGroupStateData : EventGroupStateData<

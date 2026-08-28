@@ -12,12 +12,14 @@ public partial class EnvironmentSceneCreator
     {
         container.Descriptor = GameObject.Find("Environment").AddComponent<EnvironmentDescriptor>();
         container.Descriptor.ID = container.Data.Data.ID;
+        container.Descriptor.gameObject.GetOrAddComponent<BakedLightDataLoader>();
 
         container.Descriptor.ColorSchemeProvider = container.Descriptor.gameObject.AddComponent<ColorSchemeProvider>();
         var colorSchemePath = $"{Constants.ScriptsPath}/ColorSchemes/{container.Descriptor.ID}ColorScheme.asset";
         var colorScheme = AssetDatabase.LoadAssetAtPath<ColorSchemeSO>(colorSchemePath);
         if (colorScheme == null)
-            Debug.LogWarning($"[EnvironmentTools] ColorSchemeSO not found at '{colorSchemePath}'. Run 'Update Environment List' to create it.");
+            Debug.LogWarning(
+                $"[EnvironmentTools] ColorSchemeSO not found at '{colorSchemePath}'. Run 'Update Environment List' to create it.");
         container.Descriptor.ColorSchemeProvider.ColorScheme = colorScheme;
 
         container.Descriptor.SpectrogramDataProvider =
@@ -70,8 +72,7 @@ public partial class EnvironmentSceneCreator
             .ToArray();
         foreach (var data in lseeData)
         {
-            var comp = container.Descriptor.BasicEventEffectManager.Register<BasicLightEffect>(
-                data.EventType);
+            var comp = container.Descriptor.BasicEventEffectManager.Register<BasicLightEffect>(data.EventType);
             data.FillComponents(comp.gameObject, comp, container);
             comp.ColorSchemeProvider = container.Descriptor.ColorSchemeProvider;
             comp.ColorBoostEffect = cbe;
@@ -313,24 +314,45 @@ public partial class EnvironmentSceneCreator
             if (registeredLightInstance.Contains(instanceId)) return;
             var data = container.ComponentInstances[instanceId];
 
-            if (data is BloomPrePassBackgroundColorsGradientElementWithLightIdData a)
-                RegisterLight(a.Instance as LightController, a.Id, order, force);
-            if (data is BloomPrePassBackgroundColorsGradientTintColorWithLightIdsData b)
-                RegisterLight(b.Instance as LightController, b.Id, order, force);
-            if (data is DirectionalLightWithIdData c) RegisterLight(c.Instance as LightController, c.Id, order, force);
-            if (data is EnableRendererLightWithIdData d)
-                RegisterLight(d.Instance as LightController, d.Id, order, force);
-            if (data is InstancedMaterialLightWithIdData e)
-                RegisterLight(e.Instance as LightController, e.Id, order, force);
-            if (data is MaterialLightWithIdData f) RegisterLight(f.Instance as LightController, f.Id, order, force);
-            if (data is ParticleSystemLightWithIdData g)
-                RegisterLight(g.Instance as LightController, g.Id, order, force);
-            if (data is RectangleFakeGlowLightWithIdData h)
-                RegisterLight(h.Instance as LightController, h.Id, order, force);
-            if (data is SpriteArrayLightWithIdData i) RegisterLight(i.Instance as LightController, i.Id, order, force);
-            if (data is SpriteLightWithIdData j) RegisterLight(j.Instance as LightController, j.Id, order, force);
-            if (data is TubeBloomPrePassLightWithIdData k)
-                RegisterLight(k.Instance as LightController, k.Id, order, force);
+            switch (data)
+            {
+                case BloomPrePassBackgroundColorsGradientTintColorWithLightIdsData b:
+                    RegisterLight(b.Instance as LightController, b.Id, order, force);
+                    break;
+                case DirectionalLightWithIdData c:
+                    RegisterLight(c.Instance as LightController, c.Id, order, force);
+                    break;
+                case EnableRendererLightWithIdData d:
+                    RegisterLight(d.Instance as LightController, d.Id, order, force);
+                    break;
+                case InstancedMaterialLightWithIdData e:
+                    RegisterLight(e.Instance as LightController, e.Id, order, force);
+                    break;
+                case MaterialLightWithIdData f:
+                    RegisterLight(f.Instance as LightController, f.Id, order, force);
+                    break;
+                case ParticleSystemLightWithIdData g:
+                    RegisterLight(g.Instance as LightController, g.Id, order, force);
+                    break;
+                case RectangleFakeGlowLightWithIdData h:
+                    RegisterLight(h.Instance as LightController, h.Id, order, force);
+                    break;
+                case SpriteArrayLightWithIdData i:
+                    RegisterLight(i.Instance as LightController, i.Id, order, force);
+                    break;
+                case SpriteLightWithIdData j:
+                    RegisterLight(j.Instance as LightController, j.Id, order, force);
+                    break;
+                case TubeBloomPrePassLightWithIdData k:
+                    RegisterLight(k.Instance as LightController, k.Id, order, force);
+                    break;
+                case BurstFireEffectData l:
+                    RegisterLight(l.Instance as LightController, l.Id, order, force);
+                    break;
+                case ContinuousFireEffectData m:
+                    RegisterLight(m.Instance as LightController, m.Id, order, force);
+                    break;
+            }
         }
 
         void RegisterLight(LightController controller, int lightId, int order, bool force = false) =>

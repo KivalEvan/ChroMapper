@@ -1,20 +1,23 @@
 using System;
+using Newtonsoft.Json;
 using UnityEngine;
 
 public abstract class FireEffectData<T> : EnvironmentComponentData<T> where T : FireEffect
 {
-    public int GroupId;
-    public int ElementId;
-    public int LightId;
+    [JsonProperty("lightId")] public int Id;
+
     public int FlipBookPropertyBlockController;
     public int BloomPropertyBlockController;
+    public bool UseEmissionColor;
+
     public int PrivatePointLightPropertyBlockController;
     public int EmissionTextureColorPropertyBlockController;
     public int BloomPrePassRenderer;
-    public bool UseEmissionColor;
-    public bool ContributeCustomLightColor = true;
+
     public float BloomIntensityMultiplier = 1f;
     public Color PointLightColor = Color.yellow;
+
+    public bool ContributeCustomLightColor = true;
     public Color Color = Color.white;
 
     protected void FillFireEffect(T comp, CreateContainer container)
@@ -70,7 +73,8 @@ public class BurstFireEffectData : FireEffectData<BurstFireEffect>
     {
         if (FlipbookFadeOutCurve == null || BloomFadeOutCurve == null)
             throw new InvalidOperationException("Burst fire effect requires both fade-out curves.");
-        if (FadeOutDuration <= 0f) throw new InvalidOperationException("Burst fire fade-out duration must be positive.");
+        if (FadeOutDuration <= 0f)
+            throw new InvalidOperationException("Burst fire fade-out duration must be positive.");
 
         comp.FadeOutDuration = FadeOutDuration;
         comp.FlipbookFadeOutCurve = FlipbookFadeOutCurve.Create();
@@ -92,7 +96,8 @@ public class ContinuousFireEffectData : FireEffectData<ContinuousFireEffect>
         if (FlipbookSustainCurve == null || BloomSustainCurve == null)
             throw new InvalidOperationException("Continuous fire effect requires both sustain curves.");
         if (FadeInDuration < 0f || FadeOutDuration < 0f || SustainDuration <= 0f)
-            throw new InvalidOperationException("Continuous fire durations must be non-negative and sustain must be positive.");
+            throw new InvalidOperationException(
+                "Continuous fire durations must be non-negative and sustain must be positive.");
 
         comp.FadeInDuration = FadeInDuration;
         comp.FadeOutDuration = FadeOutDuration;

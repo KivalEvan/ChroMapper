@@ -16,7 +16,9 @@ public class
         TextureProcessor3DMaterialSwitchFx comp,
         CreateContainer container)
     {
-        comp.MaterialArray = MaterialArray.Select(x => container.Library.Materials.GetSafe(x)).ToArray();
+        comp.MaterialArray = MaterialArray
+            .Select(container.GetMaterialSafe)
+            .ToArray();
         comp.GridElementControllers =
             GridElementControllers.Select(container.GetComponentOrNull<GridElementController>).ToArray();
         comp.ValueBounds = ValueBounds;

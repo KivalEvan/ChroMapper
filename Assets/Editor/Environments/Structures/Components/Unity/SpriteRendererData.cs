@@ -11,7 +11,9 @@ public class SpriteRendererData : EnvironmentComponentData<SpriteRenderer>
     public override void FillComponents(GameObject self, SpriteRenderer comp, CreateContainer container)
     {
         comp.sprite = container.Library.Sprites.GetSafe(Texture);
-        comp.sharedMaterials = Materials.Select(x => container.Library.Materials.GetSafe(x)).ToArray();
+        comp.sharedMaterials = Materials
+            .Select(container.GetMaterialSafe)
+            .ToArray();
         comp.size = Size;
     }
 }

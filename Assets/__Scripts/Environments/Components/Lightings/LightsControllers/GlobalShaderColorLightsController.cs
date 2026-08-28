@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public abstract class GlobalShaderColorLightsController : MonoBehaviour, IEnvironmentComponentUpdate
+public class GlobalShaderColorLightsController : MonoBehaviour, IEnvironmentComponentUpdate
 {
     [SerializeField] public LightIntensityData[] LightIntensityData;
     [SerializeField] public bool OverrideSaturation;
@@ -24,10 +24,12 @@ public abstract class GlobalShaderColorLightsController : MonoBehaviour, IEnviro
         SetColor(Color);
     }
 
-    protected abstract bool Initialize();
+    protected virtual bool Initialize() =>
+        LightIntensityData != null && LightIntensityData.Length > 0;
 
     public void Refresh()
     {
+        if (!HasInitialized) return;
         var rgbColor = default(Color);
         foreach (var data in LightIntensityData)
         {

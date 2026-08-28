@@ -13,16 +13,19 @@ public abstract class LightController : MonoBehaviour, IEnvironmentComponentUpda
 
     protected bool HasInitialized;
     protected MaterialPropertyBlock Mpb;
-    [NonSerialized] public Color Color;
+    public Color Color;
 
     protected virtual void OnValidate()
     {
         if (!Application.isEditor || Application.isPlaying) return;
         HasInitialized = false;
         Color = new Color(0f, 0.5f, 1f);
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.delayCall += () => { if (this != null) Start(); };
-#endif
+    #if UNITY_EDITOR
+        UnityEditor.EditorApplication.delayCall += () =>
+        {
+            if (this != null) Start();
+        };
+    #endif
     }
 
     public void Start()
@@ -32,13 +35,16 @@ public abstract class LightController : MonoBehaviour, IEnvironmentComponentUpda
         {
             HasInitialized = Initialize();
             if (!HasInitialized && this is not LightSink)
-                Debug.LogError($"[LightController] Initialize() returned false on '{name}' ({GetType().Name}). Light will not function.");
+                Debug.LogError(
+                    $"[LightController] Initialize() returned false on '{name}' ({GetType().Name}). Light will not function.");
         }
+
         SetColor(Color);
     }
 
     protected abstract bool Initialize();
     public abstract void SetColor(Color color);
+    public virtual void SetColor(Color color, LightColorEventStateData evt, float time) => SetColor(color);
 
     public enum LightKind : byte
     {

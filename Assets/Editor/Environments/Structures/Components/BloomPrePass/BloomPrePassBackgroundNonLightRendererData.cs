@@ -16,7 +16,7 @@ public class
         BloomPrePassBackgroundNonLightRenderer comp,
         CreateContainer container)
     {
-        comp.CustomMaterial = container.Library.Materials.GetSafe(CustomMaterial);
+        comp.CustomMaterial = container.GetMaterialSafe(CustomMaterial);
         comp.Renderer = container.GetComponentOrNull<Renderer>(Renderer);
         comp.MeshFilter = container.GetComponentOrNull<MeshFilter>(MeshFilter);
         comp.ExecutionTimeType = (BloomPrePassNonLightPass.ExecutionTime)ExecutionTimeType;

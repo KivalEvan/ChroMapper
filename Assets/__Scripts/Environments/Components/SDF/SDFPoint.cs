@@ -7,4 +7,6 @@ public class SDFPoint : MonoBehaviour
     public float Radius = 1f;
 
     public float SqrtRadius { get; set; } = 1f;
+
+    protected void Awake() => SqrtRadius = Radius;
 }

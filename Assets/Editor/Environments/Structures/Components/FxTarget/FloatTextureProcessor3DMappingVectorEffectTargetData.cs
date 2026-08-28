@@ -19,8 +19,8 @@ public class
         TextureProcessor3DMappingVectorFx comp,
         CreateContainer container)
     {
-        comp.Material = container.Library.Materials.GetSafe(Material);
-        comp.SlaveMaterial = container.Library.Materials.GetSafe(SlaveMaterial);
+        comp.Material = container.GetMaterialSafe(Material);
+        comp.SlaveMaterial = container.GetMaterialSafe(SlaveMaterial);
         comp.UseSlave = UseSlave;
         comp.Mapping = (TextureProcessor3DMappingVectorFx.TextureProcessor3DMapping)Mapping;
         comp.Channel = (TextureProcessor3DMappingVectorFx.TextureProcessor3DChannel)Channel;

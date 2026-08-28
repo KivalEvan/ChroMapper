@@ -42,15 +42,12 @@ public abstract class CombinedLightsController : MonoBehaviour, IEnvironmentComp
                     if (color.g < processed.g) color.g = processed.g;
                     if (color.b < processed.b) color.b = processed.b;
                     if (color.a < processed.a) color.a = processed.a;
-
                     break;
                 case ColorMixAndWeightingApproach.FractionAndSum:
                     color.r += processed.r;
                     color.g += processed.g;
                     color.b += processed.b;
                     break;
-                default:
-                    throw new ArgumentOutOfRangeException();
             }
         }
 
@@ -66,7 +63,7 @@ public abstract class CombinedLightsController : MonoBehaviour, IEnvironmentComp
             color.a = Mathf.Min(MaxIntensity, color.a);
         }
 
-        SetColor(color);
+        SetColor(Color = color);
     }
 
     private Color ProcessColor(Color color, float intensity)
@@ -80,8 +77,6 @@ public abstract class CombinedLightsController : MonoBehaviour, IEnvironmentComp
             case ColorMixAndWeightingApproach.FractionAndSum:
                 color.a *= intensity;
                 break;
-            default:
-                throw new ArgumentOutOfRangeException();
         }
 
         if (!MultiplyColorByAlpha) return color;

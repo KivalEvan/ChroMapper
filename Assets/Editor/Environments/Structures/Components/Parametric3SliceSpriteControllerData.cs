@@ -30,9 +30,7 @@ public class Parametric3SliceSpriteControllerData : EnvironmentComponentData<Par
             var envObject = container.Data.Objects.First(x => x.ChromaID == chromaId);
             if (envObject.Components.MeshRenderer?.First().Materials.Any() ?? false)
             {
-                if (container.Library.Materials.Lookup.TryGetValue(
-                        envObject.Components.MeshRenderer[0].Materials[0],
-                        out var mat)
+                if (container.TryGetMaterial(envObject.Components.MeshRenderer[0].Materials[0], out var mat)
                     && mat != null)
                     renderer.sharedMaterial = mat;
                 else

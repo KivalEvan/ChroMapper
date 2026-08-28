@@ -24,7 +24,9 @@ public class TextureProcessor3DData : EnvironmentComponentData<TextureProcessor3
         comp.WriteTexturesCompute =
             container.Library.ComputeShaders.Find(x => x.name == WriteTexturesCompute).computeShader;
         comp.InputTextures = InputTextures.Select(x => container.Library.Textures.Lookup[x] as Texture2D).ToArray();
-        comp.MaterialsUsingOutput = MaterialsUsingOutput.Select(x => container.Library.Materials.GetSafe(x)).ToArray();
+        comp.MaterialsUsingOutput = MaterialsUsingOutput
+            .Select(container.GetMaterialSafe)
+            .ToArray();
         comp.PresetArray = PresetArray.Select(x => x.Create()).ToArray();
 
         comp.RowSize = RowSize;

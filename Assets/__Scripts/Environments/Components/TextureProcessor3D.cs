@@ -123,7 +123,7 @@ public class TextureProcessor3D : MonoBehaviour
     private static readonly int inputTextureCId = Shader.PropertyToID("_inputTextureC");
     private static readonly int inputTextureDId = Shader.PropertyToID("_inputTextureD");
     private static readonly int outputMaskId = Shader.PropertyToID("_outputMask");
-    private static readonly int lookupTexture3DId = Shader.PropertyToID("_LookupTexture3D");
+    private static readonly int lookupTexId = Shader.PropertyToID("_LookupTex");
 
     public ComputeKernel ComputeKernelA
     {
@@ -421,8 +421,8 @@ public class TextureProcessor3D : MonoBehaviour
         animationTextureD = CreateTexture(RowSize, ColumnSize, DepthSize);
         animationTextureOut = CreateTexture(RowSize, ColumnSize, DepthSize);
         foreach (var material in MaterialsUsingOutput)
-            if (material != null && material.HasProperty(lookupTexture3DId))
-                material.SetTexture(lookupTexture3DId, animationTextureOut);
+            if (material != null && material.HasProperty(lookupTexId))
+                material.SetTexture(lookupTexId, animationTextureOut);
     }
 
     private void AnimateTextures()

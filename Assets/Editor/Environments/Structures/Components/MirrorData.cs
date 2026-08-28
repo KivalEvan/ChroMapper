@@ -10,8 +10,8 @@ public class MirrorData : EnvironmentComponentData<PlanarReflection>
     public override void FillComponents(GameObject self, PlanarReflection comp, CreateContainer container)
     {
         comp.MirrorRenderer = container.Library.MirrorRenderer;
-        comp.MirrorMaterial = container.Library.Materials.GetSafe(MirrorMaterial);
-        comp.NoMirrorMaterial = container.Library.Materials.GetSafe(NoMirrorMaterial);
+        comp.MirrorMaterial = container.GetMaterialSafe(MirrorMaterial);
+        comp.NoMirrorMaterial = container.GetMaterialSafe(NoMirrorMaterial);
         comp.Renderer = container.GetComponentOrNull<MeshRenderer>(Renderer);
         comp.PlaneTransform = container.GetComponentOrNull<Transform>(ReflectionPlaneTransform);
     }

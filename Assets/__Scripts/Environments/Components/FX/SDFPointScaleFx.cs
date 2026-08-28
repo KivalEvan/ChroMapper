@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class SDFPointScaleFx : FxTarget
 {
-    [SerializeField] public SDFPoint ColorPoints;
+    [SerializeField] public SDFPoint ColorPoint;
     [SerializeField] public Vector2 ValueBounds = new(1f, 10f);
     private float startScale;
 
@@ -12,5 +12,5 @@ public class SDFPointScaleFx : FxTarget
     public override void TriggerValue(int groupId, int elementId, float value) => Scale(value);
 
     private void Scale(float value) =>
-        ColorPoints.SqrtRadius = startScale * Mathf.Clamp(value, ValueBounds.x, ValueBounds.y);
+        ColorPoint.SqrtRadius = startScale * Mathf.Clamp(value, ValueBounds.x, ValueBounds.y);
 }

@@ -40,9 +40,6 @@ public class EnvironmentDataObject
         public BloomPrePassBackgroundNonLightRendererData[]? BloomPrePassBackgroundNonLightRenderer;
 
         // Lighting
-        public BloomPrePassBackgroundColorsGradientElementWithLightIdData[]?
-            BloomPrePassBackgroundColorsGradientElementWithLightId;
-
         public BloomPrePassBackgroundColorsGradientTintColorWithLightIdsData[]?
             BloomPrePassBackgroundColorsGradientTintColorWithLightIds;
 
@@ -158,6 +155,8 @@ public class EnvironmentDataObject
         public PointLightData[]? PointLight;
         public DirectionalLightData[]? DirectionalLight;
         public LightManagerData[]? LightManager;
+        public BurstFireEffectData[]? BurstFireEffect;
+        public ContinuousFireEffectData[]? ContinuousFireEffect;
 
         // GLS
         public LightColorGroupData[]? LightColorGroup;
@@ -173,8 +172,6 @@ public class EnvironmentDataObject
         public FloatFxGroupEffectData[]? FloatFxGroupEffect;
         public FloatFxGroupEffectManagerData[]? FloatFxGroupEffectManager;
         public FloatFxGroupEffectManagerData[]? TriggerFloatFxGroupEffectManager;
-        public BurstFireEffectData[]? BurstFireEffect;
-        public ContinuousFireEffectData[]? ContinuousFireEffect;
     }
 }
 #nullable restore

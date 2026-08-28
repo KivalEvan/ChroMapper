@@ -2,9 +2,9 @@ using UnityEngine;
 
 public class BloomPrePassBackgroundColorsGradientTintColorLightsController : CombinedLightsController
 {
-    [SerializeField] public BloomPrePassBackgroundColorsGradient BloomPrePassBackgroundColorsGradient;
-    [SerializeField] public bool UseGrayscale;
-    [SerializeField] public float GrayscaleFactor;
+    public BloomPrePassBackgroundColorsGradient BloomPrePassBackgroundColorsGradient;
+    public bool UseGrayscale;
+    public float GrayscaleFactor;
 
     protected override bool Initialize() => BloomPrePassBackgroundColorsGradient != null;
 
@@ -13,6 +13,6 @@ public class BloomPrePassBackgroundColorsGradientTintColorLightsController : Com
         if (!HasInitialized) return;
         if (UseGrayscale)
             color = Color.Lerp(color, Color.white * color.maxColorComponent, Mathf.Clamp01(GrayscaleFactor));
-        BloomPrePassBackgroundColorsGradient.TintColor = color;
+        BloomPrePassBackgroundColorsGradient.TintColor = Color = color;
     }
 }

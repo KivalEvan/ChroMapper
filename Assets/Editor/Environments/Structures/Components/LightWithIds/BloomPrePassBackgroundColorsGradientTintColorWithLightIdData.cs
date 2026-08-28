@@ -6,7 +6,7 @@ public class BloomPrePassBackgroundColorsGradientTintColorWithLightIdData : Envi
 {
     public LightIntensityIdData[] LightIntensityData;
 
-    public float Intensity;
+    public float Intensity = 1f;
     public float MaxIntensity = 1f;
     public bool MultiplyColorByAlpha = true;
     public int MixType;

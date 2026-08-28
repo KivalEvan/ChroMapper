@@ -30,6 +30,9 @@ public class EnvironmentDataInfo
 
     // Every unique mesh name found in the environments' objects
     [JsonProperty("uniqueMeshes")] public EnvironmentInfoMesh[] UniqueMeshes;
+
+    /// <summary>Every unique texture found in the environment's objects.</summary>
+    [JsonProperty("uniqueTextures")] public EnvironmentInfoTexture[] UniqueTextures;
 }
 
 public class LightTrackDefinitions
@@ -261,6 +264,8 @@ public class EnvironmentInfoMaterial
     public float[] Color;
     [JsonProperty("shaderProperties")] public Dictionary<string, dynamic> ShaderProps;
 
+    /// <summary>The optional Unity render queue exported for this material.</summary>
+
     [JsonProperty("enabledShaderKeywords")]
     public string[] Keywords;
 }
@@ -271,4 +276,17 @@ public class EnvironmentInfoMesh
     public string Name;
     public Vector3 BoundsSize;
     public Vector3 BoundsCenter;
+}
+
+/// <summary>Metadata for a texture referenced by an exported environment.</summary>
+public class EnvironmentInfoTexture
+{
+    /// <summary>Gets the exported texture name.</summary>
+    public string Name;
+
+    /// <summary>Gets the stable hash used by material and component references.</summary>
+    public string Hash;
+
+    /// <summary>Gets the source Unity instance ID for this texture.</summary>
+    [JsonProperty("instanceId")] public int InstanceId;
 }
