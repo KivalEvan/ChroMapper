@@ -88,6 +88,17 @@ public class CreateContainer
     public Dictionary<int, EnvironmentComponentData> ComponentInstances = new();
     public Dictionary<int, MonoBehaviour> LightWithIds = new();
 
+    /// <summary>Gets the ID of the environment currently being created.</summary>
+    public string EnvironmentId => Data?.Data?.ID
+        ?? throw new InvalidOperationException("The create container has no environment ID.");
+
+    /// <summary>Gets a material by its original JSON hash in the current environment.</summary>
+    public Material GetMaterialSafe(string materialHash) => Library.Materials.GetSafe(EnvironmentId, materialHash);
+
+    /// <summary>Tries to get a material by its original JSON hash in the current environment.</summary>
+    public bool TryGetMaterial(string materialHash, out Material material) =>
+        Library.Materials.TryGetMaterial(EnvironmentId, materialHash, out material);
+
     public GameObject GetGameObjectOrNull(string n) => CreateUtils.GetGameObjectOrNull(ChromaIdObjects, n, null);
 
     public GameObject GetGameObjectOrNull(string n, GameObject self) =>

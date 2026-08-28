@@ -79,7 +79,7 @@ public partial class EnvironmentSceneCreator
                 var mats = new List<Material>();
                 foreach (var matData in environmentObject.Components.MeshRenderer[0].Materials)
                 {
-                    if (!container.Library.Materials.Lookup.TryGetValue(matData, out var mat)) continue;
+                    if (!container.TryGetMaterial(matData, out var mat)) continue;
                     mats.Add(mat);
                 }
 
@@ -116,6 +116,9 @@ public partial class EnvironmentSceneCreator
                     chromaIdObjects[actualParentGoName].transform,
                     false);
             }
+
+
+            if (go.name is "DustPS" or "DustBritney") go.AddComponent<FollowCamera>();
 
             environmentObject.Components.Transform[0].FillComponents(go, go.transform, container);
             go.SetActive(environmentObject.ActiveSelf);
@@ -174,7 +177,7 @@ public partial class EnvironmentSceneCreator
             for (var index = 0; index < materialHashes.Count; index++)
             {
                 var materialHash = materialHashes[index];
-                if (!library.Materials.Lookup.TryGetValue(materialHash, out var expectedMaterial)
+                if (!library.Materials.TryGetMaterial(data.Data.ID, materialHash, out var expectedMaterial)
                     || expectedMaterial == null
                     || assignedMaterials[index] != expectedMaterial)
                     throw new InvalidOperationException(

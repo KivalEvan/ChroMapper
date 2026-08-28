@@ -331,7 +331,7 @@ MonoBehaviour:
       m_Bits: 16
   <SkyboxMaterial>k__BackingField: {fileID: 2100000, guid: e08c9a8c6d50c52499b383fff6fa82dd,
     type: 2}
-  <SliceSprite>k__BackingField: {fileID: 4300000, guid: a96174836f8b90962b9d37a6d8d29363,
+  <SliceSprite>k__BackingField: {fileID: 4300000, guid: 1532c880b5dd12aae94eb8e286c6c1fa,
     type: 2}
   <MirrorRenderer>k__BackingField: {fileID: 11400000, guid: b54751a1fc3ac3983afa3aa9d4141095,
     type: 2}

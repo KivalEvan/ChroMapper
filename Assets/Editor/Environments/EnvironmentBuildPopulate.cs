@@ -60,11 +60,20 @@ public class EnvironmentBuildPopulate
                 throw new InvalidOperationException(message);
             }
 
+            if ((data.Data.UniqueTextures ?? Array.Empty<EnvironmentInfoTexture>())
+                .Any(texture => texture == null || string.IsNullOrWhiteSpace(texture.Hash)))
+            {
+                var message = $"Populate Build Data found an invalid texture entry in '{dataPath}'.";
+                Debug.LogError(message);
+                throw new InvalidOperationException(message);
+            }
+
             environmentData.Add(data);
         }
 
         library.Meshes.MarkForChange();
         library.Materials.MarkForChange();
+        library.Textures.MarkForChange();
         library.Sprites.MarkForChange();
         foreach (var s in library.Shaders)
             s.keywords.Clear();
@@ -84,6 +93,9 @@ public class EnvironmentBuildPopulate
                 var keywords = library.Shaders.Find(x => x.name == m.Shader).keywords;
                 keywords.AddRange(m.Keywords.Where(x => !keywords.Contains(x)));
             }
+
+            foreach (var t in data.Data.UniqueTextures ?? Array.Empty<EnvironmentInfoTexture>())
+                library.Textures.AddEntry(t.Hash, t.Name, data.Data.ID);
 
             foreach (var o in data.Objects.Where(x => x.Components.SpriteRenderer != null))
             {
@@ -106,27 +118,32 @@ public class EnvironmentBuildPopulate
 
         library.Meshes.RemoveUnused();
         library.Materials.RemoveUnused();
+        library.Textures.RemoveUnused();
         library.Sprites.RemoveUnused();
 
         library.Meshes.Sort();
         library.Materials.Sort();
+        library.Textures.Sort();
         library.Sprites.Sort();
         // Rebuild runtime lookups now so Create All from Data can run correctly in the same Unity session.
         library.Meshes.RebuildLookup();
         library.Materials.RebuildLookup();
+        library.Textures.RebuildLookup();
         library.Sprites.RebuildLookup();
         // Report unresolved references explicitly; null entries are metadata-only and cannot render.
         var resolvedMeshCount = library.Meshes.Lookup.Values.Count(x => x != null);
-        var resolvedMaterialCount = library.Materials.Lookup.Values.Count(x => x != null);
-        Debug.Log(
-            $"Populated environment libraries: {resolvedMeshCount}/{library.Meshes.list.Count} meshes and " +
-            $"{resolvedMaterialCount}/{library.Materials.list.Count} materials resolved.");
-        if (resolvedMeshCount == 0 || resolvedMaterialCount == 0)
+        if (resolvedMeshCount == 0)
         {
-            const string message = "Populate Build Data produced no usable mesh or material references.";
+            const string message = "Populate Build Data produced no usable mesh references.";
             Debug.LogError(message);
             throw new InvalidOperationException(message);
         }
+
+        var resolvedTextureCount = library.Textures.list.Count(x => x?.Texture != null);
+        var unresolvedTextureCount = library.Textures.list.Count - resolvedTextureCount;
+        if (unresolvedTextureCount > 0)
+            Debug.LogWarning(
+                $"Populate Build Data found {unresolvedTextureCount}/{library.Textures.list.Count} texture entries without a mapped Unity texture. Material texture properties using these hashes will retain their current values.");
 
         foreach (var s in library.Shaders)
             s.keywords.Sort((a, b) => string.Compare(a.Replace("_", ""), b.Replace("_", ""), StringComparison.Ordinal));
@@ -140,65 +157,105 @@ public class EnvironmentBuildPopulate
                 .ToList();
 
         var usedMaterialName = new Dictionary<string, int>();
-        foreach (var matInfo in library.Materials.list)
+        var collidingMaterialHashes = library.Materials.list
+            .Where(source => source?.Materials != null)
+            .SelectMany(source => source.Materials.Where(variant => variant != null).Select(_ => source.Hash))
+            .GroupBy(hash => hash)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet();
+        var keptUnmappedShaderCount = 0;
+        foreach (var source in library.Materials.list.Where(source => source?.Materials != null))
         {
-            if (matInfo.Material == null)
+            foreach (var variant in source.Materials.Where(variant => variant != null))
             {
-                var shader = Shader.Find("ChroMapper/Missing");
-                if (TryGetShader(library.Shaders, matInfo.Shader, out var existingShader)) shader = existingShader;
-
-                // Create new material with gpu instancing enabled
-                // Shaders that dont support instancing should ignore the flag, but otherwise this should be free performance
-                var mat = new Material(shader) { enableInstancing = true };
-
-                var name = usedMaterialName.TryGetValue(matInfo.Name, out var n) && n > 0
-                    ? matInfo.Name + n
-                    : matInfo.Name;
-                if (matInfo.Environments.Count > 1)
+                if (variant.Material == null)
                 {
-                    // Asset creation and lookup paths must use Unity's forward-slash convention.
-                    var targetPath = PathUtils.Combine(Constants.MaterialsPath, $"{name}.mat");
-                    if (!AssetDatabase.AssetPathExists(targetPath))
-                        AssetDatabase.CreateAsset(mat, targetPath);
+                    var shader = Shader.Find("ChroMapper/Missing");
+                    if (TryGetShader(library.Shaders, source.Shader, out var existingShader)) shader = existingShader;
+
+                    var mat = new Material(shader) { enableInstancing = true };
+
+                    var suffix = variant.Hash?.Substring(0, Math.Min(12, variant.Hash.Length)) ?? "unknown";
+                    var baseName = collidingMaterialHashes.Contains(source.Hash)
+                        ? $"{source.Name}_{suffix}"
+                        : source.Name;
+                    var name = usedMaterialName.TryGetValue(baseName, out var n) && n > 0
+                        ? baseName + n
+                        : baseName;
+                    var environments = variant.Environments ?? new List<string>();
+                    if (environments.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Material '{source.Hash}' has no associated environment.");
+                    if (environments.Count > 1)
+                    {
+                        var targetPath = PathUtils.Combine(Constants.MaterialsPath, $"{name}.mat");
+                        if (!AssetDatabase.AssetPathExists(targetPath))
+                            AssetDatabase.CreateAsset(mat, targetPath);
+                        else
+                            mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
+                    }
                     else
-                        mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
+                    {
+                        var parentPath = Constants.MaterialsPath;
+                        var env = environments[0].Replace("Environment", "");
+                        var folderPath = PathUtils.Combine(parentPath, env);
+                        if (!AssetDatabase.AssetPathExists(folderPath)) AssetDatabase.CreateFolder(parentPath, env);
+
+                        var targetPath = PathUtils.Combine(folderPath, $"{name}.mat");
+                        if (!AssetDatabase.AssetPathExists(targetPath))
+                            AssetDatabase.CreateAsset(mat, targetPath);
+                        else
+                            mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
+                    }
+
+                    usedMaterialName.TryAdd(baseName, 0);
+                    usedMaterialName[baseName]++;
+                    variant.Material = mat;
+                }
+
+                if (TryGetShader(library.Shaders, source.Shader, out var mappedShader))
+                {
+                    if (variant.Material.shader != mappedShader) variant.Material.shader = mappedShader;
                 }
                 else
                 {
-                    // Keep every folder and material path compatible with AssetDatabase on Windows.
-                    var parentPath = Constants.MaterialsPath;
-                    var env = matInfo.Environments[0].Replace("Environment", "");
-                    var folderPath = PathUtils.Combine(parentPath, env);
-                    if (!AssetDatabase.AssetPathExists(folderPath)) AssetDatabase.CreateFolder(parentPath, env);
-
-                    var targetPath = PathUtils.Combine(folderPath, $"{name}.mat");
-                    if (!AssetDatabase.AssetPathExists(targetPath))
-                        AssetDatabase.CreateAsset(mat, targetPath);
-                    else
-                        mat = AssetDatabase.LoadAssetAtPath<Material>(targetPath);
+                    keptUnmappedShaderCount++;
                 }
 
-                usedMaterialName.TryAdd(name, 0);
-                usedMaterialName[name]++;
-
-                matInfo.Material = mat;
+                MaterialProcessor.HandleProp(library, variant);
             }
-            else if (matInfo.Material.shader.name == "ChroMapper/Missing")
-            {
-                if (TryGetShader(library.Shaders, matInfo.Shader, out var shader)) matInfo.Material.shader = shader;
-            }
-
-            MaterialProcessor.HandleProp(library, matInfo);
         }
 
+        // Report unresolvable shader mappings once instead of warning per material.
+        if (keptUnmappedShaderCount > 0)
+            Debug.LogWarning(
+                $"Populate Build Data kept the existing shader on {keptUnmappedShaderCount} material(s) because no mapped shader resolved for their environment data. Open EnvironmentLibrarySO in the Inspector and assign a ChroMapper shader to each entry.");
+
         foreach (var obj in library
-            .Materials.list.Select(x => x.Material)
-            .Cast<Object>()
+            .Materials.list
+            .Where(source => source?.Materials != null)
+            .SelectMany(source => source.Materials)
+            .Where(variant => variant?.Material != null)
+            .Select(variant => (Object)variant.Material)
             .Append(library)
             .Append(library.Materials)
             .Append(library.Meshes)
+            .Append(library.Textures)
             .Append(library.Sprites))
             EditorUtility.SetDirty(obj);
+        library.Materials.RebuildLookup();
+        var resolvedMaterialCount = library.Materials.ResolvedMaterialCount;
+        Debug.Log(
+            $"Populated environment libraries: {resolvedMeshCount}/{library.Meshes.list.Count} meshes and " +
+            $"{resolvedMaterialCount}/{library.Materials.MaterialVariantCount} materials and " +
+            $"{resolvedTextureCount}/{library.Textures.list.Count} textures resolved.");
+        if (resolvedMaterialCount == 0)
+        {
+            const string message = "Populate Build Data produced no usable material references.";
+            Debug.LogError(message);
+            throw new InvalidOperationException(message);
+        }
         AssetDatabase.SaveAssets();
     }
 
@@ -208,12 +265,9 @@ public class EnvironmentBuildPopulate
 
     private static bool TryGetShader(List<ShaderEntry> list, string shaderName, out Shader shader)
     {
+        shader = null;
         var entry = list.FirstOrDefault(x => x.name == shaderName);
-        if (entry.shader == null)
-        {
-            shader = null;
-            return false;
-        }
+        if (entry?.shader == null) return false;
 
         shader = entry.shader;
         return true;

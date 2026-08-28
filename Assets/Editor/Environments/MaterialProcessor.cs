@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -34,354 +33,79 @@ public static class MaterialProcessor
         { "_UseMipmapBias", "_EnableMipmapBias" },
         { "_FakeMirrorTransparencyEnabled", "_EnableFakeMirrorTransparency" },
         { "_FakeMirrorTransparencyMultiplier", "_FakeMirrorTransparency" },
-        { "_EnableCloseToCameraDisappear", "_EnableViewAlignedDisappearDistance" },
         { "_UseColor_Gradient", "_UseColorGradient" },
-        { "_WorldspacePanning", "_EnableWorldspacePanningMain" },
-        { "_MainTexWorldspacePanning", "_EnableWorldspacePanningMain" }
+        { "_WorldspacePanning", "_EnableWorldSpacePanning" },
+        { "_MainTexWorldspacePanning", "_EnableMainTexWorldSpacePanning" }
     };
 
-    public static void HandleProp(EnvironmentLibrarySO library, MaterialInfo matInfo)
+    private static readonly Dictionary<string, string> keywordRemap = new()
+    {
+        { "ENABLE_FOG", "FOG" },
+        { "ENABLE_NOISE_DITHERING", "NOISE_DITHERING" },
+        { "ENABLE_WORLD_NOISE", "WORLD_NOISE" },
+        { "ENABLE_DIRT", "DIRT" },
+        { "ENABLE_HEIGHT_FOG", "HEIGHT_FOG" },
+        { "ENABLE_ANGLE_DISAPPEAR", "ANGLE_DISAPPEAR" },
+        { "ENABLE_WORLD_SPACE_FADE", "WORLD_SPACE_FADE" },
+        { "ENABLE_Y_AXIS_BILLBOARD", "Y_AXIS_BILLBOARD" },
+        { "ENABLE_MAIN_EFFECT_WHITE_BOOST", "MAIN_EFFECT_WHITE_BOOST" },
+        { "ENABLE_EMISSION_ANGLE_DISAPPEAR", "EMISSION_ANGLE_DISAPPEAR" },
+        { "ENABLE_RIM_DIM", "RIM_DIM" }
+    };
+
+    /// <summary>Applies a generated material variant's serialized properties and keywords.</summary>
+    public static void HandleProp(EnvironmentLibrarySO library, MaterialVariant matInfo)
     {
         var material = matInfo.Material;
+        if (material == null) return;
 
-        foreach (var prop in matInfo.FloatProps)
-        {
-            if (TryGetPropertyName(material, prop.Key, out var name))
-                material.SetFloat(name, prop.Value);
-        }
-
-        RecoverKeywordProperties(material, matInfo);
-
-        foreach (var prop in matInfo.VectorProps)
-            if (TryGetPropertyName(material, prop.Key, out var name))
-                material.SetVector(name, prop.Value);
-
-        foreach (var prop in matInfo.TextureProps)
-            if (prop.Value != "null" && TryGetPropertyName(material, prop.Key, out var name))
-                material.SetTexture(name, library.Textures.Lookup[prop.Value.ToLowerInvariant()]);
-    }
-
-    private static void RecoverKeywordProperties(Material material, MaterialInfo matInfo)
-    {
-        if (material == null || material.shader == null || matInfo == null) return;
-
-        var serializedKeywords = new HashSet<string>(
-            (matInfo.Keywords ?? new List<string>())
-                .Where(keyword => !string.IsNullOrWhiteSpace(keyword))
-                .Select(keyword => keyword.ToUpperInvariant()),
-            StringComparer.Ordinal);
-        var floatPropertyNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var prop in matInfo.FloatProps ?? new List<MaterialInfo.ShaderProps<float>>())
-        {
-            if (TryGetPropertyName(material, prop.Key, out var name))
-                floatPropertyNames.Add(name);
-        }
-
-        var shader = material.shader;
-        for (var propertyIndex = 0; propertyIndex < shader.GetPropertyCount(); propertyIndex++)
-        {
-            if (shader.GetPropertyType(propertyIndex) is not (ShaderPropertyType.Float or ShaderPropertyType.Range))
-                continue;
-
-            var propertyName = shader.GetPropertyName(propertyIndex);
-            var uppercaseName = propertyName.ToUpperInvariant();
-            foreach (var attribute in shader.GetPropertyAttributes(propertyIndex))
+        if (matInfo.FloatProps != null)
+            foreach (var prop in matInfo.FloatProps)
             {
-                if (!TryGetKeywordOptions(uppercaseName, attribute, out var keywords, out var isToggle)) continue;
-
-                ApplyKeywordValue(material, propertyName, material.GetFloat(propertyName));
-                if (floatPropertyNames.Contains(propertyName)) break;
-
-                var selectedIndex = FindSelectedKeywordIndex(shader, keywords, serializedKeywords);
-                if (selectedIndex >= 0)
-                {
-                    var value = isToggle ? 1f : selectedIndex;
-                    material.SetFloat(propertyName, value);
-                    ApplyKeywordValue(material, propertyName, value);
-                }
-
-                break;
-            }
-        }
-    }
-
-    public static int SynchronizeCanonicalKeywords(MaterialInfo matInfo, IEnumerable<string> canonicalKeywords)
-    {
-        if (matInfo?.Material == null || canonicalKeywords == null)
-            return 0;
-
-        var keywordSet = canonicalKeywords
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(NormalizeKeyword)
-            .ToHashSet(StringComparer.Ordinal);
-
-        return ApplyKeywordSet(material: matInfo.Material, keywords: keywordSet, reset: true);
-    }
-
-    public static bool SynchronizeLocalKeyword(MaterialInfo matInfo, string keywordName)
-    {
-        if (matInfo?.Material == null || string.IsNullOrWhiteSpace(keywordName))
-            return false;
-
-        var keywordSet = matInfo.Keywords == null
-            ? new HashSet<string>(StringComparer.Ordinal)
-            : matInfo.Keywords.Where(x => !string.IsNullOrWhiteSpace(x)).Select(NormalizeKeyword).ToHashSet(StringComparer.Ordinal);
-
-        var targetKeyword = NormalizeKeyword(keywordName);
-        return ApplyKeywordSet(material: matInfo.Material, keywords: keywordSet, reset: false, targetKeyword: targetKeyword) > 0;
-    }
-
-    private static int ApplyKeywordSet(Material material, HashSet<string> keywords, bool reset, string targetKeyword = null)
-    {
-        var changed = 0;
-        var count = material.shader.GetPropertyCount();
-
-        for (var i = 0; i < count; i++)
-        {
-            var attributes = material.shader.GetPropertyAttributes(i);
-            var propId = material.shader.GetPropertyNameId(i);
-            var propName = material.shader.GetPropertyName(i).ToUpper();
-
-            var found = false;
-            var value = 0f;
-
-            foreach (var attribute in attributes)
-            {
-                var p = attribute.IndexOf("(", StringComparison.Ordinal);
-                if (p == -1) continue;
-
-                var attributeName = attribute[..p];
-                var parameters = attribute[(p + 1)..^1]
-                    .Split(',')
-                    .Select(x => x.Trim().ToUpper())
-                    .ToArray();
-
-                string[] normalizedKeywords;
-
-                switch (attributeName)
-                {
-                    case "KeywordEnum":
-                        if (parameters.Length == 0) break;
-
-                        normalizedKeywords = parameters.Select(x => $"{propName}_{x}").ToArray();
-
-                        if (targetKeyword != null)
-                        {
-                            var targetIndex = Array.IndexOf(normalizedKeywords, targetKeyword);
-                            if (targetIndex == -1) break;
-
-                            var currentValue = material.GetFloat(propId);
-                            value = 0f;
-                            if (keywords.Contains(targetKeyword)) value = targetIndex;
-                            else if (reset) value = 0f;
-                            else if (Mathf.Approximately(currentValue, targetIndex)) value = 0f;
-                            else break;
-                        }
-                        else
-                        {
-                            value = 0f;
-                            for (var k = 0; k < normalizedKeywords.Length; k++)
-                            {
-                                if (keywords.Contains(normalizedKeywords[k]))
-                                {
-                                    value = k;
-                                    break;
-                                }
-                            }
-                        }
-
-                        found = true;
-                        break;
-
-                    case "Toggle":
-                    case "ToggleShowIfAny":
-                        if (parameters.Length == 0) break;
-
-                        if (targetKeyword != null)
-                        {
-                            if (!NormalizedKeywordMatch(parameters[0], targetKeyword)) break;
-
-                            var currentValue = material.GetFloat(propId);
-                            value = keywords.Contains(targetKeyword) ? 1f : 0f;
-                            if (value != currentValue || reset)
-                                found = true;
-                        }
-                        else
-                        {
-                            value = 0f;
-                            for (var k = 0; k < parameters.Length; k++)
-                            {
-                                if (keywords.Contains(parameters[k]))
-                                {
-                                    value = 1f;
-                                    break;
-                                }
-                            }
-
-                            found = true;
-                        }
-
-                        break;
-
-                    case "EnumShowIfAny":
-                        if (parameters.Length < 2) break;
-
-                        if (!int.TryParse(parameters[0], out var optionsCount)) break;
-                        normalizedKeywords = parameters.Skip(1).Take(optionsCount).Select(x => $"{propName}_{x}").ToArray();
-
-                        if (targetKeyword != null)
-                        {
-                            var targetIndex = Array.IndexOf(normalizedKeywords, targetKeyword);
-                            if (targetIndex == -1) break;
-
-                            var currentValue = material.GetFloat(propId);
-                            value = 0f;
-                            if (keywords.Contains(targetKeyword)) value = targetIndex;
-                            else if (reset) value = 0f;
-                            else if (Mathf.Approximately(currentValue, targetIndex)) value = 0f;
-                            else break;
-                        }
-                        else
-                        {
-                            value = 0f;
-                            for (var k = 0; k < normalizedKeywords.Length; k++)
-                            {
-                                if (keywords.Contains(normalizedKeywords[k]))
-                                {
-                                    value = k;
-                                    break;
-                                }
-                            }
-                        }
-
-                        found = true;
-                        break;
-                }
-
-                if (found) break;
+                if (TryGetPropertyName(material, prop.Key, out var name)) material.SetFloat(name, prop.Value);
             }
 
-            if (!found) continue;
+        if (matInfo.VectorProps != null)
+            foreach (var prop in matInfo.VectorProps)
+                if (TryGetPropertyName(material, prop.Key, out var name))
+                    material.SetVector(name, prop.Value);
 
-            var oldValue = material.GetFloat(propId);
-            if (Mathf.Approximately(oldValue, value)) continue;
-
-            material.SetFloat(propId, value);
-            changed++;
-        }
-
-        return changed;
-    }
-
-    private static string NormalizeKeyword(string keyword)
-    {
-        return keyword.ToUpperInvariant();
-    }
-
-    private static bool NormalizedKeywordMatch(string value, string target)
-    {
-        return string.Equals(value.Trim().ToUpper(), target, StringComparison.Ordinal);
-    }
-
-    private static int FindSelectedKeywordIndex(
-        Shader shader,
-        string[] keywords,
-        ISet<string> serializedKeywords)
-    {
-        for (var index = 0; index < keywords.Length; index++)
-        {
-            var keyword = keywords[index];
-            if (keyword == null || !serializedKeywords.Contains(keyword)) continue;
-            if (shader.keywordSpace.FindKeyword(keyword).isValid) return index;
-        }
-
-        return -1;
-    }
-
-    private static void ApplyKeywordValue(Material material, string propertyName, float value)
-    {
-        var propertyIndex = material.shader.FindPropertyIndex(propertyName);
-        if (propertyIndex < 0) return;
-
-        var uppercaseName = propertyName.ToUpperInvariant();
-        foreach (var attribute in material.shader.GetPropertyAttributes(propertyIndex))
-        {
-            if (!TryGetKeywordOptions(uppercaseName, attribute, out var keywords, out var isToggle)) continue;
-
-            var selectedIndex = isToggle ? (value == 0f ? -1 : 0) : (int)value;
-            for (var i = 0; i < keywords.Length; i++)
+        if (matInfo.TextureProps != null)
+            foreach (var prop in matInfo.TextureProps)
             {
-                if (keywords[i] != null) SetLocalKeyword(material, keywords[i], i == selectedIndex);
+                if (string.IsNullOrWhiteSpace(prop.Value)
+                    || prop.Value.Equals("null", StringComparison.OrdinalIgnoreCase)
+                    || prop.Value.Equals("none", StringComparison.OrdinalIgnoreCase)
+                    || !TryGetPropertyName(material, prop.Key, out var name)
+                    || !library.Textures.Lookup.TryGetValue(prop.Value.ToLowerInvariant(), out var texture))
+                    continue;
+
+                material.SetTexture(name, texture);
             }
 
-            break;
-        }
+        SynchronizeKeywords(material, matInfo.Keywords);
     }
 
-    private static void SetLocalKeyword(Material material, string keyword, bool enabled)
+    private static void SynchronizeKeywords(Material material, IEnumerable<string> keywords)
     {
-        var localKeyword = material.shader.keywordSpace.FindKeyword(keyword);
-        if (!localKeyword.isValid) return;
+        if (material == null || material.shader == null) return;
 
-        if (enabled)
-            material.EnableKeyword(localKeyword);
-        else
-            material.DisableKeyword(localKeyword);
-    }
-
-    private static bool TryGetKeywordOptions(
-        string propertyName,
-        string attribute,
-        out string[] keywords,
-        out bool isToggle)
-    {
-        keywords = Array.Empty<string>();
-        isToggle = false;
-
-        if (attribute is "Toggle" or "ToggleHeader")
+        // The source keyword list is authoritative. Overridable keywords are
+        // runtime routes such as bloom fog, depth, post bloom, and stereo.
+        var keywordSpace = material.shader.keywordSpace;
+        foreach (var keyword in keywordSpace.keywords)
         {
-            keywords = new[] { $"{propertyName}_ON" };
-            isToggle = true;
-            return true;
+            if (!keyword.isOverridable) material.DisableKeyword(keyword);
         }
 
-        var parenthesis = attribute.IndexOf('(');
-        if (parenthesis < 0 || !attribute.EndsWith(")", StringComparison.Ordinal)) return false;
-
-        var attributeName = attribute[..parenthesis];
-        var parameters = attribute[(parenthesis + 1)..^1]
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(value => value.Trim().ToUpperInvariant())
-            .ToArray();
-
-        switch (attributeName)
+        if (keywords == null) return;
+        foreach (var sourceKeyword in keywords)
         {
-            case "KeywordEnum":
-                keywords = parameters.Select(value => EnumKeyword(propertyName, value)).ToArray();
-                return true;
-            case "Toggle":
-            case "ToggleHeader":
-            case "ToggleShowIfAny":
-                keywords = new[] { parameters.FirstOrDefault() ?? $"{propertyName}_ON" };
-                isToggle = true;
-                return true;
-            case "EnumShowIfAny" when parameters.Length > 0 && int.TryParse(parameters[0], out var count):
-                keywords = parameters
-                    .Skip(1)
-                    .Take(count)
-                    .Select(value => EnumKeyword(propertyName, value))
-                    .ToArray();
-                return true;
-            default:
-                return false;
+            var keyword = keywordSpace.FindKeyword(sourceKeyword);
+            if (!keyword.isValid && keywordRemap.TryGetValue(sourceKeyword, out var remappedKeyword))
+                keyword = keywordSpace.FindKeyword(remappedKeyword);
+            if (keyword.isValid && !keyword.isOverridable) material.EnableKeyword(keyword);
         }
-    }
-
-    private static string EnumKeyword(string prefix, string option)
-    {
-        var normalized = option.Replace(' ', '_').ToUpperInvariant();
-        if (normalized == "NONE" || normalized == "OFF") return null;
-        return $"{prefix}_{normalized}";
     }
 
     private static bool TryGetPropertyName(

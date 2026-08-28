@@ -13,10 +13,19 @@ public class EnvironmentTextureSO : ScriptableObject
     public void OnValidate() => Initialize();
     public void OnEnable() => Initialize();
 
+    /// <summary>Rebuilds the runtime hash lookup from the serialized texture entries.</summary>
+    public void RebuildLookup() => Initialize();
+
     public void Initialize()
     {
         Lookup.Clear();
-        foreach (var entry in list) Lookup[entry.Hash] = entry.Texture;
+        if (list == null) return;
+
+        foreach (var entry in list)
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.Hash)) continue;
+            Lookup[entry.Hash] = entry.Texture;
+        }
     }
 
     public void MarkForChange()

@@ -136,7 +136,7 @@ public partial class EnvironmentSceneCreator
         EnvironmentLibrarySO library,
         bool allowScript)
     {
-        var blacklist = new[] { "Static Batch Component Container", "SaberBurnMarkSparklePS", "SaberBurnMarksArea", "BasicGameHUD" };
+        var blacklist = new[] { "SaberBurnMarkSparklePS", "SaberBurnMarksArea", "BasicGameHUD" };
         data.Objects = data
             .Objects.Where(x => !blacklist.Any(y => x.ChromaID.Contains(y)))
             .ToList();
@@ -163,8 +163,9 @@ public partial class EnvironmentSceneCreator
         // Stop before scene destruction if serialized entries exist but none point to usable Unity assets.
         if (!library.Meshes.Lookup.Values.Any(x => x != null))
             throw new InvalidOperationException("Environment mesh lookup contains no resolved Unity mesh assets.");
-        if (!library.Materials.Lookup.Values.Any(x => x != null))
-            throw new InvalidOperationException("Environment material lookup contains no resolved Unity material assets.");
+        if (!library.Materials.HasResolvedMaterials(data.Data.ID))
+            throw new InvalidOperationException(
+                $"Environment material lookup contains no resolved Unity material assets for '{data.Data.ID}'.");
 
         // first pass: strip existing object and component
         var existingObjects = StripObjects(scene, data);
@@ -177,5 +178,8 @@ public partial class EnvironmentSceneCreator
 
         // forth pass: cleanup and remove unused
         if (allowScript) Cleanup(scene, data);
+
+        // fifth pass
+        // ReflectionProbeBakePipeline.BakeSceneReflectionProbes(scene);
     }
 }

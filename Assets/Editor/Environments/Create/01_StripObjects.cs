@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
@@ -25,6 +26,7 @@ public partial class EnvironmentSceneCreator
                     continue;
                 }
 
+                GameObjectUtility.RemoveMonoBehavioursWithMissingScript(go);
                 foreach (var component in go.GetComponents<Component>().Reverse())
                 {
                     if (component is not (Transform or ChromaIDMarker)) Object.DestroyImmediate(component);
