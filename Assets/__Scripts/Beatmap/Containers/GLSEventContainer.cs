@@ -14,9 +14,13 @@ namespace Beatmap.Containers
         [SerializeField] private TracksManager tracksManager;
         [SerializeField] private TextMeshPro[] valueDisplays;
         [SerializeField] private LightGradientController lightGradientController;
-        [SerializeField] public TracksDefinitionSO TracksDefinition;
+        [SerializeField] public TrackDefinitionsSO TrackDefinitions;
 
         public BaseGLSEvent EventData;
+        public int DisplayLaneIndex { private get; set; } = -1;
+
+        // Expose the existing serialized ribbon renderer for color-transition appearance updates.
+        public LightGradientController LightGradientController => lightGradientController;
 
         public override BaseObject ObjectData { get => EventData; set => EventData = (BaseGLSEvent)value; }
 
@@ -36,20 +40,23 @@ namespace Beatmap.Containers
 
         public static GLSEventContainer SpawnGLSEvent(
             BaseGLSEvent data,
-            TracksDefinitionSO tracksDefinition,
+            TrackDefinitionsSO trackDefinitions,
             ref GameObject prefab)
         {
             var container = Instantiate(prefab).GetComponent<GLSEventContainer>();
             container.EventData = data;
-            container.TracksDefinition = tracksDefinition;
+            container.TrackDefinitions = trackDefinitions;
             return container;
         }
 
         public override void UpdateGridPosition()
         {
+            var laneIndex = DisplayLaneIndex >= 0
+                ? DisplayLaneIndex
+                : EventData.BoxIndex;
             transform.localPosition = new Vector3(
-                0.5f + EventData.BoxIndex,
-                0.5f,
+                0.5f + laneIndex,
+                BeatmapConstant.EventNodeGroundedCenterY,
                 EventData.SongBpmTime * EditorScaleController.EditorScale);
             UpdateCollisionGroups();
         }

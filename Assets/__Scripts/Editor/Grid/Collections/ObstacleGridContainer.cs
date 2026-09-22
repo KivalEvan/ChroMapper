@@ -27,10 +27,17 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
     internal override void SubscribeToCallbacks()
     {
         BeatmapContext.Atsc.OnTimeChanged += OnTimeChanged;
+        BeatmapContext.Atsc.OnPlayToggled += HandlePlayToggled;
         UIMode.OnPreviewModeSwitched += OnUIPreviewModeSwitch;
 
         Settings.NotifyBySettingName(nameof(Settings.ObstacleOpacity), ObstacleOpacityChanged);
         ObstacleOpacityChanged(Settings.Instance.ObstacleOpacity);
+    }
+
+    private void HandlePlayToggled(bool isPlaying)
+    {
+        this.isPlaying = isPlaying;
+        foreach (ObstacleContainer obj in LoadedContainers.Values) obj.SetIndicators(!this.isPlaying);
     }
 
     internal override void UnsubscribeToCallbacks()
@@ -69,6 +76,7 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
     public void UpdateColor(Color color) => obstacleAppearance.NormalColor = color;
 
     private bool updateFrame = false;
+    private bool isPlaying;
 
     internal override void LateUpdate()
     {
@@ -177,9 +185,11 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
         obstacle.SwitchMaterial();
         if (!obstacle.IsRotatedByNoodleExtensions && !obstacle.Animator.AnimatedTrack)
         {
-            var track = tracksManager.GetTrackAtTime(obj.SongBpmTime);
+            var track = tracksManager.GetTrackAtTime(obj.SongBpmTime, obstacle.ObstacleData.Rotation);
             track.AttachContainer(con);
         }
+
+        obstacle.SetIndicators(!this.isPlaying);
 
         obstacleAppearance.SetObstacleAppearance(obstacle);
     }

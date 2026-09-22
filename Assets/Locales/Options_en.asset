@@ -187,7 +187,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 44
-    m_Localized: High Quality Bloom
+    m_Localized: Bloom
     m_Metadata:
       m_Items: []
   - m_Id: 43
@@ -488,8 +488,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 111
-    m_Localized: Renders the Bloom effect at full or half resolution. We recommend
-      keeping it at full resolution.
+    m_Localized: Enables or disables camera bloom.
     m_Metadata:
       m_Items: []
   - m_Id: 112
@@ -667,7 +666,7 @@ MonoBehaviour:
     m_Metadata:
       m_Items: []
   - m_Id: 148
-    m_Localized: ChroMapper may need to be restarted for the changes to take affect.
+    m_Localized: ChroMapper may need to be restarted for the changes to take effect.
     m_Metadata:
       m_Items: []
   - m_Id: 149
@@ -1550,6 +1549,70 @@ MonoBehaviour:
       m_Items: []
   - m_Id: 617996906622844928
     m_Localized: Display Note Text
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646563635363807232
+    m_Localized: Reduced 360/90 Rotation Motion
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646563496784003072
+    m_Localized: Use linear motion instead of smoothed rotation.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646564095910969344
+    m_Localized: Follow Note Lane Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646563993301516288
+    m_Localized: Follow note rotation in preview.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646564964433887232
+    m_Localized: Follow bomb rotation in preview.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565121904836608
+    m_Localized: Follow arc rotation in preview.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565327744499712
+    m_Localized: Follow chain rotation in preview.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565356051857408
+    m_Localized: Follow wall rotation in preview.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565442844590080
+    m_Localized: Follow Wall Lane Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565287793754112
+    m_Localized: Follow Chain Lane Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565061242617856
+    m_Localized: Follow Arc Lane Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 646565238300966912
+    m_Localized: Follow Bomb Lane Rotation
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683422597120
+    m_Localized: Bloom Fog
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683443568640
+    m_Localized: Enables or disables environment bloom fog.
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683443568641
+    m_Localized: Screen Displacement
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683443568642
+    m_Localized: Enables or disables obstacle screen displacement.
     m_Metadata:
       m_Items: []
   references:

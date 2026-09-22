@@ -7,7 +7,9 @@ using UnityEngine;
 
 public class StateChunksContainer<TState, TData> where TState : StateData<TData> where TData : BaseObject
 {
-    public readonly SortedBucketArray<TState> Collection = new(value => value.StartTime, 10, 100);
+    public readonly SortedBucketArray<TState> Collection = new(value => value?.StartTime ?? 0f, 10, 100);
+    // GLS group moves can cross a float-derived bucket boundary, so removal must resolve the exact inserted identity directly.
+    private readonly Dictionary<TData, TState> statesByBase = new();
     public TState CurrentState;
 
     private List<TState> currBucket;
@@ -16,8 +18,12 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
 
     public void Resize(float max) => Collection.Resize((int)max);
 
-    public void AddState(TState state) => Collection.Add(state);
-    public bool RemoveState(TState state) => Collection.Remove(state);
+    // Maintain the identity index alongside the ordered buckets so movement never scans or guesses a removal bucket.
+    public void AddState(TState state)
+    {
+        Collection.Add(state);
+        statesByBase[state.Base] = state;
+    }
 
     public bool EnumerateTo(float time, bool forward) => forward ? EnumerateToNext(time) : EnumerateToPrevious(time);
 
@@ -65,6 +71,7 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
         return false;
     }
 
+    // Cursor rounding belongs at load time; arbitrary paused lookups must preserve their exact time.
     public bool IsCurrentOrFindState(float time, bool playing) =>
         playing ? UseCurrentOrNextState(time) : UseCurrentOrFindState(time);
 
@@ -112,14 +119,14 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
     {
         var bucket = Collection.GetBucketFrom(time);
         var bucketIdx = Collection.Buckets.IndexOf(bucket);
-        var idx = Collection.BinarySearch(bucket, time);
+        var idx = Collection.BinarySearchRight(bucket, time);
 
         if (idx == -1)
         {
             while (bucketIdx > 0)
             {
                 bucket = Collection.Buckets[--bucketIdx];
-                idx = Collection.BinarySearch(bucket, time);
+                idx = Collection.BinarySearchRight(bucket, time);
                 if (idx != -1) break;
             }
         }
@@ -131,7 +138,7 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
     {
         var bucket = Collection.GetBucketFrom(state.StartTime);
         var bucketIdx = Collection.Buckets.IndexOf(bucket);
-        var idx = Collection.BinarySearch(bucket, state.StartTime) - 1;
+        var idx = Collection.BinarySearchRight(bucket, state.StartTime) - 1;
 
         if (idx < 0)
         {
@@ -151,7 +158,7 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
     {
         var bucket = Collection.GetBucketFrom(state.StartTime);
         var bucketIdx = Collection.Buckets.IndexOf(bucket);
-        var idx = Collection.BinarySearch(bucket, state.StartTime);
+        var idx = Collection.BinarySearchRight(bucket, state.StartTime);
 
         if (idx < 0)
         {
@@ -171,7 +178,7 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
     {
         var bucket = Collection.GetBucketFrom(state.StartTime);
         var bucketIdx = Collection.Buckets.IndexOf(bucket);
-        var idx = Collection.BinarySearch(bucket, state.StartTime) + 1;
+        var idx = Collection.BinarySearchRight(bucket, state.StartTime) + 1;
 
         if (idx == -1 || idx == bucket.Count)
         {
@@ -187,11 +194,21 @@ public class StateChunksContainer<TState, TData> where TState : StateData<TData>
         return bucket[idx];
     }
 
-    public TState GetStateFrom(TData reference, TData original)
+    /// <summary>
+    /// Gets a state from the container by reference.
+    /// The reference must be the exact live instance originally inserted into the state bucket.
+    /// </summary>
+    public TState GetStateFrom(TData reference, TData _)
     {
-        var chunk = Collection.GetBucketFrom(original.SongBpmTime);
-        var idx = chunk.FindIndex(x => x.Base == reference);
+        return statesByBase.TryGetValue(reference, out var state)
+            ? state
+            : null;
+    }
 
-        return chunk[idx];
+    // Remove both representations together so a later group replacement cannot resolve a stale state identity.
+    public bool RemoveState(TState state)
+    {
+        statesByBase.Remove(state.Base);
+        return Collection.Remove(state);
     }
 }

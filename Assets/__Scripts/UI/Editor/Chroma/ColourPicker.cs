@@ -1,36 +1,188 @@
 ﻿using Beatmap.Base;
-using Beatmap.V2;
+using Assets.HSVPicker;
+using SimpleJSON;
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.UI;
 
-public class ColourPicker : MonoBehaviour
+public class ColourPicker : MonoBehaviour, IEditorStateProvider
 {
+    // Placement components need the same picker instance that the Chroma menu displays.
+    public static ColorPicker ActivePicker { get; private set; }
+
+    // Keep controls outside the flyout synchronized with the authoritative Chroma placement setting.
+    public static event System.Action<bool> OnPlaceChromaEventsChanged;
+
     [SerializeField] private ColorPicker picker;
     [SerializeField] private ToggleColourDropdown dropdown;
-    [SerializeField] private EventGridContainer eventGridContainer;
     [SerializeField] private Toggle toggle;
     [SerializeField] private Toggle placeChromaToggle;
+    // Keep the object-placement toggle explicitly wired so prefab hierarchy changes cannot break Chroma synchronization.
+    [SerializeField] private Toggle placeChromaObjectsToggle;
+
+    // The main Chroma picker is editor-wired with Chroma toggles, while the strobe flyout intentionally leaves them unset.
+    private bool IsPrimaryPicker => toggle != null || placeChromaToggle != null;
+
+    // Keep the palette and primary picker selection with the component that owns both controls.
+    public string StateKey => "chromaPicker";
 
     // Start is called before the first frame update
     private void Start()
     {
-        SelectionController.OnObjectWasSelected += SelectedOnObject;
-        toggle.isOn = Settings.Instance.PickColorFromChromaEvents;
-        placeChromaToggle.isOn = Settings.Instance.PlaceChromaColor;
+        // Keep the strobe flyout from replacing Picker 2.0 as the shared Chroma placement picker.
+        if (IsPrimaryPicker)
+        {
+            ActivePicker = picker;
+            SelectionController.OnObjectWasSelected += SelectedOnObject;
+            BasePlacement.OnPlaceChromaObjectsChanged += HandlePlaceChromaObjectsChanged;
+            // The prefab has separate object and event toggles; preserve the object's existing scene callback.
+            if (placeChromaObjectsToggle != null)
+            {
+                placeChromaObjectsToggle.SetIsOnWithoutNotify(BasePlacement.CanPlaceChromaObjects);
+            }
+
+            EditorStateService.Register(this);
+        }
+        // Strobe's flyout host intentionally has no Chroma toggles of its own.
+        if (toggle != null)
+        {
+            toggle.isOn = Settings.Instance.PickColorFromChromaEvents;
+        }
+
+        if (placeChromaToggle != null)
+        {
+            // This prefab reference is the dedicated Place Chroma Events toggle.
+            placeChromaToggle.onValueChanged = new Toggle.ToggleEvent();
+            placeChromaToggle.onValueChanged.AddListener(SetPlaceChromaEvents);
+            SetPlaceChromaEvents(Settings.Instance.PlaceChromaColor);
+        }
+
     }
 
-    private void OnDestroy() => SelectionController.OnObjectWasSelected -= SelectedOnObject;
+    private void OnDestroy()
+    {
+        // The main picker alone owns selection synchronization, so teardown only unregisters that editor-wired instance.
+        if (IsPrimaryPicker)
+        {
+            SelectionController.OnObjectWasSelected -= SelectedOnObject;
+            BasePlacement.OnPlaceChromaObjectsChanged -= HandlePlaceChromaObjectsChanged;
+            EditorStateService.Unregister(this);
+            // Do not leave a destroyed menu picker available to placement components.
+            if (ReferenceEquals(ActivePicker, picker))
+                ActivePicker = null;
+        }
+    }
 
     public void UpdateColourPicker(bool enabled) => Settings.Instance.PickColorFromChromaEvents = enabled;
 
+    // Let the color-type tile open the existing picker while explicitly controlling Chroma event placement.
+    public void OpenForChromaEvents()
+    {
+        SetPlaceChromaEvents(true);
+        dropdown.ToggleDropdown(true);
+    }
+
+    // Gameplay object placement owns a separate setting but uses the same picker flyout.
+    public void OpenPicker() => dropdown.ToggleDropdown(true);
+
+    // Let the color tile distinguish an intentional close from an already-open picker state toggle.
+    public bool IsOpen => dropdown.Visible;
+
+    // Keep the tile's deselect action from leaving Chroma placement enabled behind a closed picker.
+    public void CloseForChromaEvents()
+    {
+        SetPlaceChromaEvents(false);
+        dropdown.ToggleDropdown(false);
+    }
+
+    // Close the picker without touching the tile-controlled Chroma event placement setting.
+    public void ClosePicker() => dropdown.ToggleDropdown(false);
+
+    // Use one public setter so the flyout checkbox and color-type tile cannot diverge.
+    public void SetPlaceChromaEvents(bool enabled)
+    {
+        Settings.Instance.PlaceChromaColor = enabled;
+        if (placeChromaToggle != null)
+        {
+            placeChromaToggle.SetIsOnWithoutNotify(enabled);
+        }
+
+        OnPlaceChromaEventsChanged?.Invoke(enabled);
+    }
+
+    // Reflect color-tile changes in the dedicated object checkbox without re-entering its scene callback.
+    private void HandlePlaceChromaObjectsChanged(bool enabled)
+    {
+        if (placeChromaObjectsToggle != null)
+        {
+            placeChromaObjectsToggle.SetIsOnWithoutNotify(enabled);
+        }
+    }
+
+    // Serialize palette data here so the service never has to discover UI objects.
+    public void CaptureEditorState(JSONObject data)
+    {
+        var presets = new JSONObject();
+        foreach (var preset in ColorPresetManager.Presets)
+        {
+            var colors = new JSONArray();
+            foreach (var color in preset.Value.Colors)
+            {
+                var colorData = new JSONObject();
+                colorData.WriteColor(color);
+                colors.Add(colorData);
+            }
+
+            presets[preset.Key] = colors;
+        }
+
+        data["presets"] = presets;
+        var selectedColor = new JSONObject();
+        selectedColor.WriteColor(picker.CurrentColor);
+        data["selectedColor"] = selectedColor;
+    }
+
+    // Restore this control after its picker and palette collections have initialized.
+    public void LoadEditorState(JSONNode data)
+    {
+        var presets = data["presets"].AsObject;
+        if (presets != null)
+        {
+            foreach (var preset in presets)
+            {
+                var colors = new System.Collections.Generic.List<Color>();
+                foreach (JSONNode colorData in preset.Value.AsArray)
+                {
+                    colors.Add(colorData.ReadColor(Color.black));
+                }
+
+                ColorPresetManager.Get(preset.Key).UpdateList(colors);
+            }
+        }
+
+        if (data["selectedColor"].IsObject)
+        {
+            picker.CurrentColor = data["selectedColor"].ReadColor(Color.black);
+        }
+    }
+
     private void SelectedOnObject(BaseObject obj)
     {
-        if (!Settings.Instance.PickColorFromChromaEvents || !dropdown.Visible) return;
-        if (obj.CustomColor != null) picker.CurrentColor = (Color)obj.CustomColor;
-        if (!(obj is BaseEvent e)) return;
+        if (!Settings.Instance.PickColorFromChromaEvents || !dropdown.Visible)
+            return;
+        if (obj.CustomColor != null)
+            picker.CurrentColor = (Color)obj.CustomColor;
+        if (obj is BaseGLSEvent gls
+            && gls.IsChroma()
+            && gls.CustomData != null
+            && gls.CustomData.HasKey(gls.CustomKeyColor))
+        {
+            picker.CurrentColor = gls.CustomData[gls.CustomKeyColor].ReadColor();
+        }
+        if (obj is not BaseEvent e)
+            return;
         if (e.Value >= ColourManager.RgbintOffset)
             picker.CurrentColor = ColourManager.ColourFromInt(e.Value);
-        else if (e.CustomLightGradient != null) picker.CurrentColor = e.CustomLightGradient.StartColor;
+        else if (e.CustomLightGradient != null)
+            picker.CurrentColor = e.CustomLightGradient.StartColor;
     }
 }

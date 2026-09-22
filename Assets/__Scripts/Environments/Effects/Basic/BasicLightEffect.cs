@@ -1,14 +1,15 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Beatmap.Base;
 using Beatmap.Enums;
+using Beatmap.Shared;
 using UnityEngine;
 
 public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 {
     [SerializeField] public ColorBoostEffect ColorBoostEffect;
-    [NonSerialized] public ColorSchemeSO ColorScheme;
+    [SerializeField] public ColorSchemeProvider ColorSchemeProvider;
 
     [SerializeField] public float OffIntensity;
     [SerializeField] public bool LightOnStart;
@@ -74,6 +75,13 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
     public void Unregister(LightController controller) => lightEntries.Remove(controller);
 
+    public bool SetColorForId(int lightId, Color color)
+    {
+        if (!lightIDToController.TryGetValue(lightId, out var controller)) return false;
+        controller.SetColor(color);
+        return true;
+    }
+
     private void CalculateMapping()
     {
         LaneToLightID.Clear();
@@ -107,12 +115,15 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
     public override void Initialize()
     {
+        // Reinitialization rebuilds the event cache, so discard auxiliary Chroma state before re-inserting map events.
+        chromaLiteData.Clear();
+        chromaGradientData.Clear();
         CalculateMapping();
         controllerToContainer.Clear();
         foreach (var controller in lightEntries.Select(x => x))
         {
             controllerToContainer[controller] =
-                (new(), InitializeStates(new BasicEventStateChunksContainer<BasicLightStateData>()));
+                (new LightColorTween(), InitializeStates(new BasicEventStateChunksContainer<BasicLightStateData>()));
             foreach (var state in controllerToContainer[controller].container.Collection.Select(chunk => chunk))
             {
                 if (!LightOnStart) continue;
@@ -151,24 +162,34 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         tween.StartTimeColor = stateData.StartTimeColor;
         tween.StartAlpha = stateData.StartAlpha;
         tween.StartColor = stateData.StartChromaColor
-            ?? ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
 
         tween.EndTimeAlpha = stateData.EndTimeAlpha;
         tween.EndTimeColor = stateData.EndTimeColor;
         tween.EndAlpha = stateData.EndAlpha;
         tween.EndColor =
-            stateData.EndChromaColor ?? ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
+            stateData.EndChromaColor
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
 
-        tween.UseHSV = stateData.UseHSV;
+        // The state caches serialized lerpType classification so the per-frame tween never compares strings.
+        tween.ColorLerpType = stateData.ColorLerpType;
         tween.Easing = stateData.Easing;
+        tween.ColorEasing = stateData.HasChromaGradient
+            ? stateData.GradientEasing
+            : stateData.Easing;
+        // Chroma composes endpoints only when color and brightness share the ordinary Basic Event timeline.
+        tween.ComposeAlphaAtColorEndpoints = !stateData.HasChromaGradient
+            && Mathf.Approximately(stateData.StartTimeColor, stateData.StartTime)
+            && Mathf.Approximately(stateData.EndTimeColor, stateData.EndTimeAlpha);
     }
 
     public void UpdateStartAndEndColor(LightColorTween tween, BasicLightStateData stateData)
     {
         tween.StartColor = stateData.StartChromaColor
-            ?? ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
         tween.EndColor =
-            stateData.EndChromaColor ?? ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
+            stateData.EndChromaColor
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
     }
 
     private void HandleBoostChanged(bool boost)
@@ -196,14 +217,22 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             previousStateData.EndColor = newStateData.StartColor;
             previousStateData.EndChromaColor = newStateData.StartChromaColor;
             previousStateData.EndAlpha = newStateData.StartAlpha;
-            previousStateData.Easing = Easing.Named(newStateData.Base.CustomEasing ?? "easeLinear");
-            previousStateData.UseHSV = newStateData.Base.CustomLerpType == "HSV";
+            // Basic Event transition interpolation is serialized on the preceding source node.
+            previousStateData.Easing = Easing.Named(previousStateData.Base.CustomEasing ?? "easeLinear");
+            previousStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(
+                previousStateData.Base.CustomLerpType);
             return;
         }
 
+        // LoadingLegacyAlphaZeroChromaGradientCachesEveryPreviewPhase and the production V2 load regressions prove
+        // gradient-owned endpoints must survive later event insertion; ordinary states still need stale endpoints reset.
+        if (!previousStateData.HasChromaGradient)
+        {
+            previousStateData.EndTimeColor = newStateData.StartTimeColor;
+            previousStateData.EndChromaColor = previousStateData.StartChromaColor;
+        }
+
         previousStateData.EndColor = previousStateData.StartColor;
-        // previousState.EndTimeColor = newState.StartTimeColor;
-        // previousState.EndChromaColor = previousState.StartChromaColor;
 
         if (!previousStateData.Base.IsFade && !previousStateData.Base.IsFlash)
         {
@@ -242,8 +271,9 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             newStateData.EndColor = nextStateData.StartColor;
             newStateData.EndChromaColor = nextStateData.StartChromaColor;
             newStateData.EndAlpha = nextStateData.StartAlpha;
-            newStateData.Easing = Easing.Named(nextStateData.Base.CustomEasing ?? "easeLinear");
-            newStateData.UseHSV = nextStateData.Base.CustomLerpType == "HSV";
+            // Basic Event transition interpolation is serialized on the preceding source node.
+            newStateData.Easing = Easing.Named(newStateData.Base.CustomEasing ?? "easeLinear");
+            newStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(newStateData.Base.CustomLerpType);
             return;
         }
 
@@ -295,6 +325,11 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
                     cl.StartTime <= state.StartTime && state.StartTime <= cl.EndTime);
                 if (fromIndex == -1)
                 {
+                    // Removing or moving a legacy gradient must return affected states to ordinary insertion semantics.
+                    state.HasChromaGradient = false;
+                    // Clear the removed gradient's interpolation mode before ordinary transition linking classifies it again.
+                    state.ColorLerpType = BasicEventColorLerpType.RGB;
+                    state.GradientEasing = null;
                     state.StartTimeColor = state.StartTime;
                     state.EndTimeColor = state.EndTime;
 
@@ -348,11 +383,20 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
     private void UpdateStateWithChromaGradient(BasicLightStateData stateData, ChromaGradientData chromaGradientData)
     {
+        if (stateData.Base.IsOff)
+        {
+            Debug.LogWarning($"[ChromaGradient] Skipping gradient application for OFF event at {stateData.StartTime} (type {stateData.Base.Type}) - gradient from {chromaGradientData.StartTime} to {chromaGradientData.EndTime}");
+            return;
+        }
         stateData.StartTimeColor = chromaGradientData.StartTime;
         stateData.EndTimeColor = chromaGradientData.EndTime;
         stateData.StartChromaColor = chromaGradientData.StartColor;
         stateData.EndChromaColor = chromaGradientData.EndColor;
-        stateData.Easing = chromaGradientData.Easing;
+        // BasicEventChromaColorParityTest proves Chroma applies gradient easing only to its RGB color interpolation.
+        stateData.GradientEasing = chromaGradientData.Easing;
+        stateData.ColorLerpType = BasicEventColorLerpType.RGB;
+        // Cache the classification on the state so later insertion remains O(1) without rescanning gradient data.
+        stateData.HasChromaGradient = true;
     }
 
     public override void InsertData(BaseEvent data)
@@ -365,14 +409,14 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             case >= ColourManager.RgbintOffset when Settings.Instance.EmulateChromaLite:
                 {
                     chromaLiteData.Add(
-                        new() { Base = data, Color = ColourManager.ColourFromInt(data.Value) });
+                        new ChromaLiteData { Base = data, Color = ColourManager.ColourFromInt(data.Value) });
                     chromaLiteData = chromaLiteData.OrderBy(cl => cl.Base.SongBpmTime).ToList();
                     UpdateExistingWithChromaLite(data.SongBpmTime);
                     return;
                 }
             case ColourManager.RGBReset when Settings.Instance.EmulateChromaLite:
                 {
-                    chromaLiteData.Add(new() { Base = data, Color = null });
+                    chromaLiteData.Add(new ChromaLiteData { Base = data, Color = null });
                     chromaLiteData = chromaLiteData.OrderBy(cl => cl.Base.SongBpmTime).ToList();
                     UpdateExistingWithChromaLite(data.SongBpmTime);
                     return; // this was a break, not sure why
@@ -464,6 +508,7 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             container.SetStateAt(Atsc.CurrentSongBpmTime);
             UpdateObject(tween, container.CurrentState);
         }
+
     }
 
     public override void RemoveData(BaseEvent reference, BaseEvent original)
@@ -496,6 +541,7 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         foreach (var lightingObject in affectedLights)
         {
             var (tween, container) = controllerToContainer[lightingObject];
+
             HandleRemoveState(container, reference, original);
 
             // unfortunately, we cannot do the same as insertion so we need to search
@@ -521,8 +567,10 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             previousStateData.EndColor = nextStateData.StartColor;
             previousStateData.EndChromaColor = nextStateData.StartChromaColor;
             previousStateData.EndAlpha = nextStateData.StartAlpha;
-            previousStateData.Easing = Easing.Named(nextStateData.Base.CustomEasing ?? "easeLinear");
-            previousStateData.UseHSV = nextStateData.Base.CustomLerpType == "HSV";
+            // Basic Event transition interpolation is serialized on the preceding source node.
+            previousStateData.Easing = Easing.Named(previousStateData.Base.CustomEasing ?? "easeLinear");
+            previousStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(
+                previousStateData.Base.CustomLerpType);
         }
         else
         {
@@ -609,7 +657,11 @@ public class BasicLightStateData : BasicEventStateData
     public float EndAlpha;
 
     public Func<float, float> Easing = global::Easing.Linear;
-    public bool UseHSV;
+    public Func<float, float> GradientEasing;
+    public BasicEventColorLerpType ColorLerpType;
+
+    // Preserve authored gradient timing and colors across subsequent event insertion without querying the gradient list.
+    public bool HasChromaGradient;
 
     public BasicLightStateData(BaseEvent evt) : base(evt) { }
 }

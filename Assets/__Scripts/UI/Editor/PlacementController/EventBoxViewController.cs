@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ZLinq;
 using Beatmap.Base;
 using Beatmap.Enums;
+using Beatmap.Helper;
+using SimpleJSON;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -31,6 +34,13 @@ public class EventBoxViewController : MonoBehaviour
     [SerializeField] private ButtonComponent moveDownEventBoxButton;
     [SerializeField] private ButtonComponent moveUpEventBoxButton;
     [SerializeField] private ButtonComponent duplicateEventBoxButton;
+
+    [Header("Placement Scripts")] [SerializeField]
+    private GLSEventColorPlacement colorPlacement;
+
+    [SerializeField] private GLSEventRotationPlacement rotationPlacement;
+    [SerializeField] private GLSEventTranslationPlacement translationPlacement;
+    [SerializeField] private GLSEventFloatFXPlacement floatFXPlacement;
 
     [Header("ID Tab")] [SerializeField] private ToggleComponent idTabPrefab;
     [SerializeField] private RectTransform idTabTargetTransform;
@@ -83,7 +93,6 @@ public class EventBoxViewController : MonoBehaviour
     {
         editModeContext.OnEditModeChanged += HandleEditModeChanged;
         glsEventGridProvider.OnGroupChanged += HandleGroupChanged;
-
         addEventBoxButton.OnClick(HandleAddEventBox);
         addIdsEventBoxButton.OnClick(HandleAddIdsEventBox);
         addAxesEventBoxButton.OnClick(HandleAddAxesEventBox);
@@ -95,6 +104,41 @@ public class EventBoxViewController : MonoBehaviour
         moveDownEventBoxButton.OnClick(HandleMoveDownEventBox);
         moveUpEventBoxButton.OnClick(HandleMoveUpEventBox);
         duplicateEventBoxButton.OnClick(HandleDuplicateEventBox);
+
+        // Preserve the local tooltip draft while localization is decided separately from this review pass.
+        AddTooltip(addEventBoxButton,
+            "Add Box (+)",
+            "Inserts a new empty event box after the currently selected one; each box independently controls which light IDs it targets and how values are distributed across them.");
+        AddTooltip(addIdsEventBoxButton,
+            "Add IDs",
+            "DESTRUCTIVE — clears all existing boxes and generates one box per light ID in this group (Step filter, one ID each), giving you per-light granular control; all existing node data will be lost.");
+        AddTooltip(addAxesEventBoxButton,
+            "Add Axes",
+            "DESTRUCTIVE (rotation/translation only) — clears all existing boxes and generates one box per available axis (X/Y/Z) so each axis can have its own distribution; not applicable to color groups and all existing node data will be lost.");
+        AddTooltip(addIdsAndAxesEventBoxButton,
+            "Add Axes & IDs",
+            "DESTRUCTIVE — clears all existing boxes and generates one box for every axis/light-ID combination, providing maximum per-light per-axis granularity; all existing node data will be lost.");
+        AddTooltip(deleteEventBoxButton,
+            "Delete Box (X)",
+            "Permanently deletes the currently selected event box and all of its nodes — use Ctrl+Z to undo.");
+        AddTooltip(deletePruneEventBoxButton,
+            "Prune",
+            "Removes every event box that contains zero nodes, cleaning up empty placeholder boxes while leaving any box that has at least one node fully intact.");
+        AddTooltip(sortIdsEventBoxButton,
+            "Sort IDs",
+            "Reorders all boxes in ascending order by their index-filter starting ID, making the box list easier to read and navigate when IDs were added out of order.");
+        AddTooltip(sortAxesEventBoxButton,
+            "Sort Axes",
+            "Reorders all boxes so that X-axis boxes come first, then Y, then Z, making rotation and translation groups easier to read; has no effect on color groups.");
+        AddTooltip(duplicateEventBoxButton,
+            "Dupe",
+            "Creates an exact copy of the currently selected box — including its filter settings and all of its nodes — and inserts it immediately after the original.");
+        AddTooltip(moveUpEventBoxButton,
+            "Move Up",
+            "Shifts the currently selected box one slot earlier in the list, which affects playback order when boxes share overlapping IDs and distributions.");
+        AddTooltip(moveDownEventBoxButton,
+            "Move Down",
+            "Shifts the currently selected box one slot later in the list, which affects playback order when boxes share overlapping IDs and distributions.");
 
         beatDistributionWaveToggle.OnValueChanged(HandleBeatDistributionWaveValueChanged);
         beatDistributionStepToggle.OnValueChanged(HandleBeatDistributionStepValueChanged);
@@ -165,9 +209,27 @@ public class EventBoxViewController : MonoBehaviour
     {
         groupContext = group;
         boxContext = null;
+        ConfigureAxisActions(groupContext);
+        // Parent replacement clears the active GLS context before its clone is installed, so defer box UI work until a group exists.
+        if (groupContext == null)
+        {
+            boxIndex = -1;
+            inputContainer.SetActive(false);
+            return;
+        }
+
         boxIndex = group.ReadOnlyBoxes.Count > 0 ? Math.Clamp(boxIndex, 0, group.ReadOnlyBoxes.Count - 1) : -1;
 
         SetBoxIndex(boxIndex);
+    }
+
+    private void ConfigureAxisActions(BaseEventBoxGroup group)
+    {
+        // FloatFX and color boxes do not implement the shared transform-group contract used by axis-only operations.
+        var supportsAxes = group is ILightTransformEventBoxGroup;
+        addAxesEventBoxButton.Selectable.interactable = supportsAxes;
+        addIdsAndAxesEventBoxButton.Selectable.interactable = supportsAxes;
+        sortAxesEventBoxButton.Selectable.interactable = supportsAxes;
     }
 
     private Action<bool> HandleSetBoxIndex(int id)
@@ -187,21 +249,22 @@ public class EventBoxViewController : MonoBehaviour
     private void HandleAddIdsEventBox()
     {
         if (groupContext == null) return;
-        var td = beatmapRuntimeContext.TracksDefinition.GetGlsOrDefault(groupContext.ID);
-        GLSEventBoxCommand.AddAllIdsEventBox(groupContext, td, GetGroupSize(groupContext));
+        GLSEventBoxCommand.AddAllIdsEventBox(groupContext, GetGroupSize(groupContext));
     }
 
     private void HandleAddAxesEventBox()
     {
-        if (groupContext == null) return;
-        var td = beatmapRuntimeContext.TracksDefinition.GetGlsOrDefault(groupContext.ID);
+        // Axis generation is meaningful only for groups implementing the shared transform contract.
+        if (groupContext is not ILightTransformEventBoxGroup) return;
+        var td = beatmapRuntimeContext.TrackDefinitions.GetGlsOrDefault(groupContext.ID);
         GLSEventBoxCommand.AddAllAxesEventBox(groupContext, td);
     }
 
     private void HandleAddIdsAndAxesEventBox()
     {
-        if (groupContext == null) return;
-        var td = beatmapRuntimeContext.TracksDefinition.GetGlsOrDefault(groupContext.ID);
+        // Axis generation is meaningful only for groups implementing the shared transform contract.
+        if (groupContext is not ILightTransformEventBoxGroup) return;
+        var td = beatmapRuntimeContext.TrackDefinitions.GetGlsOrDefault(groupContext.ID);
         GLSEventBoxCommand.AddAllAxesAndIdsEventBox(groupContext, td, GetGroupSize(groupContext));
     }
 
@@ -245,6 +308,135 @@ public class EventBoxViewController : MonoBehaviour
     {
         if (groupContext == null) return;
         GLSEventBoxCommand.DuplicateEventBox(groupContext, boxIndex++);
+    }
+
+    public void HandleApplyToSelected()
+    {
+        Debug.Log("[EventBoxViewController] HandleApplyToSelected called");
+        // Buffer typed selection and groups once so painting does not copy or lazily enumerate selection per phase.
+        var selectedGlsEvents = new List<BaseGLSEvent>(SelectionController.SelectedObjects.Count);
+        foreach (var selectedObject in SelectionController.SelectedObjects)
+        {
+            if (selectedObject is not BaseGLSEvent selectedGlsEvent)
+            {
+                Debug.Log("[EventBoxViewController] Ignoring apply because the current selection is not exclusively paintable GLS nodes.");
+                return;
+            }
+
+            selectedGlsEvents.Add(selectedGlsEvent);
+        }
+
+        Debug.Log($"[EventBoxViewController] Found {selectedGlsEvents.Count} selected GLS events");
+        if (selectedGlsEvents.Count == 0) return;
+
+        var byGroup = new Dictionary<BaseEventBoxGroup, List<BaseGLSEvent>>();
+        foreach (var selectedGlsEvent in selectedGlsEvents)
+        {
+            var group = selectedGlsEvent.EventBoxGroupData;
+            if (group == null)
+            {
+                Debug.LogError("[PaintProperties] Cannot apply properties to a selected GLS node without an event box group.");
+                continue;
+            }
+
+            if (!byGroup.TryGetValue(group, out var groupEvents))
+            {
+                groupEvents = new List<BaseGLSEvent>();
+                byGroup.Add(group, groupEvents);
+            }
+
+            groupEvents.Add(selectedGlsEvent);
+        }
+
+        Debug.Log($"[EventBoxViewController] Grouped into {byGroup.Count} groups");
+        foreach (var groupEntry in byGroup)
+        {
+            var oldGroup = groupEntry.Key;
+            var groupEvents = groupEntry.Value;
+            Debug.Log($"[EventBoxViewController] Processing group with {groupEvents.Count} events");
+            var newGroup = BeatmapFactory.Clone(oldGroup);
+            var eventIndex = new GLSEventLookupIndex(oldGroup);
+
+            foreach (var evt in groupEvents)
+            {
+                // Resolve cloned events through their authoritative source position, including stacked duplicates.
+                if (!eventIndex.TryGetCloneEvent(evt, newGroup, out var location, out var newEvt))
+                {
+                    Debug.LogError(
+                        $"[PaintProperties] Cannot resolve selected {evt.GetType().Name}: groupId={oldGroup.ID}, " +
+                        $"boxIndex={evt.BoxIndex}.");
+                    continue;
+                }
+
+                Debug.Log($"[EventBoxViewController] Processing event type {evt.GetType().Name}, newEvt type {newEvt.GetType().Name}");
+
+                switch (newEvt)
+                {
+                    case BaseLightColorBase color when colorPlacement != null:
+                        Debug.Log($"[EventBoxViewController] Applying color properties: brightness={colorPlacement.QueuedData.Brightness}");
+                        // Apply only non-color UI values so the replaced node keeps its existing GLS color payload.
+                        color.Brightness = colorPlacement.QueuedData.Brightness;
+                        color.Easing = colorPlacement.QueuedData.Easing;
+                        color.Frequency = colorPlacement.QueuedData.Frequency;
+                        color.StrobeBrightness = colorPlacement.QueuedData.StrobeBrightness;
+                        color.StrobeFade = colorPlacement.QueuedData.StrobeFade;
+                        PreserveColorPayload((BaseLightColorBase)evt, color);
+                        break;
+                    case BaseLightColorBase color when colorPlacement == null:
+                        Debug.LogWarning("[EventBoxViewController] Color event but colorPlacement is null");
+                        break;
+                    case BaseLightRotationBase rotation when rotationPlacement != null:
+                        // Log both source and queued rotation values to diagnose mismatched GLS rotation painting.
+                        Debug.Log(
+                            $"[PaintProperties] Rotation: groupId={oldGroup.ID}, boxIndex={evt.BoxIndex}, " +
+                            $"eventIndex={location.EventIndex}, source={((BaseLightRotationBase)evt).Rotation}, " +
+                            $"queued={rotationPlacement.QueuedData.Rotation}, loop={rotationPlacement.QueuedData.Loop}, " +
+                            $"ease={rotationPlacement.QueuedData.EaseType}.");
+                        // Rotation paint should update the editor-selected values without changing the node's existing spin direction choice.
+                        rotation.Rotation = rotationPlacement.QueuedData.Rotation;
+                        rotation.Loop = rotationPlacement.QueuedData.Loop;
+                        rotation.EaseType = rotationPlacement.QueuedData.EaseType;
+                        break;
+                    case BaseLightRotationBase rotation when rotationPlacement == null:
+                        Debug.LogWarning("[EventBoxViewController] Rotation event but rotationPlacement is null");
+                        break;
+                    case BaseLightTranslationBase translation when translationPlacement != null:
+                        Debug.Log($"[EventBoxViewController] Applying translation properties");
+                        translation.Translation = translationPlacement.QueuedData.Translation;
+                        translation.EaseType = translationPlacement.QueuedData.EaseType;
+                        break;
+                    case BaseLightTranslationBase translation when translationPlacement == null:
+                        Debug.LogWarning("[EventBoxViewController] Translation event but translationPlacement is null");
+                        break;
+                    case BaseFxEventFloat floatFx when floatFXPlacement != null:
+                        Debug.Log($"[EventBoxViewController] Applying floatFX properties");
+                        floatFx.Value = floatFXPlacement.QueuedData.Value;
+                        floatFx.Easing = floatFXPlacement.QueuedData.Easing;
+                        break;
+                    case BaseFxEventFloat floatFx when floatFXPlacement == null:
+                        Debug.LogWarning("[EventBoxViewController] FloatFX event but floatFXPlacement is null");
+                        break;
+                    default:
+                        Debug.LogWarning($"[EventBoxViewController] Event type {newEvt.GetType().Name} not handled by apply logic");
+                        break;
+                }
+            }
+
+            GLSCommonCommand.TriggerPlaceAction(oldGroup, newGroup);
+        }
+    }
+
+    private static void PreserveColorPayload(BaseLightColorBase originalEvent, BaseLightColorBase replacementEvent)
+    {
+        // Preserve the full original custom payload so replacement-in-place does not drop chroma color, strobe color, or user-authored extras.
+        var originalCustomData = originalEvent.CustomData?.Clone() ?? new JSONObject();
+        replacementEvent.Color = originalEvent.Color;
+        replacementEvent.UsePrevious = originalEvent.UsePrevious;
+        replacementEvent.CustomColor = originalEvent.CustomColor;
+        replacementEvent.StrobeColor = originalEvent.StrobeColor;
+        replacementEvent.CustomLerpType = originalEvent.CustomLerpType;
+        replacementEvent.CustomData = originalCustomData;
+        replacementEvent.WriteCustom();
     }
 
     private void SetBoxIndex(int newIndex)
@@ -315,7 +507,7 @@ public class EventBoxViewController : MonoBehaviour
 
         HashSet<int> affectedId = new();
         var currentBoxPassed = false;
-        foreach (var (b, x) in boxes.Select((b, x) => (b, x)).Where(b => b.b.GetAxis() == box.GetAxis()))
+        foreach (var (b, x) in boxes.AsValueEnumerable().Select((b, x) => (b, x)).Where(b => b.b.GetAxis() == box.GetAxis()))
         {
             var ifh = IndexFilterHelper.Convert(b.IndexFilter, groupSize);
             if (ifh == null)
@@ -404,7 +596,21 @@ public class EventBoxViewController : MonoBehaviour
 
         easeTypeDropdown.SetValueWithoutNotify(box.Easing);
 
-        var td = beatmapRuntimeContext.TracksDefinition.GetGlsOrDefault(groupContext.ID);
+        var td = beatmapRuntimeContext.TrackDefinitions.GetGlsOrDefault(groupContext.ID);
+        // Axis visibility, values, and track availability are identical for every transform box.
+        if (box is BaseLightTransformEventBox transformBox
+            && groupContext is ILightTransformEventBoxGroup transformGroup)
+        {
+            var enabledAxes = transformGroup.GetEnabledAxes(td);
+            axisObject.SetActive(true);
+            axisXToggle.SetValueWithoutNotify(transformBox.Axis == (int)Axis.X);
+            axisYToggle.SetValueWithoutNotify(transformBox.Axis == (int)Axis.Y);
+            axisZToggle.SetValueWithoutNotify(transformBox.Axis == (int)Axis.Z);
+            axisXToggle.Selectable.interactable = enabledAxes[0];
+            axisYToggle.Selectable.interactable = enabledAxes[1];
+            axisZToggle.Selectable.interactable = enabledAxes[2];
+        }
+
         switch (box)
         {
             case BaseLightColorEventBox lceb:
@@ -419,41 +625,19 @@ public class EventBoxViewController : MonoBehaviour
                         lceb.BrightnessDistribution * 100f);
                 affectFirstToggle.SetValueWithoutNotify(lceb.BrightnessAffectFirst == 1);
                 break;
-            case BaseLightRotationEventBox lreb:
-                axisObject.SetActive(true);
-                axisXToggle.SetValueWithoutNotify(lreb.Axis == (int)Axis.X);
-                axisYToggle.SetValueWithoutNotify(lreb.Axis == (int)Axis.Y);
-                axisZToggle.SetValueWithoutNotify(lreb.Axis == (int)Axis.Z);
-                axisXToggle.Selectable.interactable = td.RotationTracks[0];
-                axisYToggle.Selectable.interactable = td.RotationTracks[1];
-                axisZToggle.Selectable.interactable = td.RotationTracks[2];
+            case BaseLightTransformEventBox currentTransformBox:
+                // Rotation and Translation
                 valueDistributionStepToggle.SetValueWithoutNotify(
-                    lreb.RotationDistributionType == (int)DistributionType.Step);
+                    currentTransformBox.ValueDistributionType == (int)DistributionType.Step);
                 valueDistributionWaveToggle.SetValueWithoutNotify(
-                    lreb.RotationDistributionType == (int)DistributionType.Wave);
+                    currentTransformBox.ValueDistributionType == (int)DistributionType.Wave);
                 valueDistributionInput
-                    .WithScrollPrecision(scrollPrecisionController.GetCurrentRotationPrecision)
+                    .WithScrollPrecision(currentTransformBox is BaseLightRotationEventBox
+                        ? scrollPrecisionController.GetCurrentRotationPrecision
+                        : scrollPrecisionController.GetCurrentTranslationPrecision)
                     .SetValueWithoutNotify(
-                        lreb.RotationDistribution);
-                affectFirstToggle.SetValueWithoutNotify(lreb.RotationAffectFirst == 1);
-                break;
-            case BaseLightTranslationEventBox lteb:
-                axisObject.SetActive(true);
-                axisXToggle.SetValueWithoutNotify(lteb.Axis == (int)Axis.X);
-                axisYToggle.SetValueWithoutNotify(lteb.Axis == (int)Axis.Y);
-                axisZToggle.SetValueWithoutNotify(lteb.Axis == (int)Axis.Z);
-                axisXToggle.Selectable.interactable = td.TranslationTracks[0];
-                axisYToggle.Selectable.interactable = td.TranslationTracks[1];
-                axisZToggle.Selectable.interactable = td.TranslationTracks[2];
-                valueDistributionStepToggle.SetValueWithoutNotify(
-                    lteb.TranslationDistributionType == (int)DistributionType.Step);
-                valueDistributionWaveToggle.SetValueWithoutNotify(
-                    lteb.TranslationDistributionType == (int)DistributionType.Wave);
-                valueDistributionInput
-                    .WithScrollPrecision(scrollPrecisionController.GetCurrentTranslationPrecision)
-                    .SetValueWithoutNotify(
-                        lteb.TranslationDistribution * 100f);
-                affectFirstToggle.SetValueWithoutNotify(lteb.TranslationAffectFirst == 1);
+                        currentTransformBox.ValueDistribution * currentTransformBox.ValueDistributionDisplayScale);
+                affectFirstToggle.SetValueWithoutNotify(currentTransformBox.AffectFirst == 1);
                 break;
             case BaseVfxEventEventBox ffeb:
                 axisObject.SetActive(false);
@@ -571,6 +755,18 @@ public class EventBoxViewController : MonoBehaviour
         GLSEventBoxCommand.SetAffectFirst(value ? 1 : 0, groupContext, boxIndex);
 
     private void HandleEaseTypeValueChanged(int value) => GLSEventBoxCommand.SetEasing(value, groupContext, boxIndex);
+
+    // Keep the local tooltip draft self-contained until its text is moved into localized string tables.
+    private static void AddTooltip(ButtonComponent button, string text, string advancedText = null,
+        string hotkeyActionMap = null, string hotkeyActionName = null)
+    {
+        var tooltip = button.gameObject.AddComponent<Tooltip>();
+        tooltip.TooltipOverride = text;
+        tooltip.AdvancedTooltip = advancedText ?? text;
+        tooltip.AppearDelay = 0.25f;
+        if (hotkeyActionMap != null) tooltip.HotkeyActionMap = hotkeyActionMap;
+        if (hotkeyActionName != null) tooltip.HotkeyActionName = hotkeyActionName;
+    }
 
     private int GetGroupSize(BaseEventBoxGroup group)
     {

@@ -11,14 +11,15 @@ using UnityEngine.UI;
 public class AudioTimeSyncController : MonoBehaviour,
                                        CMInput.IPlaybackActions,
                                        CMInput.ITimelineActions,
-                                       CMInput.ITimelineNavigationActions
+                                       CMInput.ITimelineNavigationActions,
+                                       IEditorStateProvider
 {
     public static readonly string PrecisionSnapName = "PrecisionSnap";
 
-    private static readonly int songTime = Shader.PropertyToID("_SongTime");
-    private static readonly int songTimeSeconds = Shader.PropertyToID("_SongTimeSeconds");
-    private static readonly int songTimeOrigin = Shader.PropertyToID("_SongTimeOrigin");
-    private static readonly int viewStart = Shader.PropertyToID("_ViewStart");
+    private static readonly int songTimeId = Shader.PropertyToID("_SongTime");
+    private static readonly int songBpmTimeId = Shader.PropertyToID("_SongBpmTime");
+    private static readonly int songTimeOriginId = Shader.PropertyToID("_SongTimeOrigin");
+    private static readonly int viewStartId = Shader.PropertyToID("_ViewStart");
     private static readonly int viewEnd = Shader.PropertyToID("_ViewEnd");
 
     private const float cancelPlayInputDuration = 0.3f;
@@ -63,6 +64,9 @@ public class AudioTimeSyncController : MonoBehaviour,
     public event Action<float> OnVisualBeatOriginChanged;
     public event Action OnTimeChangedEarly;
     public event Action OnTimeChanged;
+
+    // Keep the map cursor with the controller that owns song-time conversion and track positioning.
+    public string StateKey => "currentJsonTime";
 
     private float playStartTime;
     private bool preciselyControlSnap;
@@ -165,10 +169,9 @@ public class AudioTimeSyncController : MonoBehaviour,
         get
         {
             if (IsPlaying) return false;
-            return Mathf.Approximately(
-                currentJsonTime,
-                (float)Math.Round(currentJsonTime * gridMeasureSnapping, MidpointRounding.AwayFromZero)
-                / gridMeasureSnapping);
+            // Grid lines are relative to VisualBeatOrigin, so snapped-state detection must use the same interval
+            // calculation as cursor restoration and SnapToGrid instead of assuming every grid begins at beat zero.
+            return Mathf.Approximately(currentJsonTime, GetNearestGridLineJsonTime(currentJsonTime));
         }
     }
 
@@ -197,6 +200,8 @@ public class AudioTimeSyncController : MonoBehaviour,
             Settings.NotifyBySettingName(nameof(Settings.TrackLength), UpdateTrackLength);
 
             Initialized = true;
+            // Register after this controller can safely convert restored JSON time into song time.
+            EditorStateService.Register(this);
         }
         catch (Exception e)
         {
@@ -250,10 +255,35 @@ public class AudioTimeSyncController : MonoBehaviour,
 
     private void OnDestroy()
     {
+        EditorStateService.Unregister(this);
         clip = null;
         LoadInitialMap.OnLevelLoaded -= OnLevelLoaded;
         Settings.ClearSettingNotifications("SongSpeed");
         Settings.ClearSettingNotifications("SongVolume");
+    }
+
+    // Save the timeline denominator beside the cursor so each map restores the grid on which that cursor was authored.
+    public void CaptureEditorState(SimpleJSON.JSONObject data)
+    {
+        data["value"] = CurrentJsonTime;
+        data["gridMeasureSnapping"] = GridMeasureSnapping;
+    }
+
+    // Restore grid precision before resolving the cursor so Info.dat float noise snaps to this map's authored interval.
+    public void LoadEditorState(SimpleJSON.JSONNode data)
+    {
+        if (data.HasKey("gridMeasureSnapping"))
+        {
+            GridMeasureSnapping = Math.Max(1, data["gridMeasureSnapping"].AsInt);
+        }
+
+        if (data.HasKey("value"))
+        {
+            // RestoringEditorCursorAfterCloningRingDoesNotUsePreCloneRotationSnapshot moves once at the final snapped
+            // time so lighting never renders the serialized epsilon-offset cursor as an intermediate state.
+            var snappedJsonTime = GetNearestGridLineJsonTime(data["value"].AsFloat);
+            MoveToJsonTime(snappedJsonTime);
+        }
     }
 
     private bool toggledPlayingPreviousFrame;
@@ -299,6 +329,13 @@ public class AudioTimeSyncController : MonoBehaviour,
             return;
         }
 
+        if (controlSnap
+            && preciselyControlSnap
+            && IsCursorIntervalOwnedByHoveredObject())
+        {
+            return;
+        }
+
         var value = context.ReadValue<float>();
         if (context.performed)
         {
@@ -325,8 +362,13 @@ public class AudioTimeSyncController : MonoBehaviour,
                 // +1 beat if we're going forward, -1 beat if we're going backwards
                 var beatShiftRaw = 1f / GridMeasureSnapping * (value > 0 ? 1f : -1f);
                 var snapped = IsSnapped;
+                var minimumJsonTime = Settings.Instance.AllowGLSEventGridScrollingBeforeGroup
+                    ? 0
+                    : VisualBeatOriginJsonTime;
+                var targetJsonTime = Mathf.Max(minimumJsonTime, CurrentJsonTime + beatShiftRaw);
+                if (Mathf.Approximately(targetJsonTime, CurrentJsonTime)) return;
 
-                MoveToJsonTime(Mathf.Max(0, CurrentJsonTime + beatShiftRaw));
+                MoveToJsonTime(targetJsonTime);
                 if (snapped) SnapToGrid(true);
             }
         }
@@ -345,6 +387,12 @@ public class AudioTimeSyncController : MonoBehaviour,
             return;
         }
 
+        // VNJS, GLS and Basic Event hover edits own [Ctrl+]Shift+Scroll instead of the global cursor interval.
+        if (IsCursorIntervalOwnedByHoveredObject())
+        {
+            return;
+        }
+
         var value = context.ReadValue<float>();
         if (context.performed)
         {
@@ -357,6 +405,13 @@ public class AudioTimeSyncController : MonoBehaviour,
             var addition = scrollDirection > 1 ? 1 : -1;
             GridMeasureSnapping = Mathf.Clamp(GridMeasureSnapping + addition, 1, 64);
         }
+    }
+
+    private static bool IsCursorIntervalOwnedByHoveredObject()
+    {
+        return GLSEventInputHoverTracker.IsHovering
+            || BeatmapEventInputController.IsCursorIntervalOwnedByPointer()
+            || BeatmapNJSEventInputController.IsCursorIntervalOwnedByPointer();
     }
 
     public void OnChangePrecisionModifier(InputAction.CallbackContext context) => controlSnap = context.performed;
@@ -405,7 +460,13 @@ public class AudioTimeSyncController : MonoBehaviour,
         if (!context.performed) return;
 
         var snapped = IsSnapped;
-        CurrentJsonTime -= (1f / gridMeasureSnapping);
+        var minimumJsonTime = Settings.Instance.AllowGLSEventGridScrollingBeforeGroup
+            ? 0
+            : VisualBeatOriginJsonTime;
+        var targetJsonTime = Mathf.Max(minimumJsonTime, CurrentJsonTime - (1f / gridMeasureSnapping));
+        if (Mathf.Approximately(targetJsonTime, CurrentJsonTime)) return;
+
+        CurrentJsonTime = targetJsonTime;
         if (snapped) SnapToGrid(true);
     }
 
@@ -427,12 +488,17 @@ public class AudioTimeSyncController : MonoBehaviour,
 
     private void UpdateMovables()
     {
-        Shader.SetGlobalFloat(songTime, currentSongBpmTime);
-        Shader.SetGlobalFloat(songTimeSeconds, currentSeconds);
-        Shader.SetGlobalFloat(songTimeOrigin, VisualBeatOriginJsonTime);
+        Shader.SetGlobalVector(songTimeId, Vector4Extensions.ToTimeVector(currentSeconds));
+        Shader.SetGlobalVector(songBpmTimeId, Vector4Extensions.ToTimeVector(currentSongBpmTime));
+        Shader.SetGlobalFloat(songTimeOriginId, VisualBeatOriginJsonTime);
+
+        if (TimeHelper.Instance != null)
+            TimeHelper.Instance.SynchronizeTime(currentSeconds, !IsPlaying);
 
         // set view range based on track length
-        Shader.SetGlobalFloat(viewStart, GetSecondsFromBeat(currentSongBpmTime - (Settings.Instance.TrackLength / 4f)));
+        Shader.SetGlobalFloat(
+            viewStartId,
+            GetSecondsFromBeat(currentSongBpmTime - (Settings.Instance.TrackLength / 4f)));
         Shader.SetGlobalFloat(viewEnd, GetSecondsFromBeat(currentSongBpmTime + Settings.Instance.TrackLength));
 
         var position = currentSongBpmTime * EditorScaleController.EditorScale;
@@ -505,16 +571,22 @@ public class AudioTimeSyncController : MonoBehaviour,
         SongAudioSource.time = CurrentSeconds;
     }
 
-    public void SnapToGrid(bool positionValidated = false)
+    // Cursor restore and interactive snapping must resolve exactly the same visual-origin-relative interval line.
+    private float GetNearestGridLineJsonTime(float jsonTime)
     {
         var offsetTime = VisualBeatOriginJsonTime;
-
-        var jsonTime = (float)Math.Round(
-                (CurrentJsonTime - offsetTime) * GridMeasureSnapping,
+        var snappedJsonTime = (float)Math.Round(
+                (jsonTime - offsetTime) * GridMeasureSnapping,
                 MidpointRounding.AwayFromZero)
             / GridMeasureSnapping;
 
-        jsonTime += offsetTime;
+        return snappedJsonTime + offsetTime;
+    }
+
+    public void SnapToGrid(bool positionValidated = false)
+    {
+        // Keep manual snapping on the shared interval calculation used by editor-state restoration.
+        var jsonTime = GetNearestGridLineJsonTime(CurrentJsonTime);
 
         currentJsonTime = jsonTime;
         currentSongBpmTime = (float)BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(jsonTime);
@@ -569,7 +641,12 @@ public class AudioTimeSyncController : MonoBehaviour,
             SnapToGrid(true);
         }
 
-        // Ensure we cant move before visual beat origin, otherwise weird things happen with GLS event box groups since their timing is relative to the visual beat origin
-        if (currentSongBpmTime < VisualBeatOrigin) currentSongBpmTime = VisualBeatOrigin;
+        // GLS event times are relative to their group, so keep the grid at or after relative time zero by default.
+        if (!Settings.Instance.AllowGLSEventGridScrollingBeforeGroup && currentSongBpmTime < VisualBeatOrigin)
+        {
+            currentSongBpmTime = VisualBeatOrigin;
+            currentJsonTime = VisualBeatOriginJsonTime;
+            currentSeconds = GetSecondsFromBeat(currentSongBpmTime);
+        }
     }
 }

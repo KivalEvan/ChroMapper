@@ -6,24 +6,11 @@ using UnityEngine;
 
 public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridContainer>
 {
-    // Chroma Color Stuff
-    public static readonly string ChromaColorKey = "PlaceChromaObjects";
-
     private static readonly int alwaysTranslucent = Shader.PropertyToID("_AlwaysTranslucent");
+    [SerializeField] private GridViewController gridViewController;
     [SerializeField] private ColorPicker colorPicker;
 
     [SerializeField] private ToggleColourDropdown dropdown;
-
-    // Chroma Color Check
-    public static bool CanPlaceChromaObjects
-    {
-        get
-        {
-            if (Settings.NonPersistentSettings.ContainsKey(ChromaColorKey))
-                return (bool)Settings.NonPersistentSettings[ChromaColorKey];
-            return false;
-        }
-    }
 
     protected override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicts) =>
         new BeatmapObjectPlacementAction(spawned, conflicts, "Placed a Bomb.");
@@ -33,9 +20,18 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
     public override void Initialize(PlacementProvider provider)
     {
         base.Initialize(provider);
+        // Initialize the queued bomb ghost from its current object-Chroma state instead of its prefab material.
+        UpdateAppearance();
+    }
+
+    private void UpdateAppearance()
+    {
         PlacementVisualContainer.ModelController.MpbController.Mpb.SetFloat(alwaysTranslucent, 1);
-        PlacementVisualContainer.UpdateMaterials();
+        PlacementVisualContainer.ArrowMpbController.Mpb.SetFloat(alwaysTranslucent, 1);
         PlacementVisualContainer.NoteData = QueuedData;
+        // if not set to null, the preview will stay chroma color after you turn chroma color off.
+        PlacementVisualContainer.SetColor(QueuedData.CustomColor != null ? QueuedData.CustomColor : null);
+        PlacementVisualContainer.UpdateMaterials();
     }
 
     protected override void HandleHitToPlacement(Intersections.IntersectionHit hit, Vector3 localPoint)
@@ -44,6 +40,7 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
 
         if (PrecisionPlacementController.IsEnabled)
         {
+            ResetHysteresis();
             var precision = Settings.Instance.PrecisionPlacementGridPrecision;
             LanePosition = BeatmapPositionHelper.LocalPositionToLanePositionRound(
                 localPoint,
@@ -55,10 +52,15 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
         }
         else
         {
-            LanePosition = BeatmapPositionHelper.LocalPositionToLanePosition(
-                localPoint,
-                BeatmapConstant.PlayerYOffset / 2f);
-            LanePosition.z = zPlacement;
+            var rawX = (localPoint.x / BeatmapConstant.LaneSize) - (gridViewController.IsOdd ? 0.5f : 0f);
+            var rawY = (localPoint.y - BeatmapConstant.YOffset - (BeatmapConstant.PlayerYOffset / 2f))
+                / BeatmapConstant.LaneSize;
+            var snappedPosition = SnapWithHysteresis(rawX, rawY);
+
+            LanePosition = new Vector3(
+                snappedPosition.x + (gridViewController.IsOdd ? 0.5f : 0f),
+                snappedPosition.y,
+                zPlacement);
             PlacementVisualContainer.transform.localPosition =
                 BeatmapPositionHelper.LanePositionToLocalPosition(
                     LanePosition,
@@ -69,8 +71,8 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
 
     protected override void HandlePlacementToData(PlacementInputState inputState)
     {
-        // Check if Chroma Color notes button is active and apply _color
-        QueuedData.CustomColor = CanPlaceChromaObjects && dropdown.Visible
+        // Bombs use the same object-Chroma setting as notes and walls, even after the picker flyout is closed as long as the Color Type picker at the top has Chroma Color selected (which defaults to off when coming to this view even if you had it on for lights).
+        QueuedData.CustomColor = CanPlaceChromaObjects
             ? colorPicker.CurrentColor
             : null;
 
@@ -93,7 +95,13 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
                     ? new Vector2(pos.x - 2f, pos.y)
                     : null;
         }
+
+        // // Persist and repaint the queued bomb so its preview follows the current object-Chroma choice.
+        QueuedData.WriteCustom();
+        UpdateAppearance();
     }
+
+    protected override void HandleRotationChanged(float rotation) => QueuedData.Rotation = (int)rotation;
 
     protected override void TransferQueuedToDraggedObject(ref BaseNote dragged, BaseNote queued)
     {
@@ -101,5 +109,16 @@ public class BombPlacement : BasePlacement<BaseNote, NoteContainer, NoteGridCont
         dragged.PosX = queued.PosX;
         dragged.PosY = queued.PosY;
         dragged.CustomCoordinate = queued.CustomCoordinate;
+        if (dragged.Rotation != queued.Rotation)
+        {
+            dragged.Rotation = queued.Rotation;
+            TracksManager.RefreshTracks();
+        }
+    }
+
+    public override void FinishDrag()
+    {
+        base.FinishDrag();
+        QueuedData.Rotation = (int)LaneRotationProvider.EditRotation;
     }
 }

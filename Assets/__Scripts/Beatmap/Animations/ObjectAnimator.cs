@@ -48,6 +48,13 @@ namespace Beatmap.Animations
 
         private List<TrackAnimator> tracks = new();
 
+        // Environment enhancement tracks target existing scene transforms directly so their OEM parent-child
+        // hierarchy is never flattened into GeometryContainer's single animation wrapper.
+        private bool directEnvironmentTarget;
+        private bool directEnvironmentTargetIsV2;
+        private bool directEnvironmentTargetIsTrackLaneRing;
+        private TrackLaneRing directEnvironmentTrackLaneRing;
+
         public Dictionary<string, IAnimateProperty> AnimatedProperties = new();
         private IAnimateProperty[] properties = Array.Empty<IAnimateProperty>();
 
@@ -62,6 +69,12 @@ namespace Beatmap.Animations
             properties = Array.Empty<IAnimateProperty>();
 
             TargetType = TargetTypes.None;
+            // EnvironmentEnhancementWith*Track* regression tests require pooled animators to discard cached direct
+            // target state before they are attached to a different environment object.
+            directEnvironmentTarget = false;
+            directEnvironmentTargetIsV2 = false;
+            directEnvironmentTargetIsTrackLaneRing = false;
+            directEnvironmentTrackLaneRing = null;
 
             OnDisable();
 
@@ -69,7 +82,9 @@ namespace Beatmap.Animations
             {
                 if (container.transform.IsChildOf(AnimationTrack.transform))
                 {
-                    var track = TracksManager.GetTrackAtTime(container.ObjectData?.SongBpmTime ?? 0);
+                    var track = TracksManager.GetTrackAtTime(
+                        container.ObjectData?.SongBpmTime ?? 0,
+                        container.ObjectData is BaseGrid grid ? grid.Rotation : 0);
                     track.AttachContainer(container);
                 }
 
@@ -84,7 +99,15 @@ namespace Beatmap.Animations
             WorldPosition.Reset();
             Scale.Reset();
             Colors.Reset();
-            Colors.Default = container?.MpbController.Mpb?.GetColor(colorId) ?? Color.white;
+            // Unity containers need explicit null checks before reading their current material color.
+            if (container != null)
+            {
+                Colors.Default = container.MpbController.Mpb.GetColor(colorId);
+            }
+            else
+            {
+                Colors.Default = Color.white;
+            }
             Opacity.Reset();
             OpacityArrow.Reset();
 
@@ -124,7 +147,15 @@ namespace Beatmap.Animations
         {
             if (Context != null) Context.Atsc.OnTimeChanged -= OnTimeChanged;
 
-            foreach (var track in tracks) track.RemoveChild(this);
+            // ObjectAnimatorDisableAfterTrackDestroyedDoesNotThrow proves mapper teardown can destroy a parent
+            // TrackAnimator before this child disables, so detach only from Unity objects that are still alive.
+            foreach (var track in tracks)
+            {
+                if (track != null)
+                {
+                    track.RemoveChild(this);
+                }
+            }
 
             tracks.Clear();
         }
@@ -167,6 +198,10 @@ namespace Beatmap.Animations
                     break;
                 case JSONNumber yrot:
                     WorldRotation.Preload(Quaternion.Euler(0, yrot, 0));
+                    break;
+                default:
+                    if (BeatSaberSongContainer.Instance.Map.MajorVersion == 4)
+                        WorldRotation.Preload(Quaternion.Euler(0, obj.Rotation, 0));
                     break;
             }
 
@@ -276,6 +311,7 @@ namespace Beatmap.Animations
 
         public void AttachToGeometry(BaseEnvironmentEnhancement eh)
         {
+            // Map version, rather than the static V2 serializer helper, determines legacy position unit conversion.
             var v2 = BeatSaberSongContainer.Instance.Map.MajorVersion == 2;
             ResetData();
 
@@ -326,6 +362,26 @@ namespace Beatmap.Animations
             OnTimeChanged();
         }
 
+        // Environment enhancement tracks apply authored properties directly to each matched scene object.
+        public void AttachToEnvironmentObject(Transform target, string track, bool v2)
+        {
+            ResetData();
+
+            TargetType = TargetTypes.Transform;
+            LocalTarget = target;
+            WorldTarget = target;
+            directEnvironmentTarget = true;
+            directEnvironmentTargetIsV2 = v2;
+
+            // Cache the optional native ring dependency during attachment so animated position updates can preserve
+            // DefaultEnvironment's per-segment wave without performing component discovery in LateUpdate.
+            directEnvironmentTrackLaneRing = target.GetComponent<TrackLaneRing>();
+            directEnvironmentTargetIsTrackLaneRing = directEnvironmentTrackLaneRing != null;
+
+            AddParent(track);
+            Context.Atsc.OnTimeChanged += OnTimeChanged;
+        }
+
         public void AttachToTrack(Track track, string name)
         {
             ResetData();
@@ -364,14 +420,16 @@ namespace Beatmap.Animations
 
         public void Update()
         {
-            var time = this.time ?? Context.Atsc?.CurrentSongBpmTime ?? 0;
+            // Unity time controllers need explicit null checks before reading their playback time.
+            var time = this.time ?? (Context.Atsc != null ? Context.Atsc.CurrentSongBpmTime : 0);
 
-            if (container?.ObjectData is BaseGrid obj)
+            if (container != null && container.ObjectData is BaseGrid obj)
             {
                 var noodleAnimationLifetime = time > timeEnd ? -1 : 1;
                 if (!(container is ChainContainer))
                 {
-                    container?.MpbController.Mpb.SetFloat(
+                    // Unity containers need explicit null checks before updating spawned-state shader values.
+                    container.MpbController.Mpb.SetFloat(
                         animSpawnedId,
                         noodleAnimationLifetime);
                     if (container is NoteContainer nc)
@@ -414,6 +472,32 @@ namespace Beatmap.Animations
 
         public void LateUpdate()
         {
+            // Direct environment targets apply only properties supplied by AnimateTrack. Reading aggregator defaults
+            // here would incorrectly reset absent position, rotation, or scale fields on empty and scale-only events.
+            if (directEnvironmentTarget)
+            {
+                if (LocalRotation.Count > 0) LocalTarget.localRotation = LocalRotation.Get();
+
+                if (OffsetPosition.Count > 0)
+                {
+                    var position = OffsetPosition.Get();
+                    ApplyDirectEnvironmentPosition(position, directEnvironmentTargetIsV2);
+                }
+
+                if (Scale.Count > 0) LocalTarget.localScale = Scale.Get();
+
+                if (WorldRotation.Count > 0) WorldTarget.rotation = WorldRotation.Get();
+
+                // EnvironmentEnhancementWithZeroPositionAnimateTrackKeepsDefaultEnvironmentBigRingsVisibleAtWorldOrigin
+                // requires definite position to rebase native ring motion just like legacy V2 position does.
+                if (WorldPosition.Count > 0)
+                {
+                    ApplyDirectEnvironmentPosition(WorldPosition.Get(), true);
+                }
+
+                return;
+            }
+
             if (TargetType == TargetTypes.Material)
             {
                 if (Colors.Count > 0)
@@ -438,7 +522,8 @@ namespace Beatmap.Animations
                     WorldTarget.localRotation = WorldRotation.Get();
             }
 
-            var time = this.time ?? Context.Atsc?.CurrentSongBpmTime ?? 0;
+            // Unity time controllers need explicit null checks before reading their playback time.
+            var time = this.time ?? (Context.Atsc != null ? Context.Atsc.CurrentSongBpmTime : 0);
             if (WorldPosition.Count > 0)
             {
                 if (timeBegin < time && time < timeEnd) AnimationTrack.UpdatePosition(0);
@@ -453,8 +538,10 @@ namespace Beatmap.Animations
                 if (Colors.Count > 0)
                 {
                     var color = Colors.Get();
-                    container.MpbController.Mpb
-                        .SetColor(colorId, color);
+                    if (container is ObstacleContainer obstacle)
+                        obstacle.SetColor(color);
+                    else
+                        container.MpbController.Mpb.SetColor(colorId, color);
                 }
 
                 if (container is NoteContainer nc)
@@ -462,6 +549,29 @@ namespace Beatmap.Animations
 
                 container.MpbController.Mpb.SetFloat(cutoutId, 1f - Opacity.Get());
                 container.UpdateMaterials();
+            }
+        }
+
+        // Chroma treats an animated environment position as the TrackLaneRing's new base and retains its current wave
+        // displacement; assigning Transform.position directly would instead stack every segment at the animated point.
+        private void ApplyDirectEnvironmentPosition(Vector3 position, bool worldSpace)
+        {
+            if (directEnvironmentTargetIsTrackLaneRing)
+            {
+                var localPosition = worldSpace && LocalTarget.parent != null
+                    ? LocalTarget.parent.InverseTransformPoint(position)
+                    : position;
+                directEnvironmentTrackLaneRing.RebasePositionOffset(localPosition);
+                return;
+            }
+
+            if (worldSpace)
+            {
+                LocalTarget.position = position;
+            }
+            else
+            {
+                LocalTarget.localPosition = position;
             }
         }
 
@@ -475,6 +585,10 @@ namespace Beatmap.Animations
         private void OnTimeChanged()
         {
             if (Context.Atsc.IsPlaying) return;
+
+            // TrackAnimator refreshes direct environment properties before LateUpdate; an empty event must not apply
+            // ObjectAnimator's identity defaults during a stopped-time callback.
+            if (directEnvironmentTarget) return;
 
             LocalTarget.localRotation = LocalRotation.Get();
 
@@ -538,7 +652,7 @@ namespace Beatmap.Animations
                 case "offsetPosition":
                     AddPointDef(
                         source,
-                        v => OffsetPosition.Add(v),
+                        v => OffsetPosition.Add(v * BeatmapConstant.LaneSize),
                         PointDataParsers.ParseVector3,
                         p,
                         Vector3.zero);
@@ -547,7 +661,7 @@ namespace Beatmap.Animations
                 case "definitePosition":
                     AddPointDef(
                         source,
-                        v => WorldPosition.Add(v),
+                        v => WorldPosition.Add(v * BeatmapConstant.LaneSize),
                         PointDataParsers.ParseVector3,
                         p,
                         Vector3.zero);

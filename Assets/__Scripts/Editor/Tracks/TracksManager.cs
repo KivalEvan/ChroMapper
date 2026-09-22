@@ -9,8 +9,8 @@ public class TracksManager : MonoBehaviour
 {
     [SerializeField] private Track trackPrefab;
     [SerializeField] private Transform tracksParent;
-    [SerializeField] private EventGridContainer eventGridContainer;
     [SerializeField] private ModelUpdateQueueManager modelUpdateQueueManager;
+    [SerializeField] private RotationEventGridContainer rotationEventGridContainer;
 
     [SerializeField] private AudioTimeSyncController atsc;
     [SerializeField] private VariableNJSProvider vNjsProvider;
@@ -116,27 +116,39 @@ public class TracksManager : MonoBehaviour
         track.enabled = true;
         track.UpdatePosition(pos);
 
-        var rotation = GetRotationAtTime(obj.SongBpmTime);
+        var rotation = BeatSaberSongContainer.Instance.Map.MajorVersion == 4
+            ? obj.Rotation
+            : GetRotationAtTime(obj.SongBpmTime);
         track.AssignRotationValue(obj.CustomWorldRotation ?? new Vector3(0, rotation, 0));
         return track;
+    }
+
+    public Track GetTrackAtTime(float beatInSongBpm, int rotation)
+    {
+        if (!Settings.Instance.RotateTrack) return CreateTrack(0);
+        var rot = BeatSaberSongContainer.Instance.Map.MajorVersion == 4
+            ? rotation
+            : GetRotationAtTime(beatInSongBpm);
+
+        return CreateTrack(rot);
     }
 
     public Track GetTrackAtTime(float beatInSongBpm)
     {
         if (!Settings.Instance.RotateTrack) return CreateTrack(0);
-        var rotation = GetRotationAtTime(beatInSongBpm);
+        var rot = GetRotationAtTime(beatInSongBpm);
 
-        return CreateTrack(rotation);
+        return CreateTrack(rot);
     }
 
     public float GetRotationAtTime(float beatInSongBpm)
     {
         float rotation = 0;
-        foreach (var rotationEvent in eventGridContainer.AllRotationEvents)
+        foreach (var rotationEvent in rotationEventGridContainer.MapObjects)
         {
             if (rotationEvent.SongBpmTime > beatInSongBpm + 0.001f) continue;
             if (Mathf.Approximately(rotationEvent.SongBpmTime, beatInSongBpm)
-                && rotationEvent.Type == (int)EventTypeValue.LateLaneRotation)
+                && rotationEvent.Type == (int)EventTypeValue.LateRotationEventType)
                 continue;
 
             rotation += rotationEvent.Rotation;
@@ -155,7 +167,9 @@ public class TracksManager : MonoBehaviour
             {
                 if (container is ObstacleContainer obstacle && obstacle.IsRotatedByNoodleExtensions) continue;
                 if (container.Animator != null && container.Animator.AnimatedTrack) continue;
-                var track = GetTrackAtTime(container.ObjectData.SongBpmTime);
+                var track = GetTrackAtTime(
+                    container.ObjectData.SongBpmTime,
+                    container.ObjectData is BaseGrid grid ? grid.Rotation : 0);
                 track.AttachContainer(container);
                 container.UpdateGridPosition();
             }

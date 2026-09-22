@@ -19,7 +19,7 @@ public class GLSGroupPageViewController : MonoBehaviour
 
     private void Start()
     {
-        beatmapRuntimeContext.OnTracksDefinitionChanged += HandleTracksDefinitionChanged;
+        beatmapRuntimeContext.OnTrackDefinitionsChanged += HandleTrackDefinitionsChanged;
         editModeContext.OnEditModeChanged += HandleEditModeChanged;
         glsGroupGridProvider.OnGroupPageChanged += HandleGroupPageChanged;
 
@@ -28,12 +28,12 @@ public class GLSGroupPageViewController : MonoBehaviour
 
     private void OnDestroy()
     {
-        beatmapRuntimeContext.OnTracksDefinitionChanged -= HandleTracksDefinitionChanged;
+        beatmapRuntimeContext.OnTrackDefinitionsChanged -= HandleTrackDefinitionsChanged;
         editModeContext.OnEditModeChanged -= HandleEditModeChanged;
         glsGroupGridProvider.OnGroupPageChanged -= HandleGroupPageChanged;
     }
 
-    private void HandleTracksDefinitionChanged(TracksDefinitionSO td)
+    private void HandleTrackDefinitionsChanged(TrackDefinitionsSO td)
     {
         foreach (var text in loadedText) Destroy(text.gameObject);
         loadedText.Clear();
@@ -45,6 +45,16 @@ public class GLSGroupPageViewController : MonoBehaviour
             text.name = n;
             text.SetLabelText(n);
             text.OnClick(() => glsGroupGridProvider.SetGroupPage(n));
+            // The button's child selectable receives hover events, so host the remappable hint there rather than on the component root.
+            var tooltipTarget = text.Selectable != null ? text.Selectable.gameObject : text.gameObject;
+            var tooltip = tooltipTarget.GetComponent<Tooltip>() ?? tooltipTarget.AddComponent<Tooltip>();
+            // TODO: Localize this tooltip before Stable so the new remappable hint follows the rest of the UI.
+            tooltip.TooltipOverride = "Cycle GLS tabs";
+            tooltip.AdvancedTooltip = "Cycle GLS tabs";
+            tooltip.AppearDelay = 0.3f;
+            tooltip.HotkeyActionMap = "GLS Group Tabs";
+            tooltip.HotkeyActionName = "Next Groups Page";
+            tooltip.AdditionalHotkeyActionName = "Previous Groups Page";
             text.gameObject.SetActive(true);
             loadedText.Add(text);
             groupToText.Add(n, text);

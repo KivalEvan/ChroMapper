@@ -47,58 +47,16 @@ namespace Beatmap.Base
         public BaseEvent(JSONNode node) : this(BeatmapFactory.Event(node)) { }
 
         public override ObjectType ObjectType { get; set; } = ObjectType.Event;
+
         public virtual int Type { get; set; }
 
-        private int value;
-
-        public int Value
-        {
-            get => value;
-            set
-            {
-                if (IsLaneRotationEvent())
-                {
-                    if (0 <= value && value < LightValueToRotationDegrees.Length)
-                    {
-                        rotation = LightValueToRotationDegrees[value];
-                    }
-                    else if (value is >= 1000 and <= 1720) // Mapping Extensions
-                    {
-                        rotation = value - 1360;
-                    }
-                }
-
-                this.value = value;
-            }
-        }
+        public virtual int Value { get; set; }
 
         public float FloatValue { get; set; } = 1f;
-
-        private float rotation;
-
-        public float Rotation
-        {
-            get => rotation;
-            set
-            {
-                var lightValue = Array.IndexOf(LightValueToRotationDegrees, Mathf.RoundToInt(value));
-                if (lightValue >= 0)
-                {
-                    this.value = lightValue;
-                }
-                else
-                {
-                    this.value = Mathf.RoundToInt(value) + 1360; // Mapping extension
-                }
-
-                rotation = value;
-            }
-        }
 
         public BaseEvent Prev { get; set; }
         public BaseEvent Next { get; set; }
 
-        public static readonly int[] LightValueToRotationDegrees = { -60, -45, -30, -15, 15, 30, 45, 60 };
         private int[] customLightID;
         protected float? customSpeed;
 
@@ -310,6 +268,7 @@ namespace Beatmap.Base
 
         public override bool IsChroma() =>
             CustomData != null
+            // Preserve color data without guessing environment capabilities; consumers validate against track definitions.
             && ((CustomData.HasKey(CustomKeyColor) && CustomData[CustomKeyColor].IsArray)
                 || (CustomData.HasKey(CustomKeyLightGradient) && CustomData[CustomKeyLightGradient].IsArray)
                 || (CustomData.HasKey(CustomKeyLightID)
@@ -321,30 +280,19 @@ namespace Beatmap.Base
                 || (CustomData.HasKey(CustomKeyNameFilter) && CustomData[CustomKeyNameFilter].IsString)
                 || (CustomData.HasKey("_reset") && CustomData["_reset"].IsBoolean)
                 || (CustomData.HasKey("_counterSpin") && CustomData["_counterSpin"].IsBoolean)
-                || (CustomData.HasKey(CustomKeyPropMult) && CustomData[CustomKeyPropMult].IsNumber)
-                || (CustomData.HasKey(CustomKeyStepMult) && CustomData[CustomKeyStepMult].IsNumber)
-                || (CustomData.HasKey(CustomKeySpeedMult) && CustomData[CustomKeySpeedMult].IsNumber)
-                || (!IsLaneRotationEvent()
-                    && CustomData.HasKey(CustomKeyRingRotation)
-                    && CustomData[CustomKeyRingRotation].IsNumber)
+                // Heck only reads underscore-prefixed multiplier and precise-speed fields from V2 maps.
+                || (Settings.Instance.MapVersion == 2
+                    && ((CustomData.HasKey(CustomKeyPropMult) && CustomData[CustomKeyPropMult].IsNumber)
+                        || (CustomData.HasKey(CustomKeyStepMult) && CustomData[CustomKeyStepMult].IsNumber)
+                        || (CustomData.HasKey(CustomKeySpeedMult) && CustomData[CustomKeySpeedMult].IsNumber)
+                        || (CustomData.HasKey(CustomKeyPreciseSpeed) && CustomData[CustomKeyPreciseSpeed].IsNumber)))
                 || (CustomData.HasKey(CustomKeyStep) && CustomData[CustomKeyStep].IsNumber)
                 || (CustomData.HasKey(CustomKeyProp) && CustomData[CustomKeyProp].IsNumber)
                 || (CustomData.HasKey(CustomKeySpeed) && CustomData[CustomKeySpeed].IsNumber)
                 || (CustomData.HasKey(CustomKeyDirection) && CustomData[CustomKeyDirection].IsNumber)
                 || (CustomData.HasKey(CustomKeyLockRotation) && CustomData[CustomKeyLockRotation].IsBoolean));
 
-        public override bool IsNoodleExtensions() =>
-            IsLaneRotationEvent()
-            && CustomData != null
-            && CustomData.HasKey("_rotation")
-            && CustomData["_rotation"].IsNumber;
-
-        public override bool IsMappingExtensions() => IsLaneRotationEvent() && Value >= 1000 && Value <= 1720;
-
-        public bool IsColorBoostEvent() => Type is (int)EventTypeValue.ColorBoost;
-
-        public bool IsLaneRotationEvent() =>
-            Type == (int)EventTypeValue.EarlyLaneRotation || Type == (int)EventTypeValue.LateLaneRotation;
+        public bool IsColorBoostEvent() => Type is (int)EventTypeValue.ColorBoostEventType;
 
         public virtual bool IsBpmEvent() => Type is (int)EventTypeValue.BpmChange;
 
@@ -353,7 +301,7 @@ namespace Beatmap.Base
             if (mode == EventGridContainer.PropMode.Off)
             {
                 return new Vector2(
-                    labels.EventTypeToLaneId(Type) + 0.5f,
+                    labels.EventToLaneId(this) + 0.5f,
                     0.5f
                 );
             }
@@ -445,6 +393,20 @@ namespace Beatmap.Base
             CustomStep = (CustomData?.HasKey(CustomKeyStep) ?? false) ? CustomData?[CustomKeyStep].AsFloat : null;
             CustomProp = (CustomData?.HasKey(CustomKeyProp) ?? false) ? CustomData?[CustomKeyProp].AsFloat : null;
             CustomSpeed = (CustomData?.HasKey(CustomKeySpeed) ?? false) ? CustomData?[CustomKeySpeed].AsFloat : null;
+            // Legacy Chroma fields are V2-only; treating unknown V3/V4 underscore keys as active changes mod behavior.
+            var parseLegacyMovement = Settings.Instance.MapVersion == 2;
+            CustomStepMult = parseLegacyMovement && (CustomData?.HasKey(CustomKeyStepMult) ?? false)
+                ? CustomData?[CustomKeyStepMult].AsFloat
+                : null;
+            CustomPropMult = parseLegacyMovement && (CustomData?.HasKey(CustomKeyPropMult) ?? false)
+                ? CustomData?[CustomKeyPropMult].AsFloat
+                : null;
+            CustomSpeedMult = parseLegacyMovement && (CustomData?.HasKey(CustomKeySpeedMult) ?? false)
+                ? CustomData?[CustomKeySpeedMult].AsFloat
+                : null;
+            CustomPreciseSpeed = parseLegacyMovement && (CustomData?.HasKey(CustomKeyPreciseSpeed) ?? false)
+                ? CustomData?[CustomKeyPreciseSpeed].AsFloat
+                : null;
             CustomRingRotation = (CustomData?.HasKey(CustomKeyRingRotation) ?? false)
                 ? CustomData?[CustomKeyRingRotation].AsFloat
                 : null;
@@ -459,6 +421,7 @@ namespace Beatmap.Base
         protected internal override JSONNode SaveCustom()
         {
             var node = base.SaveCustom();
+
             if (CustomLightID != null)
             {
                 node[CustomKeyLightID] = new JSONArray();
@@ -502,6 +465,26 @@ namespace Beatmap.Base
                 node[CustomKeySpeed] = CustomSpeed;
             else
                 node.Remove(CustomKeySpeed);
+            // Preserve raw unknown V3/V4 keys, but actively round-trip legacy movement fields for V2 only.
+            if (Settings.Instance.MapVersion == 2)
+            {
+                if (CustomStepMult != null)
+                    node[CustomKeyStepMult] = CustomStepMult;
+                else
+                    node.Remove(CustomKeyStepMult);
+                if (CustomPropMult != null)
+                    node[CustomKeyPropMult] = CustomPropMult;
+                else
+                    node.Remove(CustomKeyPropMult);
+                if (CustomSpeedMult != null)
+                    node[CustomKeySpeedMult] = CustomSpeedMult;
+                else
+                    node.Remove(CustomKeySpeedMult);
+                if (CustomPreciseSpeed != null)
+                    node[CustomKeyPreciseSpeed] = CustomPreciseSpeed;
+                else
+                    node.Remove(CustomKeyPreciseSpeed);
+            }
             if (CustomRingRotation != null)
                 node[CustomKeyRingRotation] = CustomRingRotation;
             else
@@ -555,7 +538,11 @@ namespace Beatmap.Base
                             if (comparison != 0) return comparison;
                         }
 
-                        return customLightID.Length.CompareTo(@event.customLightID.Length);
+                        // Equal Light-ID arrays must continue to custom-data comparison so easing and lerp edits register.
+                        comparison = customLightID.Length.CompareTo(@event.customLightID.Length);
+                        if (comparison != 0)
+                            return comparison;
+                        break;
                 }
             }
             //if (comparison == 0) comparison = StructuralComparisons.StructuralComparer.Compare(CustomLightID, @event.CustomLightID);
@@ -576,9 +563,7 @@ namespace Beatmap.Base
                 2 => V2Event.ToJson(this),
                 3 or 4 => Type switch
                 {
-                    (int)EventTypeValue.EarlyLaneRotation => V3RotationEvent.ToJson(this),
-                    (int)EventTypeValue.LateLaneRotation => V3RotationEvent.ToJson(this),
-                    (int)EventTypeValue.ColorBoost => V3ColorBoostEvent.ToJson(this),
+                    (int)EventTypeValue.ColorBoostEventType => V3ColorBoostEvent.ToJson(this),
                     _ => V3BasicEvent.ToJson(this)
                 }
             };

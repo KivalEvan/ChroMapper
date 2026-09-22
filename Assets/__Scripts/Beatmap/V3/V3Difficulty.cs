@@ -28,17 +28,23 @@ namespace Beatmap.V3
 
                 var bpmEvents = new JSONArray();
                 if (difficulty.BpmEvents.Count > 0 && difficulty.BpmEvents.First().JsonTime != 0)
-                {                    
-                    var insertedBpm = (BeatSaberSongContainer.Instance != null)
+                {
+                    // Serialization previously inserted this default into the live map, which
+                    // changed editor state while saving and invalidated other map enumerations.
+                    var insertedBpm = BeatSaberSongContainer.Instance != null
                         ? BeatSaberSongContainer.Instance.Info.BeatsPerMinute
                         : 100; // This path only appears in tests
-                    difficulty.BpmEvents.Insert(0, new BaseBpmEvent
+                    bpmEvents.Add(new BaseBpmEvent
                     {
                         JsonTime = 0,
                         Bpm = insertedBpm
-                    });
+                    }.ToJson());
                 }
-                foreach (var b in difficulty.BpmEvents) bpmEvents.Add(b.ToJson());
+
+                foreach (var b in difficulty.BpmEvents)
+                {
+                    bpmEvents.Add(b.ToJson());
+                }
                 json["bpmEvents"] = bpmEvents;
 
                 // Events
@@ -50,13 +56,8 @@ namespace Beatmap.V3
                 {
                     switch (evt.Type)
                     {
-                        case (int)EventTypeValue.ColorBoost:
+                        case (int)EventTypeValue.ColorBoostEventType:
                             colorBoostBeatmapEvents.Add(evt.ToJson());
-                            break;
-                        
-                        case (int)EventTypeValue.EarlyLaneRotation:
-                        case (int)EventTypeValue.LateLaneRotation:
-                            rotationEvents.Add(evt.ToJson());
                             break;
                         
                         default:
@@ -65,6 +66,8 @@ namespace Beatmap.V3
                     }
                 }
                 
+                foreach (var evt in difficulty.RotationEvents) rotationEvents.Add(evt.ToJson());
+
                 json["rotationEvents"] = rotationEvents;
                 json["basicBeatmapEvents"] = basicBeatmapEvents;
                 json["colorBoostBeatmapEvents"] = colorBoostBeatmapEvents;
@@ -141,6 +144,25 @@ namespace Beatmap.V3
                 }
 
                 var customDataJson = GetOutputCustomJsonData(difficulty);
+
+                if (difficulty.SaveVNJSEventsInV3 && difficulty.NJSEvents.Count > 0)
+                {
+                    var njsEvents = new JSONArray();
+
+                    foreach (var njsEvent in difficulty.NJSEvents)
+                    {
+                        njsEvents.Add(new JSONObject
+                        {
+                            ["b"] = njsEvent.JsonTime,
+                            ["d"] = njsEvent.RelativeNJS,
+                            ["p"] = njsEvent.UsePrevious,
+                            ["e"] = njsEvent.Easing
+                        });
+                    }
+
+                    customDataJson["njsEvents"] = njsEvents;
+                }
+
                 if (customDataJson.Children.Any())
                     json["customData"] = customDataJson;
 
@@ -158,6 +180,9 @@ namespace Beatmap.V3
         private static JSONNode GetOutputCustomJsonData(BaseDifficulty difficulty)
         {
             var customData = difficulty.CustomData?.Clone() ?? new JSONObject();
+
+            customData.Remove("njsEvents");
+            customData.Remove("njsEventData");
 
             if (difficulty.Bookmarks.Any())
             {
@@ -276,7 +301,7 @@ namespace Beatmap.V3
                             foreach (JSONNode n in node) map.Events.Add(V3ColorBoostEvent.GetFromJson(n));
                             break;
                         case "rotationEvents":
-                            foreach (JSONNode n in node) map.Events.Add(V3RotationEvent.GetFromJson(n));
+                            foreach (JSONNode n in node) map.RotationEvents.Add(V3RotationEvent.GetFromJson(n));
                             break;
                         
                         case "bpmEvents":
@@ -324,6 +349,8 @@ namespace Beatmap.V3
                 // Important!
                 map.Notes.Sort();
                 map.Events.Sort();
+                map.RotationEvents.Sort();
+                map.NJSEvents.Sort();
                 
                 // Do not assume map is sorted for other things anyway
                 map.BpmEvents.Sort();
@@ -361,6 +388,22 @@ namespace Beatmap.V3
 
                 switch (key)
                 {
+                    case "njsEvents":
+                        foreach (JSONNode n in node)
+                        {
+                            map.NJSEvents.Add(new BaseNJSEvent
+                            {
+                                JsonTime = n["b"].AsFloat,
+                                RelativeNJS = n["d"].AsFloat,
+                                UsePrevious = n["p"].AsInt,
+                                Easing = n["e"].AsInt
+                            });
+                        }
+                        map.CustomData.Remove(key);
+                        break;
+                    case "njsEventData":
+                        map.CustomData.Remove(key);
+                        break;
                     case "BPMChanges":
                         foreach (JSONNode n in node) bpmList.Add(V3BpmChange.GetFromJson(n));
                         map.CustomData.Remove(key);

@@ -5,6 +5,7 @@ Shader "ChroMapper/Object/Basic Gradient"
         _ColorA("Color A", Color) = (1.0, 0.0, 0.0, 1.0)
         _ColorB("Color B", Color) = (1.0, 0.0, 0.0, 1.0)
         _EasingID("Easing ID", Int) = 0
+        _UseHSV("Use HSV", Int) = 0
     }
     SubShader
     {
@@ -25,14 +26,15 @@ Shader "ChroMapper/Object/Basic Gradient"
             #pragma multi_compile_instancing
 
             #include "UnityCG.cginc"
-            #include "../ShaderLibrary/Easings.hlsl"
-            #include "../ShaderLibrary/CustomTonemapping.hlsl"
+            #include "../ShaderLibrary/Core/Easings.hlsl"
+            #include "../ShaderLibrary/Core/Tonemapping.hlsl"
 
             // Define instanced properties
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _ColorA)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _ColorB)
                 UNITY_DEFINE_INSTANCED_PROP(int, _EasingID)
+                UNITY_DEFINE_INSTANCED_PROP(int, _UseHSV)
             UNITY_INSTANCING_BUFFER_END(Props)
 
             struct appdata
@@ -48,6 +50,24 @@ Shader "ChroMapper/Object/Basic Gradient"
                 float2 uv : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
+
+            // Keep the ribbon's HSV conversion self-contained because the shared shader includes only easing functions.
+            float3 RGBToHSV(float3 color)
+            {
+                const float epsilon = 1e-10f;
+                const float4 constants = float4(0.0f, -1.0f / 3.0f, 2.0f / 3.0f, -1.0f);
+                float4 p = lerp(float4(color.bg, constants.wz), float4(color.gb, constants.xy), step(color.b, color.g));
+                float4 q = lerp(float4(p.xyw, color.r), float4(color.r, p.yzx), step(p.x, color.r));
+                float chroma = q.x - min(q.w, q.y);
+                return float3(abs(q.z + ((q.w - q.y) / ((6.0f * chroma) + epsilon))), chroma / (q.x + epsilon), q.x);
+            }
+
+            // Convert the hue, saturation, and value interpolated above back to the display color.
+            float3 HSVToRGB(float3 color)
+            {
+                float3 rgb = abs((frac(color.xxx + float3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f) - 3.0f);
+                return color.z * lerp(1.0f, saturate(rgb - 1.0f), color.y);
+            }
 
             v2f vert(appdata v)
             {
@@ -174,7 +194,37 @@ Shader "ChroMapper/Object/Basic Gradient"
                     break;
                 }
 
-                float4 color = lerp(startColor, endColor, t);
+                // Match BasicEventColorLerp: mode 1 preserves legacy scalar HSV and mode 2 uses shortest-path trueHSV.
+                float4 color;
+                int colorLerpType = UNITY_ACCESS_INSTANCED_PROP(Props, _UseHSV);
+                if (colorLerpType != 0)
+                {
+                    float4 startHsv = float4(RGBToHSV(startColor.rgb), startColor.a);
+                    float4 endHsv = float4(RGBToHSV(endColor.rgb), endColor.a);
+                    float hue;
+                    if (colorLerpType == 1)
+                    {
+                        // Existing HSV data linearly interpolates normalized hue even when that takes the long arc through green.
+                        hue = lerp(startHsv.x, endHsv.x, t);
+                    }
+                    else
+                    {
+                        // trueHSV mirrors Mathf.LerpAngle's shortest signed delta and hue-only easing clamp.
+                        float hueDelta = frac(endHsv.x - startHsv.x);
+                        if (hueDelta > 0.5f) hueDelta -= 1.0f;
+                        hue = frac(startHsv.x + (hueDelta * saturate(t)));
+                    }
+
+                    float3 hsv = float3(
+                        hue,
+                        lerp(startHsv.y, endHsv.y, t),
+                        lerp(startHsv.z, endHsv.z, t));
+                    color = float4(HSVToRGB(hsv), lerp(startHsv.a, endHsv.a, t));
+                }
+                else
+                {
+                    color = lerp(startColor, endColor, t);
+                }
 
                 float mult = max(color.a, 1);
                 color.r *= mult;
@@ -184,7 +234,7 @@ Shader "ChroMapper/Object/Basic Gradient"
                 color.rgb *= clamp(color.a, 0, 1);
                 color.a = 0;
 
-                ACES_TONE_MAPPING_APPLY(color);
+                color = ApplyAcesTonemapping(color);
                 return color;
             }
             ENDHLSL

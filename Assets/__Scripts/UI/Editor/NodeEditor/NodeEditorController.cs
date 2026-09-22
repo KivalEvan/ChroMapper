@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using ZLinq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Beatmap.Base;
@@ -151,20 +152,24 @@ public class NodeEditorController : MonoBehaviour, CMInput.INodeEditorActions
 
     private void UpdateJson()
     {
-        if (SelectionController.SelectedObjects.ToList().Exists(x => x is BaseGLSEvent or BaseVfxEventEventBoxGroup))
-        {
-            PersistentUI.Instance.ShowDialogBox(
-                "This object is currently unsupported for node editor.",
-                null,
-                PersistentUI.DialogBoxPresetType.Ok);
-            return;
-        }
+        editingObjects = SelectionController.SelectedObjects.AsValueEnumerable().Select(it => it).ToList();
 
-        editingObjects = SelectionController.SelectedObjects.Select(it => it).ToList();
+        // FloatFX groups serialize through the same node-editor JSON path as other GLS objects, so do not block them here.
+        // Log the raw JSON before shared-value processing because GLS nodes and groups can have version-specific serializers.
+        var rawJsonNodes = editingObjects
+            .Select(obj =>
+            {
+                var json = obj.ToJson();
+                // Debug.Log($"[NodeEditor JSON] Object={obj.GetType().Name} ObjectType={obj.ObjectType} MapVersion={Settings.Instance.MapVersion} JsonNull={json == null} Json={json}");
+                return json?.Clone() ?? new JSONObject();
+            })
+            .ToList();
+        editingNode = GetSharedJson(rawJsonNodes);
+        // Debug.Log($"[NodeEditor JSON] Shared ObjectCount={editingObjects.Count} ResultNull={editingNode == null} ResultType={editingNode?.Tag} Result={editingNode}");
 
-        editingNode = GetSharedJson(editingObjects.Select(it => it.ToJson().Clone()));
-
-        nodeEditorInputField.text = string.Join("", editingNode.ToString(2).Split('\r'));
+        var formattedJson = string.Join("", editingNode?.ToString(2).Split('\r') ?? Array.Empty<string>());
+        nodeEditorInputField.SetTextWithoutNotify(formattedJson);
+        // Debug.Log($"[NodeEditor JSON] InputFieldAssigned Length={formattedJson.Length} ActualLength={nodeEditorInputField.text.Length}");
 
         if (editingObjects.Count == 1)
         {
@@ -182,7 +187,6 @@ public class NodeEditorController : MonoBehaviour, CMInput.INodeEditorActions
 
             var formattedName = string.Join(" ", processedNames);
             labelTextMesh.text = "Editing " + formattedName;
-            nodeEditorInputField.text = string.Join("", editingNode.ToString(2).Split('\r'));
         }
         else
         {
@@ -226,28 +230,24 @@ public class NodeEditorController : MonoBehaviour, CMInput.INodeEditorActions
 
             ApplyJson(editingNode.AsObject, newNode.AsObject, objectJsonMap);
 
-            var beatmapActions = objectJsonMap
-                .Select(pair =>
-                {
-                    var (reference, json) = pair;
-                    var original = reference.Clone() as BaseObject;
-                    reference.Apply(Activator.CreateInstance(reference.GetType(), new object[] { json }) as BaseObject);
-                    return new BeatmapObjectModifiedAction(
-                        reference,
-                        reference,
-                        original,
-                        $"Edited a {reference.ObjectType} with Node Editor.",
-                        true);
-                })
-                .ToList();
+            // Inner GLS nodes are owned by their group, unlike every ordinary Node Editor object.
+            if (editingObjects.All(obj => obj is BaseGLSEvent))
+            {
+                ApplyInnerGlsEdit(objectJsonMap);
+            }
+            else
+            {
+                var editedObjects = objectJsonMap
+                    .Select(pair => CreateEditedObject(pair.Key, pair.Value))
+                    .ToList();
 
-            BeatmapActionContainer.AddAction(
-                new ActionCollectionAction(
-                    beatmapActions,
-                    true,
-                    true,
-                    $"Edited ({editingObjects.Count}) objects with Node Editor."),
-                true);
+                BeatmapActionContainer.AddAction(
+                    new BeatmapObjectModifiedCollectionAction(
+                        editedObjects,
+                        editingObjects,
+                        $"Edited ({editingObjects.Count}) objects with Node Editor."),
+                    true);
+            }
             UpdateJson();
         }
         catch (Exception e)
@@ -269,6 +269,51 @@ public class NodeEditorController : MonoBehaviour, CMInput.INodeEditorActions
             }
 
             PersistentUI.Instance.ShowDialogBox(message, null, PersistentUI.DialogBoxPresetType.Ok);
+        }
+    }
+
+    private static BaseObject CreateEditedObject(BaseObject reference, JSONNode json)
+    {
+        var edited = BeatmapFactory.Clone(reference);
+        edited.Apply(Activator.CreateInstance(reference.GetType(), new object[] { json }) as BaseObject);
+        return edited;
+    }
+
+    private void ApplyInnerGlsEdit(IReadOnlyDictionary<BaseObject, JSONNode> objectJsonMap)
+    {
+        // The open inner GLS grid can select nodes from only its current parent group.
+        var originalGroup = ((BaseGLSEvent)editingObjects[0]).EventBoxGroupData;
+        var editedGroup = BeatmapFactory.Clone(originalGroup);
+        var eventLookup = new GLSEventLookupIndex(originalGroup);
+        var editedSelectedEvents = new List<BaseGLSEvent>();
+        foreach (var selectedEvent in editingObjects.Cast<BaseGLSEvent>())
+        {
+            if (!eventLookup.TryGetCloneEvent(selectedEvent, editedGroup, out _, out var editedEvent))
+            {
+                continue;
+            }
+
+            editedEvent.Apply(CreateEditedObject(selectedEvent, objectJsonMap[selectedEvent]));
+            editedSelectedEvents.Add(editedEvent);
+        }
+
+        // Parent replacement keeps child identities authoritative across undo and redo.
+        BeatmapActionContainer.AddAction(
+            new BeatmapGLSEventBoxModifiedAction(
+                editedGroup,
+                originalGroup,
+                "Edited GLS events with Node Editor."),
+            true);
+
+        // Parent replacement clears selection, so retain the edited nodes without creating selection history.
+        foreach (var editedEvent in editedSelectedEvents)
+        {
+            SelectionController.Select(editedEvent, true, false, false);
+        }
+
+        if (editedSelectedEvents.Count > 0)
+        {
+            SelectionController.OnSelectionChanged?.Invoke();
         }
     }
 

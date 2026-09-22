@@ -97,17 +97,22 @@ public class FirstBootMenu : MonoBehaviour
         switch (graphicsDropdown.value)
         {
             case (int)GraphicsPreset.Performance:
+                Settings.Instance.Bloom = false;
+                Settings.Instance.BloomFog = true;
                 Settings.Instance.ChromaticAberration = false;
+                Settings.Instance.ScreenDisplacement = false;
                 Settings.Instance.NoteModels = "Simple Solid";
                 Settings.Instance.Reflections = false;
-                Settings.Instance.HighQualityBloom = false;
                 Settings.Instance.DisplayFloatValueText = false;
                 Settings.Instance.SpectrogramEditorQuality = 1;
                 Settings.Instance.SpectrogramSlices = 0;
                 Settings.Instance.MirrorQuality = (int)MirrorRendererSO.MirrorQuality.None;
                 break;
             case (int)GraphicsPreset.Balanced:
+                Settings.Instance.Bloom = true;
+                Settings.Instance.BloomFog = true;
                 Settings.Instance.ChromaticAberration = false;
+                Settings.Instance.ScreenDisplacement = false;
                 Settings.Instance.NoteModels = "Simple";
                 Settings.Instance.Reflections = false;
                 Settings.Instance.SpectrogramSlices = 0;
@@ -115,6 +120,10 @@ public class FirstBootMenu : MonoBehaviour
                 Settings.Instance.MirrorQuality = (int)MirrorRendererSO.MirrorQuality.Low;
                 break;
             case (int)GraphicsPreset.Quality:
+                Settings.Instance.Bloom = true;
+                Settings.Instance.BloomFog = true;
+                Settings.Instance.ChromaticAberration = true;
+                Settings.Instance.ScreenDisplacement = true;
                 Settings.Instance.Offset_Spawning = 8;
                 Settings.Instance.Offset_Despawning = 2;
                 Settings.Instance.ChunkDistance = 10;
@@ -322,9 +331,9 @@ public class FirstBootMenu : MonoBehaviour
         if (string.IsNullOrEmpty(oculusBaseDirectory)) return "";
         string installPath;
         if (string.IsNullOrEmpty(path3))
-            installPath = Path.Combine(oculusBaseDirectory, path1, path2);
+            installPath = PathUtils.Combine(oculusBaseDirectory, path1, path2);
         else
-            installPath = Path.Combine(oculusBaseDirectory, path1, path2, path3);
+            installPath = PathUtils.Combine(oculusBaseDirectory, path1, path2, path3);
         if (Directory.Exists(installPath)) return installPath;
         return "";
     }
@@ -338,7 +347,7 @@ public class FirstBootMenu : MonoBehaviour
         {
             var originalPath = libraryKey.OpenSubKey(subKeyName).GetValue("OriginalPath");
             if (originalPath != null && string.IsNullOrEmpty((string)originalPath)) continue;
-            var installPath = Path.Combine((string)originalPath, "Software", oculusStoreBeatSaberFolderName);
+            var installPath = PathUtils.Combine((string)originalPath, "Software", oculusStoreBeatSaberFolderName);
             if (Directory.Exists(installPath)) return installPath;
         }
 

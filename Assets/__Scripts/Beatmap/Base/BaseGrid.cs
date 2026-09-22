@@ -25,18 +25,28 @@ namespace Beatmap.Base
         {
         }
 
-        protected BaseGrid(float time, int posX, int posY, JSONNode customData = null) : base(time, customData)
+        protected BaseGrid(float time, int posX, int posY, int rotation, JSONNode customData = null) : base(
+            time,
+            customData)
         {
             PosX = posX;
             PosY = posY;
+            Rotation = rotation;
             RecomputeSpawnParameters();
         }
 
-        protected BaseGrid(float jsonTime, float songBpmTime, int posX, int posY, JSONNode customData = null) :
+        protected BaseGrid(
+            float jsonTime,
+            float songBpmTime,
+            int posX,
+            int posY,
+            int rotation,
+            JSONNode customData = null) :
             base(jsonTime, songBpmTime, customData)
         {
             PosX = posX;
             PosY = posY;
+            Rotation = rotation;
             RecomputeSpawnParameters();
         }
 
@@ -98,11 +108,15 @@ namespace Beatmap.Base
 
         public void RecomputeSpawnParameters()
         {
+            // Unity singletons need explicit null checks before reading beatmap difficulty defaults.
+            var songContainer = BeatSaberSongContainer.Instance;
+            var mapDifficultyInfo = songContainer != null ? songContainer.MapDifficultyInfo : null;
+            var info = songContainer != null ? songContainer.Info : null;
             var njs = CustomNoteJumpMovementSpeed?.AsFloat
-                ?? BeatSaberSongContainer.Instance?.MapDifficultyInfo?.NoteJumpSpeed ?? 0f;
+                ?? mapDifficultyInfo?.NoteJumpSpeed ?? 0f;
             var offset = CustomNoteJumpStartBeatOffset?.AsFloat
-                ?? BeatSaberSongContainer.Instance?.MapDifficultyInfo?.NoteStartBeatOffset ?? 0f;
-            var bpm = BeatSaberSongContainer.Instance?.Info?.BeatsPerMinute ?? 0f;
+                ?? mapDifficultyInfo?.NoteStartBeatOffset ?? 0f;
+            var bpm = info?.BeatsPerMinute ?? 0f;
 
             var hjd = SpawnParameterHelper.CalculateHalfJumpDuration(njs, offset, bpm);
             var jd = SpawnParameterHelper.CalculateJumpDistance(njs, offset, bpm);

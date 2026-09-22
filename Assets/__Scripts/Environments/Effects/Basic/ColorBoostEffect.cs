@@ -4,7 +4,7 @@ using Beatmap.Base;
 public class ColorBoostEffect : BasicEventEffect<ColorBoostStateData>, IEffectStateSignal<bool>
 {
     private readonly BasicEventStateChunksContainer<ColorBoostStateData> container = new();
-    public ColorSchemeSO ColorScheme;
+    public ColorSchemeProvider ColorSchemeProvider;
     public bool Boost;
 
     public event Action<bool> OnStateChanged;
@@ -22,10 +22,12 @@ public class ColorBoostEffect : BasicEventEffect<ColorBoostStateData>, IEffectSt
     {
         if (stateData.Boost == Boost) return;
         Boost = stateData.Boost;
-        ColorScheme.SwapEnvironmentColors(Boost);
+        ColorSchemeProvider.ColorScheme.SwapEnvironmentColors(Boost);
         OnStateChanged?.Invoke(Boost);
     }
 
+    public bool GetCurrentState() => Boost;
+    
     protected override ColorBoostStateData CreateState(BaseEvent data) => new(data);
 
     public override void InsertData(BaseEvent data)
@@ -35,6 +37,13 @@ public class ColorBoostEffect : BasicEventEffect<ColorBoostStateData>, IEffectSt
         state.Boost = data.Value == 1;
 
         HandleInsertState(container, state);
+
+        // Inserting a boost before the paused preview time must replace the cached current state immediately.
+        if (state.StartTime <= Atsc.CurrentSongBpmTime)
+        {
+            container.SetStateAt(Atsc.CurrentSongBpmTime);
+            UpdateObject(container.CurrentState);
+        }
     }
 
     public override void RemoveData(BaseEvent reference, BaseEvent original)

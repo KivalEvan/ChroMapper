@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -15,6 +16,9 @@ public class EnvironmentDescriptor : MonoBehaviour
     [SerializeField] public LightTranslationGroupEffectManager LightTranslationGroupEffectManager;
     [SerializeField] public FloatFxGroupEffectManager FloatFxGroupEffectManager;
 
+    [SerializeField] public ColorSchemeProvider ColorSchemeProvider;
+    [SerializeField] public SpectrogramDataProvider SpectrogramDataProvider;
+
     [SerializeField] public EnvironmentSizeData SizeData = new();
     [SerializeField] public BloomFogParams BloomFogParams = new();
 
@@ -22,10 +26,6 @@ public class EnvironmentDescriptor : MonoBehaviour
 
     private bool hasInitialized;
     private IEnvironmentComponentUpdate[] componentUpdates;
-
-    // TODO: replace this, idrk where this goes
-    [Tooltip("If you want a thing to rotate around a 360 level with the track, place it here.")]
-    public GridRotationController RotationController;
 
     public void Initialize(BeatmapRuntimeContext context)
     {
@@ -42,19 +42,17 @@ public class EnvironmentDescriptor : MonoBehaviour
 
         hasInitialized = true;
         Shader.SetGlobalFloat("_TrackLaneYPosition", SizeData.TrackLaneType == TrackLaneType.None ? -100f : 0f);
-        var rotationCallback = Resources.FindObjectsOfTypeAll<RotationCallbackController>().First();
 
-        BasicEventEffectManager.Initialize(context.Atsc, context.ColorScheme);
-        LightColorGroupEffectManager.Initialize(context.Atsc, context.ColorScheme);
+        BasicEventEffectManager.Initialize(context.Atsc);
+        LightColorGroupEffectManager.Initialize(context.Atsc);
         LightRotationGroupEffectManager.Initialize(context.Atsc);
         LightTranslationGroupEffectManager.Initialize(context.Atsc);
         FloatFxGroupEffectManager.Initialize(context.Atsc);
 
-        if (RotationController != null)
-        {
-            RotationController.RotationCallback = rotationCallback;
-            RotationController.Init();
-        }
+        ColorSchemeProvider.Initialize(context);
+        foreach (var controller in componentUpdates.OfType<RectangleFakeGlowLightController>())
+            controller.ApplyInitialColorScheme(ColorSchemeProvider);
+        SpectrogramDataProvider.AudioLink = context.AudioLink;
 
         BasicLightEffect.FlashTimeBeat = context.Atsc.GetBeatFromSeconds(BasicLightEffect.FlashTimeSecond);
         BasicLightEffect.FadeTimeBeat = context.Atsc.GetBeatFromSeconds(BasicLightEffect.FadeTimeSecond);

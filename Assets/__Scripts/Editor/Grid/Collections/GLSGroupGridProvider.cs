@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class GLSGroupGridProvider : MonoBehaviour, CMInput.IGLSGroupTabsActions
+public class GLSGroupGridProvider : MonoBehaviour, CMInput.IGLSGroupTabsActions, IEditorStateProvider
 {
     public event Action<string> OnGroupPageChanged;
 
@@ -23,12 +23,36 @@ public class GLSGroupGridProvider : MonoBehaviour, CMInput.IGLSGroupTabsActions
     public string CurrentGroup;
     public int CurrentGroupIdx;
 
+    // Keep the selected GLS group page with the provider that owns its track visibility.
+    public string StateKey => "glsGroupPage";
+
     private readonly Stack<GLSGroupTrack> reuseTracks = new();
 
-    private void Start() => beatmapContext.OnTracksDefinitionChanged += HandleTracksDefinitionChanged;
-    private void OnDestroy() => beatmapContext.OnTracksDefinitionChanged -= HandleTracksDefinitionChanged;
+    private void Start()
+    {
+        beatmapContext.OnTrackDefinitionsChanged += HandleTrackDefinitionsChanged;
+        EditorStateService.Register(this);
+    }
 
-    private void HandleTracksDefinitionChanged(TracksDefinitionSO tracksDefinition)
+    private void OnDestroy()
+    {
+        EditorStateService.Unregister(this);
+        beatmapContext.OnTrackDefinitionsChanged -= HandleTrackDefinitionsChanged;
+    }
+
+    // Save the group currently shown in the GLS lane grid.
+    public void CaptureEditorState(SimpleJSON.JSONObject data) => data["group"] = CurrentGroup;
+
+    // Restore only after tracks have populated; an empty pre-refresh provider is retried by map-load dispatch.
+    public void LoadEditorState(SimpleJSON.JSONNode data)
+    {
+        if (data.HasKey("group"))
+        {
+            SetGroupPage(data["group"].Value);
+        }
+    }
+
+    private void HandleTrackDefinitionsChanged(TrackDefinitionsSO trackDefinitions)
     {
         foreach (var t in IdToTracks.Values)
         {
@@ -43,7 +67,7 @@ public class GLSGroupGridProvider : MonoBehaviour, CMInput.IGLSGroupTabsActions
         CurrentGroupIdx = 0;
         CurrentGroup = "";
 
-        foreach (var (id, gls) in tracksDefinition.Gls)
+        foreach (var (id, gls) in trackDefinitions.Gls)
         {
             if (!reuseTracks.TryPop(out var glsTrack)) glsTrack = Instantiate(trackPrefab, targetGrid);
             if (!atsc.otherTracks.Contains(glsTrack.Track)) atsc.otherTracks.Add(glsTrack.Track);
@@ -62,11 +86,25 @@ public class GLSGroupGridProvider : MonoBehaviour, CMInput.IGLSGroupTabsActions
         RefreshGroupPageTrack();
     }
 
-    public void OnNextGroup(InputAction.CallbackContext context)
+    // The input action describes navigating a page of GLS groups, not selecting an individual group.
+    public void OnNextGroupsPage(InputAction.CallbackContext context)
     {
         if (!context.performed || !editContext.EditingMode.HasFlag(EditingMode.GLS) || GroupNameList.Count == 0) return;
-        CurrentGroupIdx++;
-        CurrentGroupIdx %= GroupNameList.Count;
+        // Match Basic Event page-up behavior with a dedicated action that advances the visible GLS tab.
+        CycleGroup(1);
+    }
+
+    // The input action describes navigating a page of GLS groups, not selecting an individual group.
+    public void OnPreviousGroupsPage(InputAction.CallbackContext context)
+    {
+        if (!context.performed || !editContext.EditingMode.HasFlag(EditingMode.GLS) || GroupNameList.Count == 0) return;
+        // Match Basic Event page-down behavior with a dedicated action that reverses the visible GLS tab.
+        CycleGroup(-1);
+    }
+
+    private void CycleGroup(int direction)
+    {
+        CurrentGroupIdx = (CurrentGroupIdx + direction + GroupNameList.Count) % GroupNameList.Count;
         RefreshGroupPageTrack();
     }
 

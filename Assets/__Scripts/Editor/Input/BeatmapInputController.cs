@@ -1,15 +1,24 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Beatmap.Base;
 using Beatmap.Containers;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-public static class GlobalIntersectionCache
+public static class BeatmapRaycastCache
 {
     public static GameObject FirstHit;
     public static bool HasHit;
     public static bool HasRaycastThisFrame;
+
+    // Clear the physical hit because pooled containers can change identity after group replacement.
+    public static void Invalidate()
+    {
+        FirstHit = null;
+        HasHit = false;
+        HasRaycastThisFrame = false;
+    }
 }
 
 public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatmapObjectsActions
@@ -24,7 +33,7 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
 
     [SerializeField] private CameraManager cameraManager;
     [SerializeField] protected EditModeContext EditContext;
-    [SerializeField] private EditingMode editMode;
+    [SerializeField] protected EditingMode editMode;
     [SerializeField] private ObstaclePlacement obstaclePlacement;
     [SerializeField] private bool ignoreBaseInput;
 
@@ -45,10 +54,11 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
     // Update is called once per frame
     private void Update()
     {
-        if ((EditContext.EditingMode & editMode) != editMode)
+        if ((EditContext.EditingMode & editMode) == 0)
         {
             if (IsHovering) HoveredObject.Highlighted = false;
             IsHovering = false;
+            HandleHoverChanged(null);
             return;
         }
 
@@ -59,17 +69,24 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
             return;
         }
 
-        if (Application.isFocused && RaycastFirstObject(out var first))
+        if (Application.isFocused && RaycastFirstObject(out var first) && SpecialCaseContainer(first))
         {
             if (HoveredObject != first && IsHovering) HoveredObject.Highlighted = false;
             HoveredObject = first;
             HoveredObject.Highlighted = true;
             IsHovering = true;
+            HandleHoverChanged(HoveredObject);
         }
         else if (IsHovering)
         {
-            HoveredObject.Highlighted = false;
-            IsHovering = false;
+            if (!HoveredObject.Dragged)
+            {
+                // Objects like ArcIndicator and ChainIndicators are offset from the cursor while dragging so only
+                // stop highlighting and hovering when the dragging has finished
+                HoveredObject.Highlighted = false;
+                IsHovering = false;
+                HandleHoverChanged(null);
+            }
         }
         else
             IsHovering = false;
@@ -86,10 +103,16 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
 
     protected virtual void LateUpdate()
     {
-        GlobalIntersectionCache.FirstHit = null;
-        GlobalIntersectionCache.HasHit = false;
-        GlobalIntersectionCache.HasRaycastThisFrame = false;
+        // End the shared frame cache as one operation so its collider and resolved owner cannot get out of sync.
+        BeatmapRaycastCache.Invalidate();
     }
+
+    // because abstract object container can be used to handle multitype,
+    // we do want to only handle specific type and ignore already existing input
+    protected virtual bool SpecialCaseContainer(ObjectContainer con) => true;
+
+    // Notify specialized controllers when their hover target changes without adding per-frame polling.
+    protected virtual void HandleHoverChanged(TContainer container) { }
 
     public void OnDeleteTool(InputAction.CallbackContext context)
     {
@@ -102,9 +125,18 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
             return; //Returns if the mouse is on top of UI
 
         if (!Application.isFocused) return;
+        // Shift+middle on a Basic Event ribbon raycasts its preceding owner, so reject the physical ribbon hit
+        // before the shared quick-delete path can delete that source node; this also protects any future interactive GLS ribbon.
+        if (RaycastFirstObject(out var obj) && SpecialCaseContainer(obj) && !obj.Dragged && context.performed)
+        {
+            var firstHit = BeatmapRaycastCache.FirstHit;
+            if (firstHit != null && firstHit.GetComponentInParent<LightGradientController>() != null)
+            {
+                return;
+            }
 
-        RaycastFirstObject(out var obj);
-        if (obj != null && !obj.Dragged && context.performed) CompleteDelete(obj);
+            CompleteDelete(obj);
+        }
     }
 
     public void OnSelectObjects(InputAction.CallbackContext context)
@@ -117,7 +149,7 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
         IsSelecting = context.performed;
         if (!context.performed) return;
         timeWhenFirstSelecting = Time.time;
-        if (!RaycastFirstObject(out var firstObject)) return;
+        if (!RaycastFirstObject(out var firstObject) || !SpecialCaseContainer(firstObject)) return;
         var obj = firstObject.ObjectData;
         if (MassSelect
             && SelectionController.SelectedObjects.Count == 1
@@ -134,8 +166,7 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
     public void OnJumptoObjectTime(InputAction.CallbackContext context)
     {
         if (ignoreBaseInput || !context.performed) return; // TODO: Find a way to detect if other keybinds are held
-        RaycastFirstObject(out var con);
-        if (con != null)
+        if (RaycastFirstObject(out var con) && SpecialCaseContainer(con))
         {
             // TODO make this use an AudioTimeSyncController reference when Zenject is added.
             BeatmapObjectContainerCollection
@@ -148,27 +179,29 @@ public class BeatmapInputController<TContainer> : MonoBehaviour, CMInput.IBeatma
 
     protected virtual bool GetComponentFromTransform(GameObject t, out TContainer obj) => t.TryGetComponent(out obj);
 
-    protected bool RaycastFirstObject(out TContainer firstObject)
+    protected virtual bool RaycastFirstObject(out TContainer firstObject)
     {
-        if (!GlobalIntersectionCache.HasRaycastThisFrame)
+        if (!BeatmapRaycastCache.HasRaycastThisFrame)
         {
             var ray = cameraManager.SelectedCameraController.Camera.ScreenPointToRay(mousePosition);
             if (Intersections.Raycast(ray, 9, out var hit))
             {
-                GlobalIntersectionCache.FirstHit = hit.GameObject;
-                GlobalIntersectionCache.HasHit = hit.GameObject != null;
+                BeatmapRaycastCache.FirstHit = hit.GameObject;
+                BeatmapRaycastCache.HasHit = hit.GameObject != null;
             }
 
-            GlobalIntersectionCache.HasRaycastThisFrame = true;
+            BeatmapRaycastCache.HasRaycastThisFrame = true;
         }
 
-        if (!GlobalIntersectionCache.HasHit)
+        if (!BeatmapRaycastCache.HasHit)
         {
             firstObject = null;
             return false;
         }
 
-        var container = GlobalIntersectionCache.FirstHit.GetComponentInParent<TContainer>();
+        // Resolve the requested generic owner from the hit so child indicator containers reach their owning arc.
+        // Without this you can't shift+click arcs. Should be performant?
+        var container = BeatmapRaycastCache.FirstHit.GetComponentInParent<TContainer>();
         if (container != null && ValidObject(container))
         {
             firstObject = container;

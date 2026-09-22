@@ -45,13 +45,21 @@ namespace Beatmap.Base
         public List<BaseChain> Chains { get; set; } = new();
         public List<BaseWaypoint> Waypoints { get; set; } = new();
         public List<BaseEvent> Events { get; set; } = new();
+        public List<BaseRotationEvent> RotationEvents { get; set; } = new();
         public List<BaseNJSEvent> NJSEvents { get; set; } = new();
+
+        public bool SaveVNJSEventsInV3 { get; set; } = true;
 
         public List<BaseLightColorEventBoxGroup> LightColorEventBoxGroups { get; set; } = new();
         public List<BaseLightRotationEventBoxGroup> LightRotationEventBoxGroups { get; set; } = new();
         public List<BaseLightTranslationEventBoxGroup> LightTranslationEventBoxGroups { get; set; } = new();
         public List<BaseVfxEventEventBoxGroup> VfxEventBoxGroups { get; set; } = new();
         public BaseFxEventsCollection FxEventsCollection { get; set; } = new();
+
+        // Requirement checks need the already-loaded environment metadata without serializing or copying its asset.
+        [NonSerialized] public TrackDefinitionsSO RuntimeTrackDefinitions;
+        // BeatToTheFuture accepts the Info.dat root declaration. Retain the loaded metadata for deterministic requirement checks.
+        [NonSerialized] public JSONNode RuntimeLevelCustomData;
 
         public BaseEventTypesWithKeywords EventTypesWithKeywords { get; set; }
         public bool UseNormalEventsAsCompatibleEvents { get; set; } = true;
@@ -87,6 +95,7 @@ namespace Beatmap.Base
                 new List<BaseObject>(Arcs),
                 new List<BaseObject>(Chains),
                 new List<BaseObject>(Waypoints),
+                new List<BaseObject>(RotationEvents),
                 new List<BaseObject>(Events),
                 new List<BaseObject>(Bookmarks),
                 new List<BaseObject>(CustomEvents),
@@ -140,8 +149,11 @@ namespace Beatmap.Base
                 }
                 else
                 {
+                    var jsonTimeDelta = bpmEvent.JsonTime - lastBpmEvent.JsonTime;
                     bpmEvent.songBpmTime = lastBpmEvent.songBpmTime
-                        + (bpmEvent.JsonTime - lastBpmEvent.JsonTime) * (songBpm / lastBpmEvent.Bpm);
+                        + (Mathf.Approximately(songBpm, lastBpmEvent.Bpm)
+                            ? jsonTimeDelta
+                            : jsonTimeDelta * (songBpm / lastBpmEvent.Bpm));
                 }
 
                 lastBpmEvent = bpmEvent;
@@ -157,7 +169,11 @@ namespace Beatmap.Base
                 return jsonTime;
             }
 
-            return lastBpmEvent.SongBpmTime + (jsonTime - lastBpmEvent.JsonTime) * (songBpm / lastBpmEvent.Bpm);
+            var jsonTimeDelta = jsonTime - lastBpmEvent.JsonTime;
+            return lastBpmEvent.SongBpmTime
+                + (Mathf.Approximately(songBpm.Value, lastBpmEvent.Bpm)
+                    ? jsonTimeDelta
+                    : jsonTimeDelta * (songBpm.Value / lastBpmEvent.Bpm));
         }
 
         public float? SongBpmTimeToJsonTime(float songBpmTime)
@@ -169,7 +185,11 @@ namespace Beatmap.Base
                 return songBpmTime;
             }
 
-            return lastBpmEvent.JsonTime + (songBpmTime - lastBpmEvent.SongBpmTime) * (lastBpmEvent.Bpm / songBpm);
+            var songBpmTimeDelta = songBpmTime - lastBpmEvent.SongBpmTime;
+            return lastBpmEvent.JsonTime
+                + (Mathf.Approximately(songBpm.Value, lastBpmEvent.Bpm)
+                    ? songBpmTimeDelta
+                    : songBpmTimeDelta * (lastBpmEvent.Bpm / songBpm.Value));
         }
 
         public BaseBpmEvent FindLastBpmEventByJsonTime(float jsonTime, bool inclusive = false)
@@ -427,7 +447,7 @@ namespace Beatmap.Base
 
                 var lightshowJson = V4Difficulty.GetLightshowOutputJson(this);
                 File.WriteAllText(
-                    Path.Combine(songContainer.Info.Directory, mapDifficultyInfo.LightshowFileName),
+                    PathUtils.Combine(songContainer.Info.Directory, mapDifficultyInfo.LightshowFileName),
                     Settings.Instance.FormatJson
                         ? lightshowJson.ToString(2)
                         : lightshowJson.ToString());
@@ -436,10 +456,10 @@ namespace Beatmap.Base
                 var bookmarksJson = GetOfficialBookmarkOutputJson(
                     mapDifficultyInfo.Characteristic,
                     mapDifficultyInfo.Difficulty);
-                var bookmarksFolder = Path.Combine(songContainer.Info.Directory, "Bookmarks");
+                var bookmarksFolder = PathUtils.Combine(songContainer.Info.Directory, "Bookmarks");
                 if (!Directory.Exists(bookmarksFolder)) Directory.CreateDirectory(bookmarksFolder);
                 File.WriteAllText(
-                    Path.Combine(bookmarksFolder, mapDifficultyInfo.BookmarkFileName),
+                    PathUtils.Combine(bookmarksFolder, mapDifficultyInfo.BookmarkFileName),
                     bookmarksJson.ToString(2));
             }
 
@@ -470,7 +490,7 @@ namespace Beatmap.Base
                     songContainer.Info);
 
                 File.WriteAllText(
-                    Path.Combine(songContainer.Info.Directory, bpmOutputFileName),
+                    PathUtils.Combine(songContainer.Info.Directory, bpmOutputFileName),
                     bpmOutputJson.ToString(2));
             }
 
@@ -500,13 +520,16 @@ namespace Beatmap.Base
             return json;
         }
 
-        private bool IsEmpty() =>
+        // UpToNRandomMapsInDefaultSongLocationsLoadWithoutExceptions must choose a non-empty installed difficulty;
+        // expose the existing authoritative definition so the test does not duplicate map-format coverage.
+        public bool IsEmpty() =>
             BpmEvents.Count == 0
             && Notes.Count == 0
             && Obstacles.Count == 0
             && Arcs.Count == 0
             && Chains.Count == 0
             && Waypoints.Count == 0
+            && RotationEvents.Count == 0
             && Events.Count == 0
             && NJSEvents.Count == 0
             && LightColorEventBoxGroups.Count == 0
@@ -537,11 +560,17 @@ namespace Beatmap.Base
             || Chains.Any(x => x.IsNoodleExtensions())
             || Obstacles.Any(x => x.IsNoodleExtensions());
 
-        public bool IsMappingExtensions() =>
+        // Raw V4 upper-wall coordinates are the shared conversion and requirement signal, so expose one authoritative
+        // map-level query instead of duplicating the y=3/4 scan across editor and mod requirement paths.
+        public bool HasV4UpperWalls() => Obstacles.Any(x => x.PosY is 3 or 4);
+
+        public bool IsMappingExtensions() => IsMappingExtensions(false);
+
+        public bool IsMappingExtensions(bool allowV4UpperWallsInV3) =>
             Notes.Any(x => x.IsMappingExtensions())
             || Arcs.Any(x => x.IsMappingExtensions())
             || Chains.Any(x => x.IsMappingExtensions())
-            || Obstacles.Any(x => x.IsMappingExtensions());
+            || Obstacles.Any(x => x.IsMappingExtensions(allowV4UpperWallsInV3));
 
         public override JSONNode ToJson() => throw new NotImplementedException();
 

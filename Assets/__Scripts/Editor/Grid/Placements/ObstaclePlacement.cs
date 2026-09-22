@@ -8,50 +8,44 @@ using UnityEngine;
 
 public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, ObstacleGridContainer>
 {
-    // Chroma Color Stuff
-    public static readonly string ChromaColorKey = "PlaceChromaObjects";
-    [SerializeField] private ObstacleAppearanceSO obstacleAppearanceSo;
+    [SerializeField] private GridViewController gridViewController;
+    [SerializeField] private ObstacleAppearanceSO obstacleAppearance;
     [SerializeField] private ColorPicker colorPicker;
-    [SerializeField] private ToggleColourDropdown dropdown;
     private bool hasExpanded;
     private bool hasOffset;
-
-    private bool v2Mode;
 
     private int originIndex;
     private Vector3 originPos;
     private Vector3 scale;
 
     private float startJsonTime;
-    private float startSongBpmTime;
 
-    // Chroma Color Check
-    public static bool CanPlaceChromaObjects
-    {
-        get
-        {
-            if (Settings.NonPersistentSettings.ContainsKey(ChromaColorKey))
-                return (bool)Settings.NonPersistentSettings[ChromaColorKey];
-            return false;
-        }
-    }
+    private bool v2Mode;
 
     private float SmallestRankableWallDuration => Atsc.GetBeatFromSeconds(0.016f);
+
+    // Keep a wall's first click when the cursor crosses a gap between grid planes during its two-click placement.
+    public override bool RetainsPendingPlacementOnInvalidHit => true;
+
+    public void Awake() => LoadInitialMap.OnLevelLoaded += HandleLevelLoaded;
+
+    public override void OnDestroy()
+    {
+        base.OnDestroy();
+        LoadInitialMap.OnLevelLoaded -= HandleLevelLoaded;
+    }
 
     protected override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicts) =>
         new BeatmapObjectPlacementAction(spawned, conflicts, "Place a Wall.");
 
     protected override BaseObstacle GenerateOriginalData() => new();
-
-    public void Awake() => LoadInitialMap.OnLevelLoaded += HandleLevelLoaded;
-    public void OnDestroy() => LoadInitialMap.OnLevelLoaded -= HandleLevelLoaded;
     private void HandleLevelLoaded() => v2Mode = BeatSaberSongContainer.Instance.Map.MajorVersion == 2;
 
     public override void Initialize(PlacementProvider provider)
     {
         base.Initialize(provider);
         PlacementVisualContainer.ObstacleData = QueuedData;
-        obstacleAppearanceSo.SetObstacleAppearance(PlacementVisualContainer, true);
+        obstacleAppearance.SetObstacleAppearance(PlacementVisualContainer, true);
     }
 
     public override void UpdateState(Intersections.IntersectionHit hit, PlacementInputState inputState)
@@ -66,6 +60,7 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         var size = 1f;
         if (PrecisionPlacementController.IsEnabled)
         {
+            ResetHysteresis();
             var precision = Settings.Instance.PrecisionPlacementGridPrecision;
             size = 1f / precision;
             LanePosition = BeatmapPositionHelper.LocalPositionToLanePosition(
@@ -75,12 +70,14 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         }
         else
         {
-            LanePosition = BeatmapPositionHelper.LocalPositionToLanePosition(
-                localPoint,
-                BeatmapConstant.ObstacleYOffset);
+            var rawX = (localPoint.x / BeatmapConstant.LaneSize) - (gridViewController.IsOdd ? 0.5f : 0f);
+            var rawY = (localPoint.y - BeatmapConstant.YOffset - BeatmapConstant.ObstacleYOffset)
+                / BeatmapConstant.LaneSize;
+            var snappedPosition = SnapWithHysteresis(rawX, rawY);
+            LanePosition = new Vector3(snappedPosition.x, snappedPosition.y, 0f);
         }
 
-        LanePosition.x += size / 2f;
+        LanePosition.x += (size / 2f) + (gridViewController.IsOdd ? 0.5f : 0f);
         var zPlacement = BeatmapPositionHelper.SongTimeToLanePositionZ(SongBpmTime);
         LanePosition.z = zPlacement;
 
@@ -141,14 +138,13 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         }
         else
         {
-            QueuedData.Duration = RoundedJsonTime - startJsonTime;
-            if (Mathf.Abs(RoundedJsonTime - startJsonTime) < SmallestRankableWallDuration)
-                QueuedData.Duration = SmallestRankableWallDuration;
+            // Normalize reverse drags because obstacles store an earlier start time and positive duration only.
+            NormalizePlacementTimeRange();
         }
         // obstacleAppearanceSo.SetObstacleAppearance(PlacementVisualContainer);
 
-        // Check if Chroma Color notes button is active and apply _color
-        QueuedData.CustomColor = CanPlaceChromaObjects && dropdown.Visible
+        // Walls use the gameplay-object Chroma setting, independently from Chroma lighting event placement.
+        QueuedData.CustomColor = BasePlacement.CanPlaceChromaObjects && colorPicker != null
             ? colorPicker.CurrentColor
             : null;
 
@@ -170,22 +166,33 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         QueuedData.CustomSize = vanillaSize != (Vector2)scale ? (Vector2)scale : null;
         QueuedData.Width = (int)vanillaSize.x;
         QueuedData.Height = (int)vanillaSize.y;
+
+        // Persist the placement color with the remaining custom wall properties before the placement action captures this wall.
+        QueuedData.WriteCustom();
+
+        // Refresh the hover and drag preview from the current queued wall so it immediately reflects the active Chroma color.
+        PlacementVisualContainer.ObstacleData = QueuedData;
+        obstacleAppearance.SetObstacleAppearance(PlacementVisualContainer, true);
     }
+
+    protected override void HandleRotationChanged(float rotation) => QueuedData.Rotation = (int)rotation;
 
     public override void HandleApply()
     {
         if (IsPlacing)
         {
-            QueuedData.JsonTime = startJsonTime;
+            // Normalize again at commit so an input update immediately before release cannot retain a reverse interval.
+            NormalizePlacementTimeRange();
 
-            var endSongBpmTime =
-                startSongBpmTime + (PlacementVisualContainer.ObstacleScale.z / EditorScaleController.EditorScale);
+            var startSongBpmTime = (float)BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(QueuedData.JsonTime);
+            var endSongBpmTime = (float)BeatSaberSongContainer.Instance.Map.JsonTimeToSongBpmTime(
+                QueuedData.JsonTime + QueuedData.Duration);
 
             if (endSongBpmTime - startSongBpmTime < SmallestRankableWallDuration)
             {
                 endSongBpmTime = startSongBpmTime + SmallestRankableWallDuration;
                 var endJsonTime = (float)BeatSaberSongContainer.Instance.Map.SongBpmTimeToJsonTime(endSongBpmTime);
-                QueuedData.Duration = endJsonTime - startJsonTime;
+                QueuedData.Duration = endJsonTime - QueuedData.JsonTime;
             }
 
             ObjectContainerCollection.SpawnObject(QueuedData, out var conflicting);
@@ -199,9 +206,23 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         {
             originPos = LanePosition;
             startJsonTime = RoundedJsonTime;
-            startSongBpmTime = SongBpmTime;
             State = PlacementState.Placing;
         }
+    }
+
+    // Store the two placement clicks as the forward interval required by Beat Saber obstacle data.
+    private void NormalizePlacementTimeRange()
+    {
+        var endJsonTime = RoundedJsonTime;
+        if (Mathf.Approximately(startJsonTime, endJsonTime)
+            && QueuedData.Duration > SmallestRankableWallDuration)
+        {
+            // Direct placement callers can provide an authored duration without a hover update; do not replace it with a zero-length drag.
+            return;
+        }
+
+        QueuedData.JsonTime = Mathf.Min(startJsonTime, endJsonTime);
+        QueuedData.Duration = Mathf.Max(Mathf.Abs(endJsonTime - startJsonTime), SmallestRankableWallDuration);
     }
 
     protected override void TransferQueuedToDraggedObject(ref BaseObstacle dragged, BaseObstacle queued)
@@ -210,10 +231,22 @@ public class ObstaclePlacement : BasePlacement<BaseObstacle, ObstacleContainer, 
         dragged.PosX = queued.PosX;
         dragged.PosY = queued.PosY;
         dragged.CustomCoordinate = queued.CustomCoordinate;
+        if (dragged.Rotation != queued.Rotation)
+        {
+            dragged.Rotation = queued.Rotation;
+            TracksManager.RefreshTracks();
+        }
+    }
+
+    public override void FinishDrag()
+    {
+        base.FinishDrag();
+        QueuedData.Rotation = (int)LaneRotationProvider.EditRotation;
     }
 
     public override void Cancel()
     {
+        base.Cancel();
         if (!IsPlacing) return;
         State = PlacementState.Idle;
         // obstacleAppearanceSo.SetObstacleAppearance(PlacementVisualContainer);

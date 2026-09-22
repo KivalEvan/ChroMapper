@@ -1,7 +1,5 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using Beatmap.Base;
 using Beatmap.Containers;
 using Beatmap.Enums;
@@ -9,56 +7,50 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 // This is almost the same as ArcIndicatorPlacement
-public class ChainIndicatorPlacement : BasePlacement<BaseChain, ChainIndicatorContainer, ChainGridContainer>,
-                                       CMInput.INotePlacementActions
+public class ChainIndicatorPlacement : BasePlacement<BaseChain, ChainIndicatorContainer, ChainGridContainer>
 {
-    private const int upKey = 0;
-    private const int leftKey = 1;
-    private const int downKey = 2;
-    private const int rightKey = 3;
+    [SerializeField] private GridViewController gridViewController;
     [SerializeField] private DeleteToolController deleteToolController;
     [SerializeField] private LaserSpeedController laserSpeedController;
+    [SerializeField] private BeatmapSharedNoteInputController beatmapSharedNoteInputController;
 
-    // Below is copied from NotePlacement. Would be nice to have some kind of shared placement.
-    private readonly float diagonalStickMaxTime = 0.3f;
-    private readonly List<bool> heldKeys = new() { false, false, false, false };
-    private bool diagonal;
-
-
-    //TODO perhaps make a helper function to deal with the context.performed and context.canceled checks
-    public void OnDownNote(InputAction.CallbackContext context) => HandleKeyUpdate(context, downKey);
-
-    public void OnLeftNote(InputAction.CallbackContext context) => HandleKeyUpdate(context, leftKey);
-
-    public void OnUpNote(InputAction.CallbackContext context) => HandleKeyUpdate(context, upKey);
-
-    public void OnRightNote(InputAction.CallbackContext context) => HandleKeyUpdate(context, rightKey);
-
-    public void OnDotNote(InputAction.CallbackContext context)
+    public override void Start()
     {
-        if (!context.performed) return;
-        DeleteToolController.UpdateDeletion(false);
-        UpdateCut((int)NoteCutDirection.Any);
+        base.Start();
+        beatmapSharedNoteInputController.OnCutDirectionChanged += HandleOnCutDirectionChanged;
     }
 
-    public void OnUpLeftNote(InputAction.CallbackContext context)
+    public override void OnDestroy()
     {
-        if (context.performed && !laserSpeedController.Activated) UpdateCut((int)NoteCutDirection.UpLeft);
+        base.OnDestroy();
+        beatmapSharedNoteInputController.OnCutDirectionChanged -= HandleOnCutDirectionChanged;
     }
 
-    public void OnUpRightNote(InputAction.CallbackContext context)
+    private void HandleOnCutDirectionChanged(int value)
     {
-        if (context.performed && !laserSpeedController.Activated) UpdateCut((int)NoteCutDirection.UpRight);
+        if (DraggedObjectContainer != null && DraggedObjectContainer.ParentChain != null)
+        {
+            if (DraggedObjectContainer.IndicatorType == IndicatorType.Head)
+            {
+                QueuedData.CutDirection = value;
+                DraggedObjectContainer.ParentChain.ChainData.CutDirection = value;
+            }
+        }
     }
 
-    public void OnDownRightNote(InputAction.CallbackContext context)
+    public override ObjectContainer StartDrag(GameObject draggedObject)
     {
-        if (context.performed && !laserSpeedController.Activated) UpdateCut((int)NoteCutDirection.DownRight);
+        var con = base.StartDrag(draggedObject);
+        if (IsDragging) DraggedObjectContainer.ParentChain.Dragged = true;
+
+        return con;
     }
 
-    public void OnDownLeftNote(InputAction.CallbackContext context)
+    protected override List<BeatmapAction> PerformPreFinishDragActions()
     {
-        if (context.performed && !laserSpeedController.Activated) UpdateCut((int)NoteCutDirection.DownLeft);
+        DraggedObjectContainer.ParentChain.Dragged = false;
+
+        return new List<BeatmapAction>();
     }
 
     protected override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicts) =>
@@ -69,38 +61,40 @@ public class ChainIndicatorPlacement : BasePlacement<BaseChain, ChainIndicatorCo
     protected override void HandleHitToPlacement(Intersections.IntersectionHit hit, Vector3 localPoint)
     {
         var placementZ = SongBpmTime * EditorScaleController.EditorScale;
-        var offset = new Vector3(hit.GameObject.transform.localScale.x % 2 / 2f, 0f, 0f);
-        var roundedPoint = new Vector3(
-            Mathf.FloorToInt(localPoint.x + offset.x),
-            Mathf.FloorToInt(localPoint.y),
-            placementZ);
 
         if (PrecisionPlacementController.IsEnabled)
         {
+            ResetHysteresis();
             var precision = Settings.Instance.PrecisionPlacementGridPrecision;
-            roundedPoint.x = Mathf.Round(localPoint.x * precision) / precision;
-            roundedPoint.y = Mathf.Round(localPoint.y * precision) / precision;
+            var roundedPoint = new Vector3(
+                Mathf.Round(localPoint.x * precision) / precision,
+                Mathf.Round(localPoint.y * precision) / precision,
+                placementZ);
             PlacementVisualContainer.transform.localPosition = roundedPoint;
         }
         else
         {
-            var minX = Bounds.min.x;
-            var maxX = Bounds.max.x;
+            var rawX = (localPoint.x / BeatmapConstant.LaneSize) - (gridViewController.IsOdd ? 0.5f : 0f);
+            var rawY = (localPoint.y - BeatmapConstant.YOffset - (BeatmapConstant.PlayerYOffset / 2f))
+                / BeatmapConstant.LaneSize;
+            var snappedPosition = SnapWithHysteresis(rawX, rawY);
 
-            var minY = Bounds.min.y;
-            var maxY = Bounds.max.y;
-
-            PlacementVisualContainer.transform.localPosition = new Vector3(
-                    Mathf.Clamp(roundedPoint.x - offset.x, minX, maxX - 1),
-                    Mathf.Clamp(roundedPoint.y, minY, maxY - 1),
-                    roundedPoint.z)
-                + (Vector3)GridOffset;
+            LanePosition = new Vector3(
+                snappedPosition.x + (gridViewController.IsOdd ? 0.5f : 0f),
+                snappedPosition.y,
+                0f);
+            var snappedPoint = BeatmapPositionHelper.LanePositionToLocalPosition(
+                LanePosition,
+                Bounds,
+                BeatmapConstant.PlayerYOffset / 2f);
+            snappedPoint.z = placementZ;
+            PlacementVisualContainer.transform.localPosition = snappedPoint;
         }
     }
 
     protected override void HandlePlacementToData(PlacementInputState inputState)
     {
-        var pos = (Vector2)PlacementVisualContainer.transform.localPosition - GridOffset;
+        var pos = (Vector2)LanePosition;
         pos.x += 2f;
 
         var vanillaX = Mathf.FloorToInt(Mathf.Clamp(pos.x, 0f, 3f));
@@ -158,12 +152,24 @@ public class ChainIndicatorPlacement : BasePlacement<BaseChain, ChainIndicatorCo
                 dragged.PosY = queued.PosY;
                 dragged.CutDirection = queued.CutDirection;
                 dragged.CustomCoordinate = queued.CustomCoordinate;
+                if (dragged.Rotation != queued.Rotation)
+                {
+                    dragged.Rotation = queued.Rotation;
+                    TracksManager.RefreshTracks();
+                }
+
                 break;
             case IndicatorType.Tail:
                 dragged.TailJsonTime = queued.JsonTime;
                 dragged.TailPosX = queued.PosX;
                 dragged.TailPosY = queued.PosY;
                 dragged.CustomTailCoordinate = queued.CustomTailCoordinate;
+                if (dragged.TailRotation != queued.Rotation)
+                {
+                    dragged.TailRotation = queued.Rotation;
+                    TracksManager.RefreshTracks();
+                }
+
                 break;
             default:
                 throw new ArgumentOutOfRangeException();
@@ -203,85 +209,5 @@ public class ChainIndicatorPlacement : BasePlacement<BaseChain, ChainIndicatorCo
         if (DraggedObjectContainer.IndicatorType == IndicatorType.Tail) return DraggedObjectData.TailJsonTime;
 
         return DraggedObjectData.JsonTime;
-    }
-
-    public void UpdateCut(int value)
-    {
-        if (DraggedObjectContainer != null && DraggedObjectContainer.ParentChain != null)
-        {
-            if (DraggedObjectContainer.IndicatorType == IndicatorType.Head)
-            {
-                QueuedData.CutDirection = value;
-                DraggedObjectContainer.ParentChain.ChainData.CutDirection = value;
-            }
-        }
-    }
-
-    private void HandleKeyUpdate(InputAction.CallbackContext context, int id)
-    {
-        if (context.performed ^ heldKeys[id]) HandleDirectionValues();
-        heldKeys[id] = context.performed;
-    }
-
-    private void HandleDirectionValues()
-    {
-        DeleteToolController.UpdateDeletion(false);
-
-        var upNote = heldKeys[upKey];
-        var downNote = heldKeys[downKey];
-        var leftNote = heldKeys[leftKey];
-        var rightNote = heldKeys[rightKey];
-        var previousDiagonalState = diagonal;
-
-        var handleUpDownNotes = upNote ^ downNote; // XOR: True if the values are different, false if the same
-        var handleLeftRightNotes = leftNote ^ rightNote;
-
-        diagonal = handleUpDownNotes && handleLeftRightNotes;
-
-        if (previousDiagonalState && !diagonal)
-        {
-            StartCoroutine(CheckForDiagonalUpdate());
-            return;
-        }
-
-        if (handleUpDownNotes && !handleLeftRightNotes) // We handle simple up/down notes
-        {
-            if (upNote)
-                UpdateCut((int)NoteCutDirection.Up);
-            else
-                UpdateCut((int)NoteCutDirection.Down);
-        }
-        else if (!handleUpDownNotes && handleLeftRightNotes) // We handle simple left/right notes
-        {
-            if (leftNote)
-                UpdateCut((int)NoteCutDirection.Left);
-            else
-                UpdateCut((int)NoteCutDirection.Right);
-        }
-        else if (diagonal) //We need to do a diagonal
-        {
-            if (leftNote)
-            {
-                if (upNote)
-                    UpdateCut((int)NoteCutDirection.UpLeft);
-                else
-                    UpdateCut((int)NoteCutDirection.DownLeft);
-            }
-            else
-            {
-                if (upNote)
-                    UpdateCut((int)NoteCutDirection.UpRight);
-                else
-                    UpdateCut((int)NoteCutDirection.DownRight);
-            }
-        }
-    }
-
-    private IEnumerator CheckForDiagonalUpdate()
-    {
-        var previousHeldKeys = new List<bool>(heldKeys);
-        yield return new WaitForSeconds(diagonalStickMaxTime);
-        // Weird way of saying "Are the keys being held right now the same as before"
-        if (!previousHeldKeys.Except(heldKeys).Any()) HandleDirectionValues();
     }
 }

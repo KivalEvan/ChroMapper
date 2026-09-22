@@ -3,16 +3,17 @@ using Beatmap.Appearances;
 using Beatmap.Base;
 using Beatmap.Containers;
 using Beatmap.Enums;
-using Beatmap.Helper;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using SimpleJSON;
 
 public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGridContainer>,
-                              CMInput.IEventPlacementActions
+                              CMInput.IEventPlacementActions,
+                              IEditorStateProvider
 {
-    [SerializeField] private EventAppearanceSO eventAppearanceSo;
+    [SerializeField] private EventAppearanceSO eventAppearance;
 
     [SerializeField] private ColorPicker colorPicker;
     [SerializeField] private TMP_InputField laserSpeedInputField;
@@ -21,63 +22,72 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
     [SerializeField] private ToggleColourDropdown dropdown;
     [SerializeField] private CreateEventTypeLabels labels;
 
-    [SerializeField] private BeatmapRuntimeContext context;
+    [SerializeField] private BeatmapRuntimeContext beatmapRuntimeContext;
 
-    public bool PlacePrecisionRotation;
-    public int PrecisionRotationValue;
-
-    private bool earlyRotationPlaceNow;
     private bool isHalfFloatValuePressed;
     private bool isZeroFloatValuePressed;
-    private bool negativeRotations;
     internal float queuedFloatValue = 1.0f;
-    internal float queuedRotation = 30f;
 
     internal int queuedValue = (int)LightValue.RedOn;
 
+    // Expose basic-event placement state for map-scoped editor metadata without duplicating UI ownership.
+    public float QueuedFloatValue => queuedFloatValue;
+    public int QueuedValue => queuedValue;
+    public string LaserSpeedText => laserSpeedInputField.text;
+
+    // Persist basic-event placement values with their owning placement component.
+    public string StateKey => "basicEventPlacement";
+
+    public override void Start()
+    {
+        base.Start();
+        EditorStateService.Register(this);
+    }
+
+    // Stop autosaves from retaining this placement after its UI has been destroyed.
+    public void OnDestroy() => EditorStateService.Unregister(this);
+
+    // Populate map metadata from this placement's own queued values.
+    public void CaptureEditorState(JSONObject data)
+    {
+        data["value"] = queuedValue;
+        data["floatValue"] = queuedFloatValue;
+        data["laserSpeed"] = laserSpeedInputField.text;
+    }
+
+    // Apply only saved fields so maps created before a field existed retain their normal placement defaults.
+    public void LoadEditorState(JSONNode data)
+    {
+        var value = data.HasKey("value")
+            ? data["value"].AsInt
+            : queuedValue;
+        var floatValue = data.HasKey("floatValue")
+            ? data["floatValue"].AsFloat
+            : queuedFloatValue;
+        var laserSpeed = data.HasKey("laserSpeed")
+            ? data["laserSpeed"].Value
+            : laserSpeedInputField.text;
+        RestoreEditorState(value, floatValue, laserSpeed);
+    }
+
+    // Restore basic-event data and its laser-speed field after the editor UI has initialized.
+    public void RestoreEditorState(int value, float floatValue, string laserSpeed)
+    {
+        queuedValue = value;
+        queuedFloatValue = floatValue;
+        laserSpeedInputField.SetTextWithoutNotify(laserSpeed ?? string.Empty);
+        UpdateQueuedValue(queuedValue);
+        UpdateQueuedFloatValue(queuedFloatValue);
+        UpdateAppearance();
+    }
+
     public static bool CanPlaceChromaEvents => Settings.Instance.PlaceChromaColor;
-
-    public void OnRotation15Degrees(InputAction.CallbackContext context)
-    {
-        if (QueuedData.IsLaneRotationEvent() && context.performed) UpdateRotation(negativeRotations ? -15f : 15f);
-    }
-
-    public void OnRotation30Degrees(InputAction.CallbackContext context)
-    {
-        if (QueuedData.IsLaneRotationEvent() && context.performed) UpdateRotation(negativeRotations ? -30f : 30f);
-    }
-
-    public void OnRotation45Degrees(InputAction.CallbackContext context)
-    {
-        if (QueuedData.IsLaneRotationEvent() && context.performed) UpdateRotation(negativeRotations ? -45f : 45f);
-    }
-
-    public void OnRotation60Degrees(InputAction.CallbackContext context)
-    {
-        if (QueuedData.IsLaneRotationEvent() && context.performed) UpdateRotation(negativeRotations ? -60f : 60f);
-    }
-
-    public void OnNegativeRotationModifier(InputAction.CallbackContext context) =>
-        negativeRotations = context.performed;
 
     public void OnHalfFloatValueModifier(InputAction.CallbackContext context) =>
         isHalfFloatValuePressed = context.performed;
 
     public void OnZeroFloatValueModifier(InputAction.CallbackContext context) =>
         isZeroFloatValuePressed = context.performed;
-
-    public void OnRotateInPlaceLeft(InputAction.CallbackContext context)
-    {
-        if (context.performed) PlaceRotationNow(false, earlyRotationPlaceNow);
-    }
-
-    public void OnRotateInPlaceRight(InputAction.CallbackContext context)
-    {
-        if (context.performed) PlaceRotationNow(true, earlyRotationPlaceNow);
-    }
-
-    public void OnRotateInPlaceModifier(InputAction.CallbackContext context) =>
-        earlyRotationPlaceNow = context.performed;
 
     protected override BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicts) =>
         new BeatmapObjectPlacementAction(spawned, conflicts, "Placed an Event.");
@@ -88,6 +98,28 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
     {
         base.Initialize(provider);
         PlacementVisualContainer.EventData = QueuedData;
+    }
+
+    protected override void HandleHitToPlacement(Intersections.IntersectionHit hit, Vector3 localPoint)
+    {
+        base.HandleHitToPlacement(hit, localPoint);
+
+        // HoverPastingBasicEventsBeforeBeatZeroAnchorsEarliestAtBeatZero and
+        // HoverPastingLightIdEventOntoAllLightsBeforeBeatZeroClampsToBeatZero keep the visible Basic Event anchor and
+        // its queued paste data at the map boundary instead of allowing either to retain a negative hover beat.
+        if (QueuedData.JsonTime < 0f)
+        {
+            RoundedJsonTime = 0f;
+            QueuedData.JsonTime = 0f;
+            var clampedPosition = PlacementVisualContainer.transform.localPosition;
+            clampedPosition.z = 0f;
+            PlacementVisualContainer.transform.localPosition = clampedPosition;
+        }
+
+        // The generic placement grid centers previews; lower this smaller model so Basic Event previews share finalized nodes' grounded base.
+        var position = PlacementVisualContainer.transform.localPosition;
+        position.y = EventAppearanceSO.GetGroundedNodeCenterY(false);
+        PlacementVisualContainer.transform.localPosition = position;
     }
 
     protected override void HandlePlacementToData(PlacementInputState inputState)
@@ -114,9 +146,9 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
                 QueuedData.CustomLightID = null;
         }
 
+        // Chroma event placement follows the color tile's setting even after its picker flyout is closed.
         if (CanPlaceChromaEvents
-            && dropdown.Visible
-            && context.TracksDefinition.GetBasicOrDefault(QueuedData.Type).Kind == BasicEventKind.Lights
+            && beatmapRuntimeContext.TrackDefinitions.GetBasicOrDefault(QueuedData.Type).Kind == BasicEventKind.Lights
             && QueuedData.Value != (int)LightValue.Off)
             QueuedData.CustomColor = colorPicker.CurrentColor;
         else
@@ -124,7 +156,6 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
 
         UpdateQueuedValue(queuedValue);
         UpdateQueuedFloatValue(queuedFloatValue);
-        UpdateQueuedRotation(queuedRotation);
         UpdateAppearance();
     }
 
@@ -132,7 +163,7 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
     {
         QueuedData.Value = value;
 
-        if (context.TracksDefinition.GetBasicOrDefault(QueuedData.Type).Kind == BasicEventKind.IntValue
+        if (beatmapRuntimeContext.TrackDefinitions.GetBasicOrDefault(QueuedData.Type).Kind == BasicEventKind.IntValue
             && int.TryParse(laserSpeedInputField.text, out var laserSpeed))
             QueuedData.Value = laserSpeed;
 
@@ -148,7 +179,7 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
 
     public void UpdateQueuedFloatValue(float value)
     {
-        if (context.TracksDefinition.GetBasicOrDefault(QueuedData.Type).Kind != BasicEventKind.Lights)
+        if (beatmapRuntimeContext.TrackDefinitions.GetBasicOrDefault(QueuedData.Type).Kind != BasicEventKind.Lights)
         {
             QueuedData.FloatValue = 1f;
             return;
@@ -169,41 +200,6 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
         UpdateAppearance();
     }
 
-    private void UpdateQueuedRotation(float rotation)
-    {
-        if (!QueuedData.IsLaneRotationEvent()) return;
-
-        QueuedData.Rotation = rotation;
-    }
-
-    public void UpdateRotation(float rotation)
-    {
-        queuedRotation = rotation;
-        UpdateQueuedRotation(queuedRotation);
-        UpdateAppearance();
-    }
-
-    public void SwapColors(bool red)
-    {
-        if (context.TracksDefinition.GetBasicOrDefault(QueuedData.Type).Kind != BasicEventKind.Lights) return;
-        if (queuedValue >= ColourManager.RgbintOffset || queuedValue == (int)LightValue.Off) return;
-        if ((red && queuedValue >= (int)LightValue.RedOn)
-            || (!red && queuedValue >= (int)LightValue.BlueOn && queuedValue < (int)LightValue.RedOn))
-            return;
-
-        switch (queuedValue)
-        {
-            case > 0 and <= 4:
-            // red to white
-            case > 4 and <= 8:
-                queuedValue += 4; // blue to red
-                break;
-            case > 8 and <= 12:
-                queuedValue -= 8; // white to blue
-                break;
-        }
-    }
-
     private void UpdateAppearance()
     {
         if (PlacementVisualContainer == null)
@@ -213,13 +209,17 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
         }
 
         PlacementVisualContainer!.EventData = QueuedData;
-        eventAppearanceSo.SetAppearance(PlacementVisualContainer, false);
+        // Queue previews must resolve the current color-boost state at their own beat like finalized event containers.
+        eventAppearance.SetAppearance(
+            PlacementVisualContainer,
+            false,
+            ObjectContainerCollection.IsBoostAt(QueuedData.JsonTime));
     }
 
     public override void CreateVisual()
     {
         base.CreateVisual();
-        PlacementVisualContainer!.TracksDefinition = context.TracksDefinition;
+        PlacementVisualContainer!.TrackDefinitions = beatmapRuntimeContext.TrackDefinitions;
     }
 
     public void PlaceChroma(bool v) => Settings.Instance.PlaceChromaColor = v;
@@ -227,19 +227,8 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
     public override void HandleApply()
     {
         var evt = QueuedData;
-
-        if (evt.IsLaneRotationEvent())
-        {
-            if (!GridRotation.IsActive)
-            {
-                PersistentUI.Instance.ShowDialogBox("Mapper", "360warning", null, PersistentUI.DialogBoxPresetType.Ok);
-                return;
-            }
-        }
-
+        
         base.HandleApply();
-
-        if (evt.IsLaneRotationEvent()) TracksManager.RefreshTracks();
 
         QueuedData = new BaseEvent(evt); // need to convert back to regular event
         QueuedData.CustomData = null;
@@ -258,47 +247,6 @@ public class EventPlacement : BasePlacement<BaseEvent, EventContainer, EventGrid
 
             if (queued.CustomLightID != null) dragged.CustomLightID = queued.CustomLightID;
         }
-    }
-
-    internal void PlaceRotationNow(bool right, bool early)
-    {
-        if (!GridRotation.IsActive) return;
-
-        var rotationType = early ? (int)EventTypeValue.EarlyLaneRotation : (int)EventTypeValue.LateLaneRotation;
-        var epsilon = 1f / Mathf.Pow(10, Settings.Instance.TimeValueDecimalPrecision);
-        var evt = ObjectContainerCollection.AllRotationEvents.Find(x =>
-            x.JsonTime - epsilon < Atsc.CurrentJsonTime
-            && x.JsonTime + epsilon > Atsc.CurrentJsonTime
-            && x.Type == rotationType);
-
-        //todo add support for custom rotation angles
-
-        var startingValue = right ? 4 : 3;
-        if (evt != null) startingValue = evt.Value;
-
-        if (evt != null
-            && ((startingValue == 4 && !right)
-                || (startingValue == 3
-                    && right))) //This is for when we're going from a rotation event to no rotation event
-        {
-            startingValue = evt.Value;
-            ObjectContainerCollection.DeleteObject(evt, false);
-            BeatmapActionContainer.AddAction(new BeatmapObjectDeletionAction(evt, "Deleted by PlaceRotationNow."));
-        }
-        else if ((startingValue < 7 && right) || (startingValue > 0 && !right))
-        {
-            if (evt != null) startingValue += right ? 1 : -1;
-            var objectData = new BaseEvent
-            {
-                JsonTime = Atsc.CurrentJsonTime, Type = rotationType, Value = startingValue
-            };
-
-            ObjectContainerCollection.SpawnObject(objectData, out var conflicting);
-            BeatmapActionContainer.AddAction(GenerateAction(objectData, conflicting));
-        }
-
-        QueuedData = BeatmapFactory.Clone(QueuedData);
-        TracksManager.RefreshTracks();
     }
 
     protected override void HandleDragged() => TracksManager.RefreshTracks();

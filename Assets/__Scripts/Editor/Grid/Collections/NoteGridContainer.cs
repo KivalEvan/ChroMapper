@@ -4,18 +4,23 @@ using Beatmap.Base;
 using Beatmap.Containers;
 using Beatmap.Enums;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
 {
     [SerializeField] private GameObject notePrefab;
     [SerializeField] private GameObject bombPrefab;
-    [SerializeField] private NoteAppearanceSO noteAppearance;
+
+    [FormerlySerializedAs("noteAppearanceSO")] [SerializeField]
+    private NoteAppearanceSO noteAppearance;
+
     [SerializeField] private CustomEventStateManager customEventStateManager;
     [SerializeField] private TracksManager tracksManager;
 
     [SerializeField] private CountersPlusController countersPlus;
 
     private readonly List<ObjectContainer> objectsAtSameTime = new();
+    private bool isPlaying;
 
     public static bool ShowArcVisualizer { get; private set; }
 
@@ -51,7 +56,10 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
 
     private void OnPlayToggle(bool isPlaying)
     {
-        if (!isPlaying) RefreshPool();
+        this.isPlaying = isPlaying;
+        if (!this.isPlaying) RefreshPool();
+
+        foreach (NoteContainer obj in LoadedContainers.Values) obj.SetIndicators(!this.isPlaying);
     }
 
     private void OnUIPreviewModeSwitch() => RefreshPool(true);
@@ -95,11 +103,12 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
         note.AssignObjectPrefabManager = customEventStateManager.AssignObjectPrefabManager;
         noteAppearance.SetNoteAppearance(note);
         note.Setup();
+        note.SetIndicators(!isPlaying);
         note.DirectionTargetEuler = NoteContainer.Directionalize(noteData);
 
         if (!note.Animator.AnimatedTrack)
         {
-            var track = tracksManager.GetTrackAtTime(obj.SongBpmTime);
+            var track = tracksManager.GetTrackAtTime(obj.SongBpmTime, note.NoteData.Rotation);
             track.AttachContainer(con);
         }
     }
@@ -146,11 +155,16 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
 
         // Clear angles if directions are not the same (and both are not dot notes) or is precision placed
         var hasNEcoordinates = a.CustomCoordinate != null || b.CustomCoordinate != null;
-        var hasMEprecision = a.CutDirection >= 1000 || a.CutDirection <= -1000 ||
-                             b.CutDirection >= 1000 || b.CutDirection <= -1000;
+        var hasMEprecision = a.CutDirection >= 1000
+            || a.CutDirection <= -1000
+            || b.CutDirection >= 1000
+            || b.CutDirection <= -1000;
 
-        if (a.CutDirection != b.CutDirection && a.CutDirection != (int)NoteCutDirection.Any &&
-            b.CutDirection != (int)NoteCutDirection.Any && !hasMEprecision && !hasNEcoordinates)
+        if (a.CutDirection != b.CutDirection
+            && a.CutDirection != (int)NoteCutDirection.Any
+            && b.CutDirection != (int)NoteCutDirection.Any
+            && !hasMEprecision
+            && !hasNEcoordinates)
         {
             var directionA = NoteContainer.Directionalize(a);
             var directionB = NoteContainer.Directionalize(b);
@@ -176,8 +190,7 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
         var angle = SignedAngleToLine(cutVector, line);
 
         // if both notes are dots, line them up with each other by adding the signed angle.
-        if (a.CutDirection == (int)NoteCutDirection.Any &&
-            b.CutDirection == (int)NoteCutDirection.Any)
+        if (a.CutDirection == (int)NoteCutDirection.Any && b.CutDirection == (int)NoteCutDirection.Any)
         {
             containerA.DirectionTargetEuler = Vector3.forward * angle;
             containerB.DirectionTargetEuler = Vector3.forward * angle;
@@ -224,8 +237,9 @@ public class NoteGridContainer : BeatmapObjectContainerCollection<BaseNote>
         foreach (var x in LoadedContainers)
         {
             if (note.CustomFake
-                || !(x.Key.JsonTime - Epsilon <= note.JsonTime && x.Key.JsonTime + Epsilon >= note.JsonTime
-                                                               && (x.Key as BaseNote).Type == note.Type))
+                || !(x.Key.JsonTime - Epsilon <= note.JsonTime
+                    && x.Key.JsonTime + Epsilon >= note.JsonTime
+                    && (x.Key as BaseNote).Type == note.Type))
             {
                 continue;
             }

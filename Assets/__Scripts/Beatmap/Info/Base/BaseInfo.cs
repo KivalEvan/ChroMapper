@@ -20,9 +20,9 @@ namespace Beatmap.Info
                 // Even though we set LastWriteTime here, it is indeed supposed to be the write time of Info.dat
                 // The field is of the BaseInfo class and refers to the write time of the Info.dat file
                 // The reason it's set here is because we only get the path information at this point
-                LastWriteTime = File.GetLastWriteTime(Path.Combine(value, "Info.dat"));
+                LastWriteTime = File.GetLastWriteTime(PathUtils.Combine(value, "Info.dat"));
 
-                isFavourite = File.Exists(Path.Combine(value, ".favourite"));
+                isFavourite = File.Exists(PathUtils.Combine(value, ".favourite"));
                 directory = value;
             }
         }
@@ -45,7 +45,7 @@ namespace Beatmap.Info
             get => isFavourite;
             set
             {
-                var path = Path.Combine(Directory, ".favourite");
+                var path = PathUtils.Combine(Directory, ".favourite");
                 lock (this)
                 {
                     if (value)
@@ -87,11 +87,29 @@ namespace Beatmap.Info
 
         public string SongName { get; set; } = "New Song";
 
-        public string CleanSongName =>
-            Path
-                .GetInvalidFileNameChars()
-                .Aggregate(SongName, (res, el) => res.Replace(el.ToString(), string.Empty))
-                .Trim('.'); // Windows disallows trailing periods and macOS treats leading period as hidden folder
+        // Windows has reserved names that should not be used by folders or files
+        private static readonly HashSet<string> ReservedNamesWindows = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+        public string CleanSongName
+        {
+            get
+            {   
+                var cleaned = Path.GetInvalidFileNameChars()
+                    .Aggregate(SongName, (res, el) => res.Replace(el.ToString(), string.Empty))
+                    .Trim('.'); // Windows disallows trailing periods and macOS treats leading period as hidden folder
+
+                if (ReservedNamesWindows.Contains(cleaned))
+                {
+                    return string.Empty;
+                }
+
+                return cleaned;
+            }
+        }
 
         public string SongSubName { get; set; } = "";
         public string SongAuthorName { get; set; } = "";
@@ -157,17 +175,27 @@ namespace Beatmap.Info
                 }
             }
 
+            // Keep editor-owned state namespaced beneath this editor's existing metadata object.
+            public JSONNode GetEditorData(string key) => MetadataNode[key];
+
+            // Update editor-owned state in memory so the normal Info.dat save flow persists it atomically.
+            public void SetEditorData(string key, JSONNode data) => MetadataNode[key] = data;
+
             public JSONNode ToJson()
             {
                 MetadataNode["version"] = editorVersion;
 
-
-                var lastEditedByKey = BeatSaberSongContainer.Instance?.Info.MajorVersion switch
-                {
-                    2 => "_lastEditedBy",
-                    4 => "lastEditedBy",
-                    _ => "lastEditedBy"
-                };
+                // Unity song containers need explicit null checks before selecting the metadata key version.
+                var songContainer = BeatSaberSongContainer.Instance;
+                var info = songContainer != null ? songContainer.Info : null;
+                var lastEditedByKey = info != null 
+                    ? info.MajorVersion switch
+                    {
+                        2 => "_lastEditedBy",
+                        4 => "lastEditedBy",
+                        _ => "lastEditedBy"
+                    } 
+                    : "lastEditedBy";
 
                 editorsNode[lastEditedByKey] = editorName;
                 editorsNode[editorName] = MetadataNode;
@@ -181,6 +209,13 @@ namespace Beatmap.Info
             // Create map folder
             if (!System.IO.Directory.Exists(Directory)) System.IO.Directory.CreateDirectory(Directory);
 
+            // Sync the legacy top-level environment name to the first entry in the per-difficulty
+            // environment names list (which corresponds to the first/expert+ difficulty environment).
+            if (EnvironmentNames != null && EnvironmentNames.Count > 0)
+            {
+                EnvironmentName = EnvironmentNames[0];
+            }
+
             var outputJson = Version[0] switch
             {
                 '2' => V2Info.GetOutputJson(this),
@@ -191,7 +226,7 @@ namespace Beatmap.Info
             if (outputJson == null) return false;
 
             // Write info file - Previous behaviour always indented file
-            File.WriteAllText(Path.Combine(Directory, "Info.dat"), outputJson.ToString(2));
+            File.WriteAllText(PathUtils.Combine(Directory, "Info.dat"), outputJson.ToString(2));
 
             return true;
         }

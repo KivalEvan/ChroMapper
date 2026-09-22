@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Beatmap.Animations;
 using Beatmap.Base;
 using Beatmap.Containers;
@@ -8,8 +7,18 @@ using Beatmap.Enums;
 using Beatmap.Helper;
 using UnityEngine;
 
+/// <summary>
+/// Base class for all placements. Handles the basic logic for placing objects on the grid.
+/// ShowVisual / HideVisual help with stuff.
+/// </summary>
 public abstract class BasePlacement : MonoBehaviour
 {
+    // Every gameplay placement shares this setting, so own it above note, bomb, and wall implementations.
+    public static readonly string ChromaColorKey = "PlaceChromaObjects";
+
+    // Notify all placement-adjacent controls when the shared gameplay-object Chroma setting changes.
+    public static event Action<bool> OnPlaceChromaObjectsChanged;
+
     [SerializeField] public ObjectType ObjectDataType;
     [SerializeField] public GameObject ObjectContainerPrefab;
 
@@ -28,7 +37,7 @@ public abstract class BasePlacement : MonoBehaviour
 
     [Header("360/90")] [SerializeField] public bool AssignTo360Tracks;
     [SerializeField] public TracksManager TracksManager;
-    [SerializeField] public RotationCallbackController GridRotation;
+    [SerializeField] public LaneRotationProvider LaneRotationProvider;
 
     [Header("State")]
     [Tooltip("If you have multiple placement in a single grid, consider making control flow and toggle this condition")]
@@ -37,16 +46,29 @@ public abstract class BasePlacement : MonoBehaviour
     public PlacementState State;
     public bool IsDragging;
     public float JsonTimeRounded;
-    protected Vector3 LanePosition;
     public Bounds Bounds;
     public Vector3 BoundsPosition;
+    protected Vector3 LanePosition;
 
     public virtual bool CanClickAndDrag => true;
     public virtual bool CanPlace => boxSelectionPlacement.State == PlacementState.Idle;
 
+    // Two-click placement types can retain their first endpoint while the cursor temporarily leaves a valid grid surface.
+    public virtual bool RetainsPendingPlacementOnInvalidHit => false;
+
     public bool IsIdle => State == PlacementState.Idle;
     public bool IsActive => State == PlacementState.Active;
     public bool IsPlacing => State == PlacementState.Placing;
+
+    // Keep the Chroma object state separate from lighting-event placement while making it available to every placement type.
+    public static bool CanPlaceChromaObjects => (bool)Settings.NonPersistentSettings.GetValueOrDefault(ChromaColorKey, false);
+
+    // Route all controls through one notification path so the color tile and picker cannot diverge.
+    public static void SetPlaceChromaObjects(bool enabled)
+    {
+        Settings.NonPersistentSettings[ChromaColorKey] = enabled;
+        OnPlaceChromaObjectsChanged?.Invoke(enabled);
+    }
 
     public float RoundedJsonTime
     {
@@ -62,18 +84,6 @@ public abstract class BasePlacement : MonoBehaviour
 
     protected static Vector2 GridOffset => Vector2.one * 0.5f;
 
-    protected readonly List<ObjectContainer> DraggedAttachedSliderContainers = new();
-
-    protected readonly Dictionary<IndicatorType, List<BaseSlider>> DraggedAttachedSliderDatas = new()
-    {
-        { IndicatorType.Head, new List<BaseSlider>() }, { IndicatorType.Tail, new List<BaseSlider>() }
-    };
-
-    protected readonly Dictionary<IndicatorType, List<BaseSlider>> OriginalDraggedAttachedSliderDatas = new()
-    {
-        { IndicatorType.Head, new List<BaseSlider>() }, { IndicatorType.Tail, new List<BaseSlider>() }
-    };
-
     public abstract void Initialize(PlacementProvider provider);
     public abstract void UpdateState(Intersections.IntersectionHit hit, PlacementInputState inputState);
     public abstract void ShowVisual();
@@ -87,6 +97,7 @@ public abstract class BasePlacement : MonoBehaviour
     public virtual void Cancel() { }
 
     public abstract ObjectContainer StartDrag(GameObject draggedObject);
+    protected abstract List<BeatmapAction> PerformPreFinishDragActions();
     public abstract void FinishDrag();
     protected virtual void HandleDragged() { }
 
@@ -112,21 +123,28 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
     public TObject QueuedData; //Data that is not yet applied to the ObjectContainer.
 
     [Header("Implementation")] public bool ForceHeaderPlsIgnore;
+    private bool hasPreviousSnappedState;
 
-    public event Action OnApplied; // this is an odd name
+    private Vector2 previousSnappedState;
 
     public virtual void Start()
     {
         CreateVisual();
         HideVisual();
+        LaneRotationProvider.OnEditChanged += HandleRotationChanged;
         QueuedData ??= GenerateOriginalData();
     }
+
+    public virtual void OnDestroy() => LaneRotationProvider.OnEditChanged -= HandleRotationChanged;
+
+    public event Action OnApplied; // this is an odd name
 
     protected abstract TObject GenerateOriginalData();
     protected abstract BeatmapAction GenerateAction(BaseObject spawned, IEnumerable<BaseObject> conflicts);
 
     public override void Initialize(PlacementProvider provider)
     {
+        ResetHysteresis();
         CreateVisual();
         HideVisual();
         QueuedData ??= GenerateOriginalData();
@@ -144,9 +162,11 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
             return;
         }
 
-        if (IsIdle) State = PlacementState.Active;
+        if (IsIdle)
+            State = PlacementState.Active;
 
-        if (inputState == PlacementInputState.Hover && !PlacementVisualContainer.gameObject.activeSelf) ShowVisual();
+        if (inputState == PlacementInputState.Hover && !PlacementVisualContainer.gameObject.activeSelf)
+            ShowVisual();
 
         if (BeatmapObjectContainerCollection.TrackFilterID != null && !ObjectContainerCollection.IgnoreTrackFilter)
             QueuedData.CustomTrack = BeatmapObjectContainerCollection.TrackFilterID;
@@ -161,6 +181,12 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
         HandleHitToPlacement(hit, localPoint);
         HandlePlacementToData(inputState);
 
+        // Alt keeps the queued preview visible on empty grid space but hides it after a hovered node or ribbon updates it.
+        if (ShouldHideVisualForHoveredTarget() || IsDragging)
+        {
+            HideVisual();
+        }
+
         if (inputState == PlacementInputState.Hover || !IsDragging) return;
         TransferQueuedToDraggedObject(ref DraggedObjectData, QueuedData);
         if (DraggedObjectContainer != null) DraggedObjectContainer.UpdateGridPosition();
@@ -169,29 +195,85 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
     protected override void HandleHitToPlacement(Intersections.IntersectionHit hit, Vector3 localPoint)
     {
         var placementZ = SongBpmTime * EditorScaleController.EditorScale;
-        var roundedPoint = new Vector3(Mathf.FloorToInt(localPoint.x), Mathf.FloorToInt(localPoint.y), placementZ);
 
         if (PrecisionPlacementController.IsEnabled && CanPrecisionPlacement)
         {
+            ResetHysteresis();
             var precision = Settings.Instance.PrecisionPlacementGridPrecision;
-            roundedPoint = (Vector2)Vector2Int.FloorToInt((Vector2)localPoint * precision) / precision;
+            Vector3 roundedPoint = (Vector2)Vector2Int.FloorToInt((Vector2)localPoint * precision) / precision;
             roundedPoint.z = placementZ;
             PlacementVisualContainer.transform.localPosition = roundedPoint + (Vector3)GridOffset;
         }
         else
         {
+            var snappedPosition = SnapWithHysteresis(localPoint.x, localPoint.y);
+
             var minX = Bounds.min.x;
             var maxX = Bounds.max.x;
-
             var minY = Bounds.min.y;
             var maxY = Bounds.max.y;
 
             PlacementVisualContainer.transform.localPosition = new Vector3(
-                    Mathf.Clamp(roundedPoint.x, 0, maxX - minX - 1),
-                    Mathf.Clamp(roundedPoint.y, 0, maxY - minY - 1),
-                    roundedPoint.z)
+                    Mathf.Clamp(snappedPosition.x, 0, maxX - minX - 1),
+                    Mathf.Clamp(snappedPosition.y, 0, maxY - minY - 1),
+                    placementZ)
                 + (Vector3)GridOffset;
         }
+    }
+
+    protected Vector2 SnapWithHysteresis(float rawX, float rawY)
+    {
+        var raw = new Vector2(rawX, rawY);
+        if (!hasPreviousSnappedState)
+        {
+            previousSnappedState = new Vector2(Mathf.Floor(raw.x), Mathf.Floor(raw.y));
+            hasPreviousSnappedState = true;
+        }
+        else
+            previousSnappedState = BeatmapPositionHelper.SnapWithHysteresis(raw, previousSnappedState);
+
+        return previousSnappedState;
+    }
+
+    protected virtual void ResetHysteresis()
+    {
+        hasPreviousSnappedState = false;
+        previousSnappedState = Vector2.zero;
+    }
+
+    // Resolve only authored node and ribbon hits so Alt alone does not suppress the queued placement preview.
+    private bool ShouldHideVisualForHoveredTarget()
+    {
+        if (!KeybindsController.IsHoverKeyHeld)
+        {
+            return false;
+        }
+
+        // Basic Event colliders resolve through their dedicated controller after the shared cache can be invalidated.
+        var eventInput = BeatmapEventInputController.ActiveInstance;
+        if (eventInput != null && eventInput.IsHovering)
+        {
+            return true;
+        }
+
+        if (!BeatmapRaycastCache.HasHit)
+        {
+            return false;
+        }
+
+        var hit = BeatmapRaycastCache.FirstHit;
+        if (hit == null)
+        {
+            return false;
+        }
+
+        if (hit.GetComponentInParent<ObjectContainer>() != null)
+        {
+            return true;
+        }
+
+        var ribbon = hit.GetComponentInParent<LightGradientController>();
+        return ribbon != null && ribbon.IsInteractiveBasicEventRibbon;
     }
 
     public override void ShowVisual() => PlacementVisualContainer.SafeSetActive(true);
@@ -204,7 +286,7 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
         Intersections.IntersectionHit hit,
         PlacementInputState inputState)
     {
-        var currentJsonTime = inputState == PlacementInputState.DragAtTime
+        var currentJsonTime = inputState == PlacementInputState.DragAtTime && IsDragging
             ? GetDraggedObjectJsonTime()
             : Atsc.CurrentJsonTime;
         currentJsonTime -= Atsc.VisualBeatOriginJsonTime;
@@ -255,7 +337,9 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
     private void SetTo360Tracks()
     {
         if (!AssignTo360Tracks) return;
-        var track = TracksManager.GetTrackAtTime(SongBpmTime);
+        var track = TracksManager.GetTrackAtTime(
+            SongBpmTime,
+            QueuedData is BaseGrid grid ? grid.Rotation : 0);
         if (track == null) return;
 
         var localPos = PlacementVisualContainer.transform.localPosition;
@@ -267,6 +351,8 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
             0,
             PlacementVisualContainer.transform.localEulerAngles.z);
     }
+
+    protected virtual void HandleRotationChanged(float rotation) { }
 
     public override void Apply()
     {
@@ -288,9 +374,12 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
 
     public override void Exit()
     {
+        ResetHysteresis();
         HideVisual();
         State = PlacementState.Idle;
     }
+
+    public override void Cancel() => ResetHysteresis();
 
     // TODO(Bullet): Clean up implementations.
     protected virtual void TransferQueuedToDraggedObject(ref TObject dragged, TObject queued) { }
@@ -310,26 +399,20 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
         DraggedObjectContainer = con;
         DraggedObjectContainer.Dragged = true;
 
-        if (con is NoteContainer noteContainer)
-        {
-            var noteCollection =
-                BeatmapObjectContainerCollection.GetCollectionForType<NoteGridContainer>(ObjectType.Note);
-            noteCollection.ClearSpecialAngles(con.ObjectData);
-
-            StartDragSliders(noteContainer);
-        }
-
         IsDragging = true;
         return con;
     }
 
+    protected override List<BeatmapAction> PerformPreFinishDragActions() => new();
+
     public override void FinishDrag()
     {
+        var actions = PerformPreFinishDragActions();
+
         // Spawn our dragged object and delete anything that's overlapping.
         ObjectContainerCollection.SpawnObject(DraggedObjectData, out var conflicting);
 
         QueuedData = BeatmapFactory.Clone(OriginalQueued);
-        var actions = new List<BeatmapAction>();
         // Don't queue an action if we didn't actually change anything
         if (DraggedObjectData.ToString() != OriginalDraggedObjectData.ToString())
         {
@@ -356,16 +439,6 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
             SelectionController.OnSelectionChanged?.Invoke();
         }
 
-        if (DraggedObjectContainer is NoteContainer)
-        {
-            var noteCollection =
-                BeatmapObjectContainerCollection.GetCollectionForType<NoteGridContainer>(ObjectType.Note);
-            noteCollection.RefreshSpecialAngles(DraggedObjectData, false, false);
-
-            FinishSliderDrag(actions);
-            ClearDraggedAttachedSliders();
-        }
-
         if (actions.Count == 1)
             BeatmapActionContainer.AddAction(actions[0]);
         else if (actions.Count > 1)
@@ -378,134 +451,5 @@ public abstract class BasePlacement<TObject, TContainer, TCollection> : BasePlac
         DraggedObjectContainer = null;
         HandleDragged();
         IsDragging = false;
-    }
-
-    private void StartDragSliders(NoteContainer noteContainer)
-    {
-        var noteData = noteContainer.NoteData;
-        var epsilon = BeatmapObjectContainerCollection.Epsilon;
-
-        var arcCollection = BeatmapObjectContainerCollection.GetCollectionForType<ArcGridContainer>(ObjectType.Arc);
-        foreach (var arcContainer in arcCollection.LoadedContainers)
-        {
-            var arcData = arcContainer.Key as BaseArc;
-            var isConnectedToHead = Mathf.Abs(arcData.JsonTime - noteData.JsonTime) < epsilon
-                && arcData.GetPosition() == noteData.GetPosition();
-            var isConnectedToTail = Mathf.Abs(arcData.TailJsonTime - noteData.JsonTime) < epsilon
-                && arcData.GetTailPosition() == noteData.GetPosition();
-            if (isConnectedToHead)
-            {
-                OriginalDraggedAttachedSliderDatas[IndicatorType.Head].Add(BeatmapFactory.Clone(arcData));
-                DraggedAttachedSliderDatas[IndicatorType.Head].Add(arcData);
-                DraggedAttachedSliderContainers.Add(arcContainer.Value);
-                arcCollection.SilentRemoveObject(arcData);
-            }
-            else if (isConnectedToTail)
-            {
-                OriginalDraggedAttachedSliderDatas[IndicatorType.Tail].Add(BeatmapFactory.Clone(arcData));
-                DraggedAttachedSliderDatas[IndicatorType.Tail].Add(arcData);
-                DraggedAttachedSliderContainers.Add(arcContainer.Value);
-                arcCollection.SilentRemoveObject(arcData);
-            }
-        }
-
-        var chainCollection =
-            BeatmapObjectContainerCollection.GetCollectionForType<ChainGridContainer>(ObjectType.Chain);
-        foreach (var chainContainer in chainCollection.LoadedContainers)
-        {
-            var chainData = chainContainer.Key as BaseChain;
-            var isConnectedToHead = Mathf.Abs(chainData.JsonTime - noteData.JsonTime) < epsilon
-                && chainData.GetPosition() == noteData.GetPosition();
-            var isConnectedToTail = Mathf.Abs(chainData.TailJsonTime - noteData.JsonTime) < epsilon
-                && chainData.GetTailPosition() == noteData.GetPosition();
-            if (isConnectedToHead)
-            {
-                OriginalDraggedAttachedSliderDatas[IndicatorType.Head].Add(BeatmapFactory.Clone(chainData));
-                DraggedAttachedSliderDatas[IndicatorType.Head].Add(chainData);
-                DraggedAttachedSliderContainers.Add(chainContainer.Value);
-                chainCollection.SilentRemoveObject(chainData);
-            }
-            else if (isConnectedToTail)
-            {
-                OriginalDraggedAttachedSliderDatas[IndicatorType.Tail].Add(BeatmapFactory.Clone(chainData));
-                DraggedAttachedSliderDatas[IndicatorType.Tail].Add(chainData);
-                DraggedAttachedSliderContainers.Add(chainContainer.Value);
-                chainCollection.SilentRemoveObject(chainData);
-            }
-        }
-
-        foreach (var container in DraggedAttachedSliderContainers) container.Dragged = true;
-    }
-
-    private void FinishSliderDrag(List<BeatmapAction> actions)
-    {
-        var arcCollection = BeatmapObjectContainerCollection.GetCollectionForType<ArcGridContainer>(ObjectType.Arc);
-        var chainCollection =
-            BeatmapObjectContainerCollection.GetCollectionForType<ChainGridContainer>(ObjectType.Chain);
-
-        for (var i = 0; i < DraggedAttachedSliderDatas[IndicatorType.Head].Count; i++)
-        {
-            var draggedSlider = DraggedAttachedSliderDatas[IndicatorType.Head][i];
-            var originalDraggedSlider = OriginalDraggedAttachedSliderDatas[IndicatorType.Head][i];
-
-            if (draggedSlider is BaseArc draggedArc)
-                SpawnDraggedSlider(arcCollection, draggedArc, originalDraggedSlider, actions);
-            else if (draggedSlider is BaseChain draggedChain)
-                SpawnDraggedSlider(chainCollection, draggedChain, originalDraggedSlider, actions);
-        }
-
-        for (var i = 0; i < DraggedAttachedSliderDatas[IndicatorType.Tail].Count; i++)
-        {
-            var draggedSlider = DraggedAttachedSliderDatas[IndicatorType.Tail][i];
-            var originalDraggedSlider = OriginalDraggedAttachedSliderDatas[IndicatorType.Tail][i];
-
-            if (draggedSlider is BaseArc draggedArc)
-                SpawnDraggedSlider(arcCollection, draggedArc, originalDraggedSlider, actions);
-            else if (draggedSlider is BaseChain draggedChain)
-                SpawnDraggedSlider(chainCollection, draggedChain, originalDraggedSlider, actions);
-        }
-    }
-
-    private void SpawnDraggedSlider(
-        BeatmapObjectContainerCollection sliderCollection,
-        BaseSlider draggedSlider,
-        BaseObject originalSlider,
-        List<BeatmapAction> actions)
-    {
-        sliderCollection.SpawnObject(draggedSlider, out var conflictingArcs);
-
-        // Don't queue an action if we didn't actually change anything
-        if (draggedSlider.ToString() != originalSlider.ToString())
-        {
-            if (conflictingArcs.Count > 0)
-            {
-                actions.Add(
-                    new BeatmapObjectModifiedWithConflictingAction(
-                        draggedSlider,
-                        draggedSlider,
-                        originalSlider,
-                        conflictingArcs,
-                        "Modified via alt-click and drag."));
-            }
-            else
-            {
-                actions.Add(
-                    new BeatmapObjectModifiedAction(
-                        draggedSlider,
-                        draggedSlider,
-                        originalSlider,
-                        "Modified via alt-click and drag."));
-            }
-        }
-    }
-
-    private void ClearDraggedAttachedSliders()
-    {
-        foreach (var container in DraggedAttachedSliderContainers) container.Dragged = false;
-        DraggedAttachedSliderContainers.Clear();
-        DraggedAttachedSliderDatas[IndicatorType.Head].Clear();
-        DraggedAttachedSliderDatas[IndicatorType.Tail].Clear();
-        OriginalDraggedAttachedSliderDatas[IndicatorType.Head].Clear();
-        OriginalDraggedAttachedSliderDatas[IndicatorType.Tail].Clear();
     }
 }

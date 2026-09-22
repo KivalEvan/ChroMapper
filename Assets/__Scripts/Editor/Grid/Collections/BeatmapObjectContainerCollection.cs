@@ -7,6 +7,7 @@ using Beatmap.Containers;
 using Beatmap.Enums;
 using SimpleJSON;
 using UnityEngine;
+using ZLinq;
 
 public abstract class BeatmapObjectContainerCollection : MonoBehaviour
 {
@@ -36,6 +37,12 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
     [Obsolete(
         "LoadedObjects allocates a copy of the backing list of objects. Please avoid this unless you absolutely cannot grab a more precise type.")]
     public abstract List<BaseObject> LoadedObjects { get; }
+
+    // Visit backing objects in beat order without allocating the obsolete LoadedObjects copy.
+    public abstract void ForEachObjectBetweenSongBpmTime(
+        float start,
+        float end,
+        Action<BeatmapObjectContainerCollection, BaseObject> callback);
 
     public BeatmapObjectCallbackController SpawnCallbackController;
     public BeatmapObjectCallbackController DespawnCallbackController;
@@ -164,6 +171,7 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
             Type t when t == typeof(BaseLightRotationBase) => ObjectType.GLSEvent,
             Type t when t == typeof(BaseLightTranslationBase) => ObjectType.GLSEvent,
             Type t when t == typeof(BaseFxEventFloat) => ObjectType.GLSEvent,
+            Type t when t == typeof(BaseRotationEvent) => ObjectType.RotationEvent,
             _ => throw new ArgumentException(nameof(TBaseObject))
         };
 
@@ -181,6 +189,17 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
     public static void RefreshAllPools(bool forceRefresh = false)
     {
         foreach (var collection in loadedCollections.Values) collection.RefreshPool(forceRefresh);
+    }
+
+    /// <summary>
+    ///     Updates the grid position of every container across all loaded <see cref="BeatmapObjectContainerCollection" />.
+    /// </summary>
+    public static void UpdateAllGridPositions()
+    {
+        foreach (var obj in loadedCollections
+            .Values.AsValueEnumerable()
+            .SelectMany(collection => collection.LoadedContainers.Values))
+            obj.UpdateGridPosition();
     }
 
     /// <summary>
@@ -230,7 +249,13 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
     /// <param name="obj">Object to store within the container.</param>
     protected void CreateContainerFromPool(BaseObject obj)
     {
-        if (obj.HasAttachedContainer) return;
+        // This collection's dictionary is authoritative; the shared object flag can be stale after parent replacement.
+        if (LoadedContainers.ContainsKey(obj))
+        {
+            obj.HasAttachedContainer = true;
+            return;
+        }
+        obj.HasAttachedContainer = false;
         //Debug.Log($"Creating container with hash code {obj.GetHashCode()}");
         if (pooledContainers.Count == 0) CreateNewObject();
         var dequeued = pooledContainers.Dequeue();
@@ -254,15 +279,27 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
     ///     pool for future use.
     /// </summary>
     /// <param name="obj">Object whose container will be recycled.</param>
-    protected internal void RecycleContainer(BaseObject obj)
+    protected internal void RecycleContainer(BaseObject obj, int? indexInObjectsWithContainers = null)
     {
-        if (!obj.HasAttachedContainer) return;
+        // Recycle dictionary-owned visuals even when a stale object flag incorrectly says no container is attached.
+        if (!LoadedContainers.TryGetValue(obj, out var container))
+        {
+            if (indexInObjectsWithContainers is not null)
+                ObjectsWithContainers.RemoveAt(indexInObjectsWithContainers.Value);
+            else // TODO O(N), and this is called in a loop
+                ObjectsWithContainers.Remove(obj);
+            obj.HasAttachedContainer = false;
+            return;
+        }
         //Debug.Log($"Recycling container with hash code {obj.GetHashCode()}");
-        var container = LoadedContainers[obj];
         container.ObjectData = null;
         container.SafeSetActive(false);
         LoadedContainers.Remove(obj);
-        ObjectsWithContainers.Remove(obj);
+
+        if (indexInObjectsWithContainers is not null)
+            ObjectsWithContainers.RemoveAt(indexInObjectsWithContainers.Value);
+        else // TODO O(N), and this is called in a loop
+            ObjectsWithContainers.Remove(obj);
         pooledContainers.Enqueue(container);
         HandleContainerDespawn(container, obj);
         obj.HasAttachedContainer = false;
@@ -331,7 +368,12 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
         bool refreshesPool = true,
         string comment = "No comment.",
         bool inCollectionOfDeletes = false,
-        bool deselect = true);
+        bool deselect = true,
+        bool triggerHandle = true);
+
+    // RefreshSpecialAngles mutates sort keys in place, so test teardown needs a collection-owned
+    // tail deletion path that does not binary-search an intentionally stale ordering.
+    public abstract void DeleteAllObjectsFromEnd(bool triggersAction = true);
 
     public abstract void SilentRemoveObject(BaseObject obj);
 
@@ -409,7 +451,8 @@ public abstract class BeatmapObjectContainerCollection : MonoBehaviour
             ObjectType.Chain,
             ObjectType.Bookmark,
             ObjectType.Waypoint,
-            ObjectType.NJSEvent
+            ObjectType.NJSEvent,
+            ObjectType.RotationEvent
         };
 
         foreach (var objectType in objectTypes)
@@ -497,23 +540,48 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
 
     public List<T> MapObjects = new();
 
+    // Reuse GetBetween for the normal range so selection does not maintain a second binary-search implementation.
+    public override void ForEachObjectBetweenSongBpmTime(
+        float start,
+        float end,
+        Action<BeatmapObjectContainerCollection, BaseObject> callback)
+    {
+        if (MapObjects.Count == 0 || callback == null)
+            return;
+
+        var epsilon = Epsilon;
+        var lowerBeat = start - epsilon;
+        var upperBeat = end + epsilon;
+
+        // Convert visual beat bounds back to the JsonTime ordering used by GetBetween and MapObjects.
+        var map = BeatSaberSongContainer.Instance.Map;
+        var lowerJsonTime = (float)map.SongBpmTimeToJsonTime(lowerBeat);
+        var upperJsonTime = (float)map.SongBpmTimeToJsonTime(upperBeat);
+        var objectsBetween = GetBetween(lowerJsonTime, upperJsonTime);
+
+        // If we want to be able to select the back end of walls / arcs to add them to selection (rather than
+        // selecting the very front of them), we'd need to implement a data-only interval index keyed by object
+        // start and end times instead of scanning the full map or using loaded containers as a bounded proxy.
+        // Keep the original open SongBpmTime bounds after conversion to avoid admitting epsilon-edge objects.
+        for (var index = 0; index < objectsBetween.Length; index++)
+        {
+            var obj = objectsBetween[index];
+            if (obj.SongBpmTime <= lowerBeat || obj.SongBpmTime >= upperBeat)
+                continue;
+
+            callback(this, obj);
+        }
+    }
+
     public Span<T> GetBetween(float jsonTime, float jsonTime2)
     {
         if (MapObjects.Count == 0) return Span<T>.Empty;
 
         // Considering we're only concerned with time, we'll use a time-based comparer here.
         var span = MapObjects.AsSpan();
-        var startIdx = span.BinarySearchBy(jsonTime, obj => obj.JsonTime);
-        var endIdx = span.BinarySearchBy(jsonTime2, obj => obj.JsonTime);
-
-        if (startIdx < 0) startIdx = ~startIdx;
-        if (endIdx < 0) endIdx = ~endIdx;
-
-        // March indexes in case of same time with different properties
-        while (startIdx > 0 && span[startIdx].JsonTime >= jsonTime) startIdx--;
-        if (span[startIdx].JsonTime < jsonTime) startIdx++;
-
-        while (endIdx < span.Length && span[endIdx].JsonTime <= jsonTime2) endIdx++;
+        // ContainerCollectionTest.GetBetween needs inclusive stacked endpoints without a linear duplicate-time walk.
+        var startIdx = span.LowerBoundBy(jsonTime, obj => obj.JsonTime);
+        var endIdx = span.UpperBoundBy(jsonTime2, obj => obj.JsonTime);
 
         var length = endIdx - startIdx;
 
@@ -547,8 +615,6 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
 
         foreach (var newObject in newObjects)
         {
-            Debug.Log($"Performing conflicting check at {newObject.JsonTime}");
-
             var localWindow = GetBetween(newObject.JsonTime - 0.1f, newObject.JsonTime + 0.1f);
 
             for (var i = 0; i < localWindow.Length; i++)
@@ -560,8 +626,6 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         }
 
         conflicting.ForEach(conflict => DeleteObject(conflict, false, false));
-
-        Debug.Log($"Removed {conflicting.Count} conflicting {ContainerType}s.");
     }
 
     /// <inheritdoc/>
@@ -573,7 +637,7 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         // Easier to process recyclings at the beginning, rather than try to deal with it later.
         if (forceRefresh)
             while (ObjectsWithContainers.Count > 0)
-                RecycleContainer(ObjectsWithContainers[0]);
+                RecycleContainer(ObjectsWithContainers[ObjectsWithContainers.Count - 1], indexInObjectsWithContainers: ObjectsWithContainers.Count - 1); // Clearing list from index 0 made this O(N^2) including N^2/2 position shifts.... clearing from the back to front is O(N) if we dont scan with .Remove
         else
         {
             var containersSpan = ObjectsWithContainers.AsSpan();
@@ -588,7 +652,8 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
                     case BaseObstacle obs
                         when obs.SongBpmTime > upperBound || obs.SongBpmTime + obs.Duration < lowerBound:
                     case BaseSlider slider when slider.SongBpmTime > upperBound || slider.TailSongBpmTime < lowerBound:
-                    case not null when obj.SongBpmTime > upperBound || obj.SongBpmTime < lowerBound:
+                    case not null when (obj.SongBpmTime > upperBound || obj.SongBpmTime < lowerBound)
+                        && !ShouldRetainContainerOutsideBounds(obj, lowerBound, upperBound):
                     case not null when !obj.HasMatchingTrack(TrackFilterID):
                         RecycleContainer(obj);
                         break;
@@ -601,16 +666,9 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         // lmao why do anything if we dont have objects to create containers for
         if (span.Length == 0) return;
 
-        // We need to copy GetBetween implementation:
-        //   - We are binary searching by SongBpmTime, not JsonTime (this should still be sorted since MapObjects is always sorted by JsonTime)
-        //   - We need access to startIdx later in this method
-        var startIdx = span.BinarySearchBy(lowerBound, obj => obj.SongBpmTime);
-        var endIdx = span.BinarySearchBy(upperBound, obj => obj.SongBpmTime);
-
-        if (startIdx < 0) startIdx = ~startIdx;
-        if (endIdx < 0) endIdx = ~endIdx;
-
-        while (endIdx < span.Length && span[endIdx].SongBpmTime <= upperBound) endIdx++;
+        // RefreshPool_Window* tests require exact inclusive bounds so distant neighbors never leak into the visual pool.
+        var startIdx = span.LowerBoundBy(lowerBound, obj => obj.SongBpmTime);
+        var endIdx = span.UpperBoundBy(upperBound, obj => obj.SongBpmTime);
 
         var length = endIdx - startIdx;
 
@@ -642,6 +700,11 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         }
     }
 
+    // Let duration-owning collections retain an offscreen source whose rendered interval still intersects the pool window.
+    //  EG transition ribbon endpoints should not unload while the ribbon is still visible.
+    protected virtual bool ShouldRetainContainerOutsideBounds(BaseObject obj, float lowerBound, float upperBound)
+        => false;
+
     /// <inheritdoc/>
     public override void DeleteObject(
         BaseObject obj,
@@ -649,11 +712,12 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         bool refreshesPool = true,
         string comment = "No comment.",
         bool inCollectionOfDeletes = false,
-        bool deselect = true)
+        bool deselect = true,
+        bool triggerHandle = true)
     {
         if (obj is not T localObj) return;
 
-        DeleteObject(localObj, triggersAction, refreshesPool, comment, inCollectionOfDeletes, deselect);
+        DeleteObject(localObj, triggersAction, refreshesPool, comment, inCollectionOfDeletes, deselect, triggerHandle);
     }
 
     /// <inheritdoc/>
@@ -667,22 +731,76 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         bool deselect = true,
         bool triggerHandle = true)
     {
-        if (!TryBinarySearch(obj, out var search)) return;
+        if (!TryBinarySearch(obj, out var index))
+        {
+            // Does not appear to be hit anymore, but keeping just in case.
+            // Remove an orphaned visual even when rapid conflict replacement already removed its backing map object.
+            if (obj.HasAttachedContainer && LoadedContainers.ContainsKey(obj))
+            {
+                Debug.LogError(
+                    $"[BeatmapObjectCollection] Orphaned {ContainerType} container at beat {obj.JsonTime}.");
+            }
+            return;
+        }
 
-        var deletedObj = MapObjects[search];
+        // RefreshSpecialAngles teardown shares the indexed deletion workflow so ordinary deletion
+        // and direct tail cleanup retain identical recycling, action, index, and callback behavior.
+        DeleteObjectAt(
+            index,
+            triggersAction,
+            refreshesPool,
+            comment,
+            inCollectionOfDeletes,
+            deselect,
+            triggerHandle);
+    }
+
+    // RefreshSpecialAngles requires direct index removal when its deliberately mutated note keys leave MapObjects unsorted.
+    protected virtual void DeleteObjectAt(
+        int index,
+        bool triggersAction,
+        bool refreshesPool,
+        string comment,
+        bool inCollectionOfDeletes,
+        bool deselect,
+        bool triggerHandle)
+    {
+        var deletedObj = MapObjects[index];
 
         RecycleContainer(deletedObj);
 
-        MapObjects.RemoveAt(search);
+        MapObjects.RemoveAt(index);
 
         if (deselect) SelectionController.Deselect(deletedObj, triggersAction);
 
         if (triggersAction) BeatmapActionContainer.AddAction(new BeatmapObjectDeletionAction(deletedObj, comment));
 
+        // Update collection-owned indexes before pooling so dependent visuals rebuild from the post-deletion data.
+        // If this is below RefreshPool, then boost event deletions don't update the lightshow preview until a time change recalculates.
+        if (triggerHandle) HandleObjectDelete(deletedObj, inCollectionOfDeletes);
+
         if (refreshesPool) RefreshPool();
 
-        if (triggerHandle) HandleObjectDelete(deletedObj, inCollectionOfDeletes);
         OnObjectDeleted?.Invoke(deletedObj);
+    }
+
+    // RefreshSpecialAngles and UpToNRandomMapsInDefaultSongLocationsLoadWithoutExceptions require
+    // authoritative tail removal plus one final pool refresh, avoiding binary search and repeated O(n) list shifts.
+    public override void DeleteAllObjectsFromEnd(bool triggersAction = true)
+    {
+        while (MapObjects.Count > 0)
+        {
+            DeleteObjectAt(
+                MapObjects.Count - 1,
+                triggersAction,
+                refreshesPool: false,
+                "Delete all objects from end.",
+                inCollectionOfDeletes: true,
+                deselect: true,
+                triggerHandle: true);
+        }
+
+        DoPostObjectsDeleteWorkflow();
     }
 
     // Removes object from MapObjects while retaining container and data in it
@@ -704,20 +822,23 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         {
             // The objects are not in the collection, but are still being removed.
             // This could be because of ghost blocks, so let's try forcefully recycling that container.
-            Debug.LogError($"This object is not in the collection and appears to be a ghost. Please report this.");
+            Debug.LogError($"This object at beat {tObj.JsonTime} is not in the collection and appears to be a ghost. Please report this.");
             return false;
         }
 
         // Happy path
-        if (MapObjects[index] == tObj) return true;
+        if (MapObjects[index] == tObj)
+            return true;
 
-        // United Mapper packets obviously cannot send the object reference so check comparison equality. 
-        if (MapObjects[index].CompareTo(tObj) == 0) return true;
+        // United Mapper packets obviously cannot send the object reference so check comparison equality.
+        if (MapObjects[index].CompareTo(tObj) == 0)
+            return true;
 
         // Potentially unhappy path: Binary Search returns an object, but turns out to be the incorrect object.
         // We assume this is only going to happen for stacked objects so we march indexes to see if we can find it.
         var forwardIndex = index + 1;
-        while (forwardIndex < MapObjects.Count - 1 && MapObjects[forwardIndex].JsonTime <= tObj.JsonTime)
+        // Search every equal-time neighbor, including the first and final collection entries.
+        while (forwardIndex < MapObjects.Count && MapObjects[forwardIndex].JsonTime <= tObj.JsonTime)
         {
             if (MapObjects[forwardIndex].CompareTo(tObj) == 0)
             {
@@ -729,7 +850,7 @@ public abstract class BeatmapObjectContainerCollection<T> : BeatmapObjectContain
         }
 
         var backwardIndex = index - 1;
-        while (backwardIndex > 0 && MapObjects[backwardIndex].JsonTime >= tObj.JsonTime)
+        while (backwardIndex >= 0 && MapObjects[backwardIndex].JsonTime >= tObj.JsonTime)
         {
             if (MapObjects[backwardIndex].CompareTo(tObj) == 0)
             {

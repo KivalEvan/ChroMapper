@@ -1,10 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using CustomNotes;
 using UnityEngine;
+using ZLinq;
 
 [CreateAssetMenu(fileName = "NoteModelSO", menuName = "Graphics/Create Note Model")]
 public class NoteModelSO : ScriptableObject
 {
-    public string FileName;
     public AssetBundle AssetBundle;
     public NoteDescriptor Descriptor;
 
@@ -19,29 +22,73 @@ public class NoteModelSO : ScriptableObject
     public VisualModelSO BurstSliderHeadRight;
     public VisualModelSO BurstSliderHeadDotLeft;
     public VisualModelSO BurstSliderHeadDotRight;
+    private readonly List<GameObject> generatedGameObjects = new();
+    private VisualModelSO[] ownedVisualModels;
 
-    public static NoteModelSO Create(AssetBundle assetBundle)
+    public static bool TryCreate(
+        GameObject prefab,
+        string bundleName,
+        string modelName,
+        out NoteModelSO model,
+        out string failureReason)
     {
+        model = null;
+        if (prefab == null)
+        {
+            failureReason = "the bundle does not contain assets/_customnote.prefab";
+            return false;
+        }
+
+        var descriptor = prefab.GetComponent<NoteDescriptor>();
+        if (descriptor == null)
+        {
+            failureReason = "the custom note prefab is missing NoteDescriptor";
+            return false;
+        }
+
         var so = CreateInstance<NoteModelSO>();
-        so.AssetBundle = assetBundle;
+        so.Descriptor = descriptor;
 
-        var prefab = assetBundle.LoadAsset<GameObject>("assets/_customnote.prefab");
-        if (prefab == null) return null;
+        so.name = modelName ?? so.Descriptor.NoteName;
+        if (string.IsNullOrEmpty(so.name)) so.name = bundleName;
 
-        so.Descriptor = prefab.GetComponent<NoteDescriptor>();
-        so.name = so.Descriptor.NoteName;
-        if (string.IsNullOrEmpty(so.name)) so.name = assetBundle.name;
+        var noteLeft = prefab.transform.Find("NoteLeft");
+        var noteRight = prefab.transform.Find("NoteRight");
+        if (noteLeft == null || noteRight == null)
+        {
+            Destroy(so);
+            failureReason = "the custom note prefab must contain NoteLeft and NoteRight";
+            return false;
+        }
 
         foreach (var comp in prefab.GetComponentsInChildren<Renderer>())
         foreach (var mat in comp.sharedMaterials)
         {
+            if (!Settings.Instance.ShaderCompatibility) continue;
             if (mat == null) continue;
             if (mat.shader != null && mat.shader.isSupported) continue;
-            if (Settings.Instance.ShaderCompatibility) mat.shader = Shader.Find("ChroMapper/Object/Note");
+
+            var sourceKeywords = mat.shaderKeywords ?? Array.Empty<string>();
+            mat.shader = Shader.Find("ChroMapper/Object/Note");
+            mat.shaderKeywords = sourceKeywords
+                .Select(keyword => keyword switch
+                {
+                    "ENABLE_CUTOUT" => "CUTOUT",
+                    "ENABLE_PLANE_CUT" => "PLANE_CUT",
+                    "ENABLE_RIM_DIM" => "RIM_DIM",
+                    "ACES_TONE_MAPPING" => "ACES_TONE_MAPPING",
+                    "ENABLE_HEIGHT_FOG" => "HEIGHT_FOG",
+                    _ => keyword,
+                })
+                .Where(keyword => keyword != null)
+                .Concat(new[] { "RIM_DIM", "CUTOUT", "_FOGTYPE_LERP", "HEIGHT_FOG" })
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(keyword => keyword, StringComparer.Ordinal)
+                .ToArray();
         }
 
-        so.NoteLeft = VisualModelSO.Create(prefab.transform.Find("NoteLeft").gameObject, so.name);
-        so.NoteRight = VisualModelSO.Create(prefab.transform.Find("NoteRight").gameObject, so.name);
+        so.NoteLeft = VisualModelSO.Create(noteLeft.gameObject, so.name);
+        so.NoteRight = VisualModelSO.Create(noteRight.gameObject, so.name);
         var noteDotLeftTransform = prefab.transform.Find("NoteDotLeft");
         var noteDotRightTransform = prefab.transform.Find("NoteDotRight");
         so.NoteDotLeft = noteDotLeftTransform != null
@@ -102,7 +149,26 @@ public class NoteModelSO : ScriptableObject
         ResetGameObject(so.BurstSliderHeadDotLeft);
         ResetGameObject(so.BurstSliderHeadDotRight);
 
-        return so;
+        so.ownedVisualModels = new[]
+            {
+                so.NoteLeft,
+                so.NoteRight,
+                so.NoteDotLeft,
+                so.NoteDotRight,
+                so.NoteBomb,
+                so.BurstSliderLeft,
+                so.BurstSliderRight,
+                so.BurstSliderHeadLeft,
+                so.BurstSliderHeadRight,
+                so.BurstSliderHeadDotLeft,
+                so.BurstSliderHeadDotRight
+            }
+            .Where(visual => visual != null)
+            .Distinct()
+            .ToArray();
+        model = so;
+        failureReason = null;
+        return true;
 
         void ResetGameObject(VisualModelSO vm)
         {
@@ -129,6 +195,7 @@ public class NoteModelSO : ScriptableObject
 
             var burstSlider = new GameObject(prefabName);
             DontDestroyOnLoad(burstSlider);
+            so.generatedGameObjects.Add(burstSlider);
 
             var burstSliderDot = Instantiate(dP, burstSlider.transform, true);
             burstSliderDot.transform.localPosition = Vector3.zero;
@@ -142,5 +209,23 @@ public class NoteModelSO : ScriptableObject
             ResetTransform(burstSlider);
             return burstSlider;
         }
+    }
+
+    public void DisposeRuntimeModel()
+    {
+        foreach (var generatedGameObject in generatedGameObjects
+            .AsValueEnumerable()
+            .Where(generatedGameObject => generatedGameObject != null))
+            Destroy(generatedGameObject);
+
+        if (ownedVisualModels != null)
+        {
+            foreach (var visualModel in ownedVisualModels)
+            {
+                if (visualModel != null) Destroy(visualModel);
+            }
+        }
+
+        Destroy(this);
     }
 }

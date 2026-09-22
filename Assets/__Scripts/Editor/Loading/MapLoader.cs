@@ -7,6 +7,7 @@ using UnityEngine;
 public class MapLoader : MonoBehaviour
 {
     [SerializeField] private TracksManager manager;
+    [SerializeField] private BeatmapRuntimeContext beatmapRuntimeContext;
 
     [Space] [SerializeField] private Transform containerCollectionsContainer;
 
@@ -45,9 +46,25 @@ public class MapLoader : MonoBehaviour
             LoadObjects(map.VfxEventBoxGroups);
         }
 
-        if (Settings.Instance.Load_Notes || Settings.Instance.Load_Obstacles) LoadObjects(map.NJSEvents);
+        if (Settings.Instance.Load_Notes || Settings.Instance.Load_Obstacles)
+        {
+            LoadObjects(map.NJSEvents);
+            LoadObjects(map.RotationEvents);
+        }
 
         manager.RefreshTracks();
+    }
+
+    // RestoringEditorCursorAfterCloningRingDoesNotUsePreCloneRotationSnapshot requires movement snapshots to observe
+    // every ring appended by environment enhancement spawning before AudioTimeSyncController renders saved map time.
+    public void HardRefreshBeforeEditorStateRestore(EnvironmentDescriptor descriptor)
+    {
+        HardRefresh();
+
+        if (Settings.Instance.Load_Others && map.EnvironmentEnhancements.Count > 0)
+        {
+            descriptor.Reinitialize();
+        }
     }
 
     public void LoadObjects<T>(List<T> objects) where T : BaseObject
@@ -64,11 +81,9 @@ public class MapLoader : MonoBehaviour
 
         if (objects is List<BaseEvent> eventsList)
         {
-            manager.RefreshTracks();
-
             var events = collection as EventGridContainer;
-            events.AllRotationEvents = eventsList.FindAll(it => it.IsLaneRotationEvent());
-            events.AllBoostEvents = eventsList.FindAll(it => it.IsColorBoostEvent());
+            // Build and filter the boost lookup index in one load pass without retaining a linear-scan list.
+            events.LoadBoostEvents(eventsList);
             events.AllBpmEvents = eventsList.FindAll(it => it.IsBpmEvent());
 
             events.LinkAllLightEvents();
@@ -80,10 +95,11 @@ public class MapLoader : MonoBehaviour
             events.LoadAll();
         }
 
-        if (objects is List<BaseEnvironmentEnhancement> && objects.Count > 0)
+        if (objects is List<BaseEnvironmentEnhancement>)
         {
-            var context = Resources.FindObjectsOfTypeAll<BeatmapRuntimeContext>().FirstOrDefault();
-            context.NotifyEnvironment();
+            if (beatmapRuntimeContext.Descriptor != null)
+                beatmapRuntimeContext.Descriptor.BloomFogParams.ResetToDefaults();
+            beatmapRuntimeContext.NotifyEnvironment();
         }
 
         collection.RefreshPool(true);

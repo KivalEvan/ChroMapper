@@ -6,6 +6,7 @@ using Beatmap.V4;
 using SimpleJSON;
 using UnityEngine;
 using LiteNetLib.Utils;
+using Debug = UnityEngine.Debug;
 
 namespace Beatmap.V3
 {
@@ -38,6 +39,8 @@ namespace Beatmap.V3
                 })
                 .ToList();
 
+            // Remove invalid same-lane/same-beat nodes once the loaded group can produce actionable beat diagnostics.
+            group.NormalizeLoadedEventConflicts();
             return group;
         }
 
@@ -56,6 +59,25 @@ namespace Beatmap.V3
             if (!vfxGroup.CustomData.Children.Any()) return node;
             node["customData"] = vfxGroup.CustomData;
             return node;
+        }
+
+        // Fix: Add overload for node editor serialization - extracts float FX events from the group automatically
+        public static JSONNode ToJson(BaseVfxEventEventBoxGroup vfxGroup)
+        {
+            // Handle null or empty group
+            if (vfxGroup == null)
+            {
+                Debug.LogWarning("[V3VfxEventEventBoxGroup] Attempted to serialize null group");
+                return new JSONObject();
+            }
+
+            // Use actual event instances from boxes to ensure IndexOf works correctly
+            var floatFxEvents = vfxGroup.Boxes
+                .SelectMany(box => box.Events)
+                .Distinct()
+                .ToList();
+            var result = ToJson(vfxGroup, floatFxEvents);
+            return result;
         }
     }
 }

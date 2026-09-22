@@ -13,6 +13,9 @@ public class BeatmapGLSEventRotationInputController : BeatmapGLSEventInputContro
     public event Action<float> OnValueChanged;
     public event Action<int> OnDirectionChanged;
     public event Action<int> OnLoopChanged;
+    private float currentValue;
+    private int currentDirection;
+    private int currentLoop;
 
     // REVIEW: Perhaps partner with Obama to turn this list of bools
     // into some binary shifting goodness
@@ -29,6 +32,11 @@ public class BeatmapGLSEventRotationInputController : BeatmapGLSEventInputContro
 
     private void HandleKeyUpdate(InputAction.CallbackContext context, int id)
     {
+        if (KeybindsController.IsHoverKeyHeld)
+        {
+            HandleKeyHoverUpdate(context, id);
+        }
+        
         if (context.performed ^ heldKeys[id]) flagDirectionsUpdate = true;
         heldKeys[id] = context.performed;
     }
@@ -41,6 +49,8 @@ public class BeatmapGLSEventRotationInputController : BeatmapGLSEventInputContro
 
     protected override void LateUpdate()
     {
+        base.LateUpdate();
+
         if (flagDirectionsUpdate)
         {
             HandleDirectionValues();
@@ -153,114 +163,168 @@ public class BeatmapGLSEventRotationInputController : BeatmapGLSEventInputContro
 
     public void NotifyValueChanged(float value)
     {
+        // Retain placement-restored state until an inactive GLS view subscribes during Start.
+        currentValue = value;
         EasingInputController.NotifyExtensionChanged(0);
         OnValueChanged?.Invoke(value);
     }
 
     public void OnAngle0(InputAction.CallbackContext context) => HandleKeyUpdate(context, upKey);
-    public void OnAngle0Hover(InputAction.CallbackContext context) => HandleKeyHoverUpdate(context, upKey);
 
     public void OnAngle90(InputAction.CallbackContext context) => HandleKeyUpdate(context, rightKey);
-    public void OnAngle90Hover(InputAction.CallbackContext context) => HandleKeyHoverUpdate(context, rightKey);
 
     public void OnAngle180(InputAction.CallbackContext context) => HandleKeyUpdate(context, downKey);
-    public void OnAngle180Hover(InputAction.CallbackContext context) => HandleKeyHoverUpdate(context, downKey);
 
     public void OnAngle270(InputAction.CallbackContext context) => HandleKeyUpdate(context, leftKey);
-    public void OnAngle270Hover(InputAction.CallbackContext context) => HandleKeyHoverUpdate(context, leftKey);
 
-    public void OnAngleHover(InputAction.CallbackContext context)
+    // Keep hover value mutations under the Tweak prefix in keybind settings.
+    public void OnTweakAngleHover(InputAction.CallbackContext context)
     {
-        if (context.performed && IsHovering)
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        // Reuse the outer-track implementation so modifier behavior stays identical in both GLS views.
+        GLSEventHoverMutation.AdjustRotation(context, evt, ScrollPrecisionController);
+        if (evt != null)
         {
-            var evt = HoveredObject.EventData as BaseLightRotationBase;
-            var delta = context.GetScrollDirection(Settings.Instance.InvertScrollEventValue);
-            var prec = ScrollPrecisionController.GetCurrentRotationPrecision();
-            var value = Mathf.Round((evt.Rotation + (delta * prec)) * 1_000f) / 1_000f;
-            GLSEventRotationCommand.SetValue(evt, Mathf.Repeat(value, 360f));
+            RefreshHoveredVisualAfterMutation();
         }
     }
 
+    public void OnTweakLoopHover(InputAction.CallbackContext context)
+    {
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        // The three-modifier loop chord is shared with the outer GLS group preview.
+        GLSEventHoverMutation.AdjustRotationLoop(context, evt);
+        if (evt != null)
+        {
+            RefreshHoveredVisualAfterMutation();
+        }
+    }
+
+    public void OnTweakEasingHover(InputAction.CallbackContext context)
+    {
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        // The two-modifier easing chord is shared with the outer GLS group preview.
+        GLSEventHoverMutation.AdjustRotationEasing(context, evt);
+        if (evt != null)
+        {
+            RefreshHoveredVisualAfterMutation();
+        }
+    }
+
+    // Name the scroll-wheel axis mutation consistently with the concise keybind label.
+    public void OnTweakAxisHover(InputAction.CallbackContext context)
+    {
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        // Inner event-box mode uses the same group-safe axis mutation as the outer preview.
+        GLSCommonCommand.CycleEventAxis(context, evt);
+        if (evt != null)
+        {
+            RefreshHoveredVisualAfterMutation();
+        }
+    }
+
+    public void OnTweakDirectionHover(InputAction.CallbackContext context)
+    {
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        // Keep direction cycling matched with the outer GLS group preview.
+        GLSEventHoverMutation.CycleRotationDirection(context, evt);
+        if (evt != null)
+        {
+            RefreshHoveredVisualAfterMutation();
+        }
+    }
+
+    private void OnRotationPerformed(LightRotationDirection lightRotationDirection)
+    {
+        if (KeybindsController.IsHoverKeyHeld)
+        {
+            if (IsHovering)
+            {
+                GLSEventRotationCommand.SetDirection(
+                    HoveredObject.EventData as BaseLightRotationBase,
+                    lightRotationDirection);
+            }
+        }
+        else
+        {
+            NotifyDirectionChanged((int)lightRotationDirection);
+        }
+    }
+    
     public void OnRotationDirectionLeft(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyDirectionChanged((int)LightRotationDirection.CounterClockwise);
-    }
-
-    public void OnRotationDirectionLeftHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-        {
-            GLSEventRotationCommand.SetDirection(
-                HoveredObject.EventData as BaseLightRotationBase,
-                LightRotationDirection.CounterClockwise);
-        }
+        if (context.performed) OnRotationPerformed(LightRotationDirection.CounterClockwise);
     }
 
     public void OnRotationDirectionAutomatic(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyDirectionChanged((int)LightRotationDirection.Automatic);
+        if (context.performed) OnRotationPerformed(LightRotationDirection.Automatic);
     }
-
-    public void OnRotationDirectionAutomaticHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-        {
-            GLSEventRotationCommand.SetDirection(
-                HoveredObject.EventData as BaseLightRotationBase,
-                LightRotationDirection.Automatic);
-        }
-    }
-
     public void OnRotationDirectionRight(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyDirectionChanged((int)LightRotationDirection.Clockwise);
-    }
-
-    public void OnRotationDirectionRightHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-        {
-            GLSEventRotationCommand.SetDirection(
-                HoveredObject.EventData as BaseLightRotationBase,
-                LightRotationDirection.Clockwise);
-        }
+        if (context.performed) OnRotationPerformed(LightRotationDirection.Clockwise);
     }
 
     public void NotifyDirectionChanged(int value)
     {
+        // Retain placement-restored state until an inactive GLS view subscribes during Start.
+        currentDirection = value;
         EasingInputController.NotifyExtensionChanged(0);
         OnDirectionChanged?.Invoke(value);
     }
 
+    private void OnChangeLoop(int loopChange)
+    {
+        if (KeybindsController.IsHoverKeyHeld)
+        {
+            if (IsHovering)
+            {
+                if (loopChange == 1)
+                {
+                    var evt = HoveredObject.EventData as BaseLightRotationBase;
+                    GLSEventRotationCommand.SetLoop(evt, (evt.Loop + 1) % 5);
+                }
+                else
+                {
+                    GLSEventRotationCommand.SetLoop(HoveredObject.EventData as BaseLightRotationBase, 0);
+                }
+            }
+        }
+        else
+        {
+            NotifyLoopChanged(loopChange);
+        }
+    }
+    
     public void OnChangeLoopCount(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyLoopChanged(1);
-    }
-
-    public void OnChangeLoopCountHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-        {
-            var evt = HoveredObject.EventData as BaseLightRotationBase;
-            GLSEventRotationCommand.SetLoop(evt, (evt.Loop + 1) % 5);
-        }
+        if (context.performed) OnChangeLoop(1);
     }
 
     public void OnResetLoopCount(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyLoopChanged(0);
-    }
-
-    public void OnResetLoopCountHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-            GLSEventRotationCommand.SetLoop(HoveredObject.EventData as BaseLightRotationBase, 0);
+        if (context.performed) OnChangeLoop(0);
     }
 
     public void NotifyLoopChanged(int value)
     {
+        // Retain placement-restored state until an inactive GLS view subscribes during Start.
+        currentLoop = value;
         EasingInputController.NotifyExtensionChanged(0);
         OnLoopChanged?.Invoke(value);
+    }
+
+    // Replay the last provider notification for a GLS view that initialized after map loading.
+    public void RefreshViews()
+    {
+        OnValueChanged?.Invoke(currentValue);
+        OnLoopChanged?.Invoke(currentLoop);
+        OnDirectionChanged?.Invoke(currentDirection);
     }
 
     private IEnumerator CheckForDiagonalUpdate()

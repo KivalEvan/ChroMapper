@@ -7,77 +7,80 @@ public class BeatmapGLSEventFloatFXInputController : BeatmapGLSEventInputControl
                                                      CMInput.IGLSFloatFXObjectsActions
 {
     public event Action<float> OnValueChanged;
+    private float currentValue;
 
+    private void OnValueChange(float value)
+    {
+        if (KeybindsController.IsHoverKeyHeld)
+        {
+            if (IsHovering)
+            {
+                GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, value);
+            }
+        }
+        else
+        {
+            NotifyValueChanged(value);
+        }
+    }
+    
     public void OnValuen100(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyValueChanged(-1f);
-    }
-
-    public void OnValuen100Hover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-            GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, -1f);
+        if (context.performed) OnValueChange(-1f);
     }
 
     public void OnValuen50(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyValueChanged(-.5f);
-    }
-
-    public void OnValuen50Hover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-            GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, -.5f);
+        if (context.performed) OnValueChange(-.5f);
     }
 
     public void OnValue0(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyValueChanged(0f);
-    }
-
-    public void OnValue0Hover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-            GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, 0f);
+        if (context.performed) OnValueChange(0f);
     }
 
     public void OnValue50(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyValueChanged(.5f);
-    }
-
-    public void OnValue50Hover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
-            GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, .5f);
+        if (context.performed) OnValueChange(.5f);
     }
 
     public void OnValue100(InputAction.CallbackContext context)
     {
-        if (context.performed) NotifyValueChanged(1f);
+        if (context.performed) OnValueChange(1f);
     }
 
-    public void OnValue100Hover(InputAction.CallbackContext context)
+    // Keep hover value mutations under the Tweak prefix in keybind settings.
+    public void OnTweakValueHover(InputAction.CallbackContext context)
     {
-        if (context.performed && IsHovering)
-            GLSEventFloatFXCommand.SetValue(HoveredObject.EventData as BaseFxEventFloat, 1f);
-    }
-
-    public void OnValueHover(InputAction.CallbackContext context)
-    {
-        if (context.performed && IsHovering)
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        GLSEventHoverMutation.AdjustFloatFx(context, evt, ScrollPrecisionController);
+        if (evt != null)
         {
-            var evt = HoveredObject.EventData as BaseFxEventFloat;
-            var delta = context.GetScrollDirection(Settings.Instance.InvertScrollEventValue);
-            var prec = ScrollPrecisionController.GetCurrentFloatFXPrecision() / 100f;
-            var value = Mathf.Round((evt.Value + (delta * prec)) * 1_000f) / 1_000f;
-            GLSEventFloatFXCommand.SetValue(evt, value);
+            RefreshHoveredVisualAfterMutation();
+        }
+    }
+
+    // Use the explicit Ctrl+Alt action because the Alt-only value action is suppressed by more-specific chords.
+    public void OnTweakEasingHover(InputAction.CallbackContext context)
+    {
+        // Re-resolve after every clone-producing wheel tick so pooled containers cannot redirect the next mutation.
+        TryGetHoveredEvent(context, out var evt);
+        GLSEventHoverMutation.AdjustFloatFxEasing(context, evt);
+        if (evt != null)
+        {
+            RefreshHoveredVisualAfterMutation();
         }
     }
 
     public void NotifyValueChanged(float value)
     {
+        // Retain placement-restored state until an inactive GLS view subscribes during Start.
+        currentValue = value;
         EasingInputController.NotifyExtensionChanged(0);
         OnValueChanged?.Invoke(value);
     }
+
+    // Replay the last provider notification for a GLS view that initialized after map loading.
+    public void RefreshViews() => OnValueChanged?.Invoke(currentValue);
 }

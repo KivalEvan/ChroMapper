@@ -42,16 +42,6 @@ public class CMInputCallbackInstaller : MonoBehaviour
 
     private CMInput input; //Singular CMInput object that will be shared to every class that requires it.
 
-#if !UNITY_STANDALONE_OSX
-    private void Awake()
-    {
-        // For some reason this doesn't work in InputSystemPatch so it's in this class
-        // Harmony patch doesn't work on Apple Silicon so use Unity's shortcut consuming
-        Debug.Log("Using Harmony Patch - Disable Unity Input Consumption");
-        InputSystem.settings.shortcutKeysConsumeInput = false;
-    }
-#endif
-    
     /*
      * This Start method looks a little messy.
      * Essentially, we create our dictionaries for Interface names to Action Map types and object references.
@@ -173,6 +163,29 @@ public class CMInputCallbackInstaller : MonoBehaviour
     public static bool IsActionMapDisabled(Type actionMap) =>
         disabledEventHandlers.Any(x => x.InterfaceType == actionMap);
 
+    // Restore the shared callback registry between tests so queued UI blockers cannot leak into a later fixture.
+    public static void ResetTestState()
+    {
+        if (!TestMode)
+        {
+            return;
+        }
+
+        queuedToDisable.Clear();
+        queuedToEnable.Clear();
+        foreach (var eventHandler in disabledEventHandlers.ToArray())
+        {
+            eventHandler.Blockers.Clear();
+            if (eventHandler.IsDisabled)
+            {
+                eventHandler.EnableEventHandler();
+            }
+        }
+
+        disabledEventHandlers.Clear();
+        InputInstance?.Enable();
+    }
+
     // Here we find our GameObjects that need our input map, install it, and then enable the input map.
     // Then we wait to re-enable our input map.
     // GameObjects that require our Input Map should be present when the scene loads, not created dynamically.
@@ -180,7 +193,14 @@ public class CMInputCallbackInstaller : MonoBehaviour
     {
         if (sceneMode == LoadSceneMode.Single) ClearAllEvents();
         foreach (var obj in scene.GetRootGameObjects()) FindAndInstallCallbacksRecursive(obj.transform);
-        foreach (var transform in persistentObjects) FindAndInstallCallbacksRecursive(transform);
+
+        if (sceneMode == LoadSceneMode.Single)
+        {
+            // Ensure persistent objects don't have multiple callbacks installed.
+            // e.g. (Single) Mapper scene + (Additive) Environment scene
+            foreach (var objTransform in persistentObjects) FindAndInstallCallbacksRecursive(objTransform);
+        }
+        
         StartCoroutine(WaitThenReenableInputs());
     }
 

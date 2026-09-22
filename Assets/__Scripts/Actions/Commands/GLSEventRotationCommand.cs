@@ -4,36 +4,55 @@ using UnityEngine;
 
 public static class GLSEventRotationCommand
 {
-    public static void SetValue(BaseLightRotationBase evt, float value)
+    public static BaseLightRotationBase SetValue(BaseLightRotationBase evt, float value)
     {
-        if (Mathf.Approximately(evt.Rotation, value)) return;
+        if (Mathf.Approximately(evt.Rotation, value)) return null;
+        // Clone through the shared GLS path so rotation mutations retain the source event identity.
         var (newGroup, newEvt) = GLSCommonCommand.CopyGroupFrom(evt);
         newEvt.Rotation = value;
-        GLSCommonCommand.TriggerModifyEventBoxAction(
+        return GLSCommonCommand.TriggerModifyEventAction(
             evt.EventBoxGroupData,
             newGroup,
+            newEvt,
             ActionMergeType.ModifyGLSRotationValue);
     }
 
-    public static void SetDirection(BaseLightRotationBase evt, LightRotationDirection value)
+    public static BaseLightRotationBase SetDirection(BaseLightRotationBase evt, LightRotationDirection value)
     {
-        if (evt.Direction == (int)value) return;
+        if (evt.Direction == (int)value) return null;
+        // Clone through the shared GLS path so rotation mutations retain the source event identity.
         var (newGroup, newEvt) = GLSCommonCommand.CopyGroupFrom(evt);
         newEvt.Direction = (int)value;
-        GLSCommonCommand.TriggerModifyEventBoxAction(
+        return GLSCommonCommand.TriggerModifyEventAction(
             evt.EventBoxGroupData,
             newGroup,
+            newEvt,
             ActionMergeType.ModifyGLSRotationDirection);
     }
 
-    public static void SetLoop(BaseLightRotationBase evt, int value)
+    public static void SetEaseType(BaseLightRotationBase evt, int value)
     {
-        if (evt.Loop == value) return;
+        if (evt.EaseType == value) return;
+        // Clone through the shared GLS path so rotation mutations retain the source event identity.
         var (newGroup, newEvt) = GLSCommonCommand.CopyGroupFrom(evt);
-        newEvt.Loop = value;
+        newEvt.EaseType = value;
         GLSCommonCommand.TriggerModifyEventBoxAction(
             evt.EventBoxGroupData,
             newGroup,
+            ActionMergeType.ModifyGLSRotationEaseType);
+    }
+
+    public static BaseLightRotationBase SetLoop(BaseLightRotationBase evt, int value)
+    {
+        if (evt.Loop == value) return null;
+        // Clone through the shared GLS path so rotation mutations retain the source event identity.
+        var (newGroup, newEvt) = GLSCommonCommand.CopyGroupFrom(evt);
+        newEvt.Loop = value;
+        return GLSCommonCommand.TriggerModifyEventAction(
+            evt.EventBoxGroupData,
+            newGroup,
+            newEvt,
             ActionMergeType.ModifyGLSRotationLoop);
     }
+
 }
