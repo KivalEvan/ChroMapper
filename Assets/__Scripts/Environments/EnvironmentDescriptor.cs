@@ -29,6 +29,7 @@ public class EnvironmentDescriptor : MonoBehaviour
 
     public void Initialize(BeatmapRuntimeContext context)
     {
+        WorldParticleVisibility.Initialize(transform);
         // TODO: do proper batch update
         if (hasInitialized)
         {
@@ -92,6 +93,21 @@ public class EnvironmentDescriptor : MonoBehaviour
         }
     }
 
+    public void Register(LightController controller, int? requestedKey)
+    {
+        switch (controller.Kind)
+        {
+            case LightController.LightKind.Basic:
+                BasicEventEffectManager.Register(controller, requestedKey);
+                break;
+            case LightController.LightKind.Group:
+                LightColorGroupEffectManager.Register(controller);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+    }
+
     public void Unregister(LightController controller)
     {
         switch (controller.Kind)
@@ -107,6 +123,10 @@ public class EnvironmentDescriptor : MonoBehaviour
         }
     }
 
-    public IEnvironmentComponentUpdate[] GetComponentUpdates() =>
-        componentUpdates.Where(x => x.ShouldInclude).ToArray();
+    public IEnvironmentComponentUpdate[] GetComponentUpdates()
+    {
+        // Enhancements add clones after Initialize, so collect current components when LightshowController rebuilds its level refresh list.
+        componentUpdates = GetComponentsInChildren<IEnvironmentComponentUpdate>(true);
+        return componentUpdates.Where(component => component.ShouldInclude).ToArray();
+    }
 }

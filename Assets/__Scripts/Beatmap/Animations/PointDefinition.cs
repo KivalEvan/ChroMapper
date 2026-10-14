@@ -1,11 +1,10 @@
 // Mostly just copied from Heck
 
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 using SimpleJSON;
 using Beatmap.Base.Customs;
-using UnityEngine.Animations;
+using Beatmap.Base;
 
 namespace Beatmap.Animations
 {
@@ -23,151 +22,97 @@ namespace Beatmap.Animations
             public float TimeBegin;
             public float TimeEnd;
             public int Repeat;
+            internal int PreparedIndex;
+            internal int PreparedLength;
+            internal BaseObject LogSource;
         }
     }
 
-    public class PointDefinition<T> : IPointDefinition, IComparable<PointDefinition<T>>
-        where T : struct
+    /// <summary>Legacy typed event wrapper over the shared normalized point-definition curve.</summary>
+    public class PointDefinition<T> : IPointDefinition, IComparable<PointDefinition<T>> where T : struct
     {
         public BaseCustomEvent Source;
         public PointData[] Points;
-
-        public float StartTime { get; private set; } = 0;
-
-        // For AnimateTrack
-        public float Duration = 0;
-
-        // For AssignPathAnimation
-        public float Transition = 0;
+        public float StartTime { get; private set; }
+        public float Duration;
+        public int Repeat;
+        public float Transition;
         public Func<float, float> Easing;
+        internal long Sequence;
+        private readonly PointDefinitionInterpolator curve;
+        private readonly float timeBegin;
+        private readonly float timeEnd;
+        internal bool HasCurve => curve != null;
+        internal bool HasBaseProvider => curve?.HasBaseProvider == true;
+        internal bool IsConstant => curve?.Count == 1 && !HasBaseProvider;
 
         public delegate T Parser(JSONArray data, ref int i);
-
         public delegate T InterpolationHandler(PointData[] points, int prev, int next, float time);
 
-        // Used for searching ONLY
         public PointDefinition(float start) => StartTime = start;
 
         public PointDefinition(Parser parser, IPointDefinition.UntypedParams p, BaseCustomEvent source)
         {
             Source = source;
             StartTime = p.Time;
-            Transition = p.Transition;
             Duration = p.Duration;
-            Easing = global::Easing.Named(p.Easing ?? "easeLinear");
-
-            var _points = new List<PointData>();
-            var data = p.Points switch
-            {
-                JSONArray arr => arr,
-                JSONString pd => BeatSaberSongContainer.Instance.Map.PointDefinitions.ContainsKey(pd)
-                    ? BeatSaberSongContainer.Instance.Map.PointDefinitions[pd]
-                    : throw new Exception($"Missing point definition {pd}"),
-                _ => new JSONArray() // TODO: Does this unset properly?
-            };
-
-            foreach (var row in data)
-            {
-                // WTF, Jevk
-                if (row.Value.AsArray == null)
-                {
-                    _points.Add(new PointData(parser, data, p.TimeBegin, p.TimeEnd));
-                    break;
-                }
-
-                _points.Add(new PointData(parser, row.Value.AsArray, p.TimeBegin, p.TimeEnd));
-            }
-
-            Points = _points.ToArray();
+            Repeat = Math.Max(0, p.Repeat);
+            Transition = p.Transition;
+            Easing = global::Easing.HeckNamed(p.Easing ?? "easeLinear");
+            timeBegin = p.TimeBegin;
+            timeEnd = p.TimeEnd;
+            curve = PointDefinitionParser.Get(p.Points, PointDefinitionParser.Dimension<T>(),
+                new AnimationLogContext(p, source), typeof(T) == typeof(Quaternion), typeof(T).Name);
+            Points = new PointData[curve?.Count ?? 0];
+            for (var i = 0; i < Points.Length; ++i) Points[i] = new PointData(curve[i], timeBegin, timeEnd);
         }
 
         public T Interpolate(float time)
         {
-            var count = Points.Length;
-
-            if (count == 0) return default;
-
-            if (Points[count - 1].Time <= time) return Points[count - 1].Value;
-
-            if (Points[0].Time >= time) return Points[0].Value;
-
-            GetIndexes(time, out var prev, out var next);
-
-            float normalTime;
-            var divisor = Points[next].Time - Points[prev].Time;
-            if (divisor != 0)
-                normalTime = (time - Points[prev].Time) / divisor;
-            else
-                normalTime = 0;
-
-            normalTime = Points[next].Easing(normalTime);
-
-            return Points[next].Lerp(Points, prev, next, normalTime);
+            if (curve == null) return default;
+            if (Source?.Type == "AnimateTrack" && Duration == 0) return curve.Get<T>(1);
+            if (timeEnd == 0) return curve.Get<T>(time);
+            var span = timeEnd - timeBegin;
+            return curve.Get<T>(span == 0 ? float.PositiveInfinity : (time - timeBegin) / span);
         }
 
-        private void GetIndexes(float time, out int prev, out int next)
-        {
-            prev = 0;
-            next = Points.Length;
-
-            while (prev < next - 1)
-            {
-                var m = (prev + next) / 2;
-                var pointTime = Points[m].Time;
-
-                if (pointTime < time)
-                    prev = m;
-                else
-                    next = m;
-            }
-        }
+        // Color paths sample object lifetime independently of the event transition clock.
+        internal T InterpolateNormalized(float normalized) => curve != null ? curve.Get<T>(normalized) : default;
 
         public int CompareTo(PointDefinition<T> other)
         {
-            // TODO: might be able to cheese previous/next with this
-            return StartTime.CompareTo(other.StartTime);
+            var comparison = StartTime.CompareTo(other.StartTime);
+            return comparison != 0 ? comparison : Sequence.CompareTo(other.Sequence);
         }
 
+        // Retained for callers of the typed interpolation helpers; values use the same shared parser.
         public class PointData : IComparable<PointData>
         {
-            public PointData(Parser parser, JSONArray data, float tbegin = 0, float tend = 0)
+            private readonly IPointDefinitionValue point;
+            public T Value => typeof(T) switch
             {
-                var i = 0;
-                Value = parser(data, ref i);
-
-                var len = data.Count;
-                if (len > i)
-                {
-                    // Track or Path animation
-                    Time = tend == 0
-                        ? data[i++].AsFloat
-                        : Mathf.LerpUnclamped(tbegin, tend, data[i++]);
-                }
-                else
-                {
-                    // WTF Jevk
-                    Time = 0;
-                }
-
-                Easing = global::Easing.Linear;
-                Lerp = PointDataInterpolators.LinearLerp<T>();
-
-                for (; i < len; ++i)
-                {
-                    string str = data[i];
-
-                    if (str[0] == 'e') Easing = global::Easing.Named(str);
-
-                    if (str == "splineCatmullRom") Lerp = PointDataInterpolators.CatmullRomLerp<T>();
-
-                    if (str == "lerpHSV") Lerp = PointDataInterpolators.HSVLerp<T>();
-                }
-            }
-
-            public T Value { get; }
+                var type when type == typeof(float) => (T)(object)point.Float,
+                var type when type == typeof(Vector3) => (T)(object)point.Vector3,
+                var type when type == typeof(Vector4) => (T)(object)point.Vector4,
+                var type when type == typeof(Quaternion) => (T)(object)point.Quaternion,
+                var type when type == typeof(Color) => (T)(object)point.Color,
+                _ => throw new ArgumentException($"Unsupported point definition type {typeof(T).Name}.")
+            };
             public float Time { get; }
             public Func<float, float> Easing { get; }
             public InterpolationHandler Lerp { get; }
+
+            public PointData(Parser parser, JSONArray data, float tbegin = 0, float tend = 0)
+                : this(PointDefinitionParser.ParsePoint<T>(data), tbegin, tend) { }
+
+            internal PointData(IPointDefinitionValue value, float begin, float end)
+            {
+                point = value;
+                Time = end == 0 ? value.T : Mathf.LerpUnclamped(begin, end, value.T);
+                Easing = value.Easing;
+                Lerp = value.SplineCatmullRom ? PointDataInterpolators.CatmullRomLerp<T>()
+                    : value.LerpHSV ? PointDataInterpolators.HSVLerp<T>() : PointDataInterpolators.LinearLerp<T>();
+            }
 
             public int CompareTo(PointData other) => Time.CompareTo(other.Time);
         }

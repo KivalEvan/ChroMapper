@@ -7,14 +7,16 @@ using Beatmap.Helper;
 public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
 {
     private bool addToSelection;
-    
+
+    private bool preserveSelection;
+
     public BaseObject EditedData;
     public BaseObject EditedObject;
     public BaseObject OriginalData;
     public BaseObject OriginalObject;
 
     private BaseObject preMergeOriginalData;
-    
+
     public ActionMergeType MergeType { get; set; }
     public int MergeCount { get; set; }
 
@@ -22,7 +24,8 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
     public BeatmapObjectModifiedAction() : base() { }
 
     public BeatmapObjectModifiedAction(BaseObject edited, BaseObject originalObject, BaseObject originalData,
-        string comment = "No comment.", bool keepSelection = false, ActionMergeType mergeType = ActionMergeType.None) : base(new[] { edited, originalObject }, comment)
+        string comment = "No comment.", bool keepSelection = false, ActionMergeType mergeType = ActionMergeType.None,
+        bool preserveSelection = false) : base(new[] { edited, originalObject }, comment)
     {
         EditedObject = edited;
         EditedData = BeatmapFactory.Clone(edited);
@@ -31,6 +34,7 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
         this.OriginalObject = originalObject;
         addToSelection = keepSelection;
         MergeType = mergeType;
+        this.preserveSelection = preserveSelection;
     }
 
     public IMergeableAction TryMerge(IMergeableAction previous)
@@ -41,13 +45,13 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
     public bool CanMerge(IMergeableAction previous)
     {
         if (previous is not BeatmapObjectModifiedAction previousAction) return false;
-        return MergeType != ActionMergeType.None && previous.MergeType == MergeType && OriginalObject == previousAction.EditedObject && EditedData.CompareTo(previousAction.OriginalData) != 0;
+        return MergeType != ActionMergeType.None && previous.MergeType == MergeType && OriginalObject == previousAction.EditedObject && !EditedData.HasSameContent(previousAction.OriginalData);
     }
 
     public IMergeableAction DoMerge(IMergeableAction previous)
     {
         if (previous is not BeatmapObjectModifiedAction previousAction) return null;
-        var merged = new BeatmapObjectModifiedAction(EditedObject, previousAction.OriginalObject, previousAction.OriginalData, Comment, addToSelection, MergeType);
+        var merged = new BeatmapObjectModifiedAction(EditedObject, previousAction.OriginalObject, previousAction.OriginalData, Comment, addToSelection, MergeType, preserveSelection);
 
         merged.MergeCount = previousAction.MergeCount + 1;
         merged.Comment += $" ({merged.MergeCount}x merged)";
@@ -60,7 +64,8 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
 
     public override void Undo(BeatmapActionContainer.BeatmapActionParams param)
     {
-        if (OriginalObject != EditedObject || EditedData.CompareTo(OriginalData) != 0)
+        var restoreOriginalSelection = preserveSelection && SelectionController.IsObjectSelected(EditedObject);
+        if (OriginalObject != EditedObject || !EditedData.HasSameContent(OriginalData))
         {
             DeleteObject(EditedObject, false, EditedObject is not BaseGLSEvent);
 
@@ -75,15 +80,16 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
             if (!inCollection) RefreshPools(Data);
         }
 
-        if (!Networked)
+        if (!Networked && (!preserveSelection || restoreOriginalSelection))
         {
-            SelectionController.Select(OriginalObject, addToSelection, true, !inCollection);
+            SelectionController.Select(OriginalObject, addToSelection || preserveSelection, true, !inCollection);
         }
     }
 
     public override void Redo(BeatmapActionContainer.BeatmapActionParams param)
     {
-        if (OriginalObject != EditedObject || EditedData.CompareTo(OriginalData) != 0)
+        var restoreEditedSelection = preserveSelection && SelectionController.IsObjectSelected(OriginalObject);
+        if (OriginalObject != EditedObject || !EditedData.HasSameContent(OriginalData))
         {
             if (Networked && MergeCount > 0)
             {
@@ -116,9 +122,9 @@ public class BeatmapObjectModifiedAction : BeatmapAction, IMergeableAction
             if (!inCollection) RefreshPools(Data);
         }
 
-        if (!Networked)
+        if (!Networked && (!preserveSelection || restoreEditedSelection))
         {
-            SelectionController.Select(EditedObject, addToSelection, true, !inCollection);
+            SelectionController.Select(EditedObject, addToSelection || preserveSelection, true, !inCollection);
         }
     }
 

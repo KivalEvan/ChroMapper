@@ -16,10 +16,13 @@ namespace Beatmap.Containers
         private static readonly int addColorId = Shader.PropertyToID("_AddColor");
         private static readonly int tintColorId = Shader.PropertyToID("_TintColor");
         private static readonly int sizeParamsId = Shader.PropertyToID("_SizeParams");
+        private static readonly int handleScaleId = Shader.PropertyToID("_HandleScale");
 
         [SerializeField] public MeshRenderer CoreRenderer;
         [SerializeField] private Material simpleObstacle;
         [SerializeField] private Material distortObstacle;
+        [SerializeField] private Material editorOutline;
+        [SerializeField] private Material previewOutline;
 
         [Header("Transform")] [SerializeField] public Transform CoreTransform;
         [SerializeField] public Transform OutlineTransform;
@@ -27,6 +30,7 @@ namespace Beatmap.Containers
 
         [Header("State")] [SerializeField] private TracksManager manager;
         public Vector3 ObstacleScale;
+        [SerializeField] private MeshRenderer outlineRenderer;
 
         public BaseObstacle ObstacleData;
 
@@ -37,6 +41,13 @@ namespace Beatmap.Containers
         }
 
         public bool IsRotatedByNoodleExtensions => ObstacleData.CustomWorldRotation != null;
+
+        // Prevent the wall selection box from scaling proportionally larger than the wall, unlike other outlined objects.
+        public override void Setup()
+        {
+            SelectionMpbController.Mpb.SetFloat(handleScaleId, 1f);
+            SelectionMpbController.ApplyChanges();
+        }
 
         public static ObstacleContainer SpawnObstacle(
             BaseObstacle data,
@@ -52,11 +63,18 @@ namespace Beatmap.Containers
         public void SwitchMaterial()
         {
             CoreRenderer.sharedMaterial = UIMode.PreviewMode ? distortObstacle : simpleObstacle;
+            // Editor frames use bounded transparency so overlapping decorative walls cannot add their colors indefinitely.
+            outlineRenderer.sharedMaterial = UIMode.PreviewMode
+                ? previewOutline
+                : editorOutline;
             MpbController.ApplyChanges();
         }
 
         public void SetColor(Color c)
         {
+            // Negative bloom alpha hides the frame in gameplay. Disable its renderer in preview to avoid
+            // white lines along distant water boundaries. (See the "water" wall edges on The 15 Sublimit for example)
+            outlineRenderer.enabled = !UIMode.PreviewMode || c.a >= 0f;
             MpbController.Mpb.SetColor(ColorId, c);
             MpbController.Mpb.SetColor(tintColorId, Color.Lerp(c, Color.white, coreLerpToWhiteFactor));
 
@@ -77,7 +95,9 @@ namespace Beatmap.Containers
             CoreTransform.localScale = scale - (Vector3.one * 0.01f);
             CoreTransform.localPosition = cubeOffset;
 
-            OutlineTransform.localScale = scale;
+            // The cube adapter needs a visible envelope for native frame beams below their edge thickness.
+            OutlineTransform.localScale = new Vector3(
+                scale.x, Mathf.Max(scale.y, obstacleEdgeSize), scale.z);
             OutlineTransform.localPosition = cubeOffset;
 
             MpbController.Mpb.SetVector(worldScaleId, OutlineTransform.localScale);
@@ -102,7 +122,7 @@ namespace Beatmap.Containers
             if (ObstacleData.CustomSize != null
                 && ObstacleData.CustomSize.IsArray
                 && ObstacleData.CustomSize[2].IsNumber)
-                return ObstacleData.CustomSize[2];
+                return ObstacleData.CustomSize[2].AsFloat * BeatmapConstant.LaneSize;
 
             var length = ObstacleData.DurationSongBpmTime;
 
@@ -173,13 +193,20 @@ namespace Beatmap.Containers
             }
 
             // Enforce positive scale, offset our obstacles to match.
-            transform.localPosition = new Vector3(
-                0f,
-                BeatmapConstant.YOffset + BeatmapConstant.ObstacleYOffset,
-                (ObstacleData.SongBpmTime * EditorScaleController.EditorScale * BeatmapConstant.LaneSize)
-                + (length < 0f ? length : 0f)
-                + BeatmapConstant.ZOffset);
+            // Editor-scale changes redraw retained walls too. Their animation track already owns
+            // travel, so putting editor depth on the container would add that depth a second time.
+            transform.localPosition = UIMode.AnimationMode && Animator.AnimatedTrack
+                ? Vector3.zero
+                : new Vector3(
+                    0f,
+                    BeatmapConstant.YOffset + BeatmapConstant.ObstacleYOffset,
+                    (ObstacleData.SongBpmTime * EditorScaleController.EditorScale * BeatmapConstant.LaneSize)
+                    + (length < 0f ? length : 0f)
+                    + BeatmapConstant.ZOffset);
             Animator.LocalTarget.localPosition = ReadPosition();
+            // Noodle "scale" resizes the visual child. Scaling the container root would also move
+            // its coordinate-derived position.
+            Animator.LocalTarget.localScale = ObstacleData.CustomVisualScale;
 
             UpdateScaleWithLength(length);
 

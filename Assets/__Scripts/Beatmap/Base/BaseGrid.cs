@@ -1,4 +1,5 @@
 using Beatmap.Base.Customs;
+using Beatmap.Animations;
 using LiteNetLib.Utils;
 using SimpleJSON;
 using UnityEngine;
@@ -7,6 +8,18 @@ namespace Beatmap.Base
 {
     public abstract class BaseGrid : BaseObject, IObjectBounds, INoodleExtensionsGrid
     {
+        internal ObjectPathAnimationPreparation PreparedPathAnimation;
+
+        private const string SpawnEffectKey = "spawnEffect";
+        private const string LegacyDisableSpawnEffectKey = "_disableSpawnEffect";
+        private const string DisableDebrisKey = "disableDebris";
+
+        // Chroma reads these note and slider flags in both beatmap versions.
+        protected bool HasChromaNoteFlags() =>
+            CustomData.GetValueOrDefault(SpawnEffectKey, null) is JSONBool
+            || CustomData.GetValueOrDefault(LegacyDisableSpawnEffectKey, null) is JSONBool
+            || CustomData.GetValueOrDefault(DisableDebrisKey, null) is JSONBool;
+
         public override void Serialize(NetDataWriter writer)
         {
             writer.Put(PosX);
@@ -57,6 +70,7 @@ namespace Beatmap.Base
 
         // Half Jump Duration (SongBpmTime)
         public float HalfJumpDuration { get; private set; }
+        internal event System.Action<BaseGrid, float, float> HalfJumpDurationChanged;
 
         // Half Jump Distance
         public float HalfJumpDistance { get; private set; }
@@ -125,8 +139,11 @@ namespace Beatmap.Base
 
         public void SetSpawnParameters(float hjd, float jd)
         {
+            var previous = HalfJumpDuration;
             HalfJumpDuration = hjd;
             HalfJumpDistance = jd;
+            if (previous != hjd)
+                HalfJumpDurationChanged?.Invoke(this, previous, hjd);
         }
 
         private Vector2 DerivePositionFromData()
@@ -152,6 +169,7 @@ namespace Beatmap.Base
 
         protected override void ParseCustom()
         {
+            PreparedPathAnimation = null;
             base.ParseCustom();
 
             CustomAnimation = (CustomData?.HasKey(CustomKeyAnimation) ?? false)

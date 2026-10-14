@@ -32,7 +32,7 @@ public class BeatmapEventInputController : BeatmapInputController<EventContainer
         liveEvent.Apply(original);
         // BaseEvent.Apply copies custom JSON but does not rebuild parsed ring/light custom fields.
         liveEvent.RefreshCustom();
-        return new BeatmapObjectUpdatedAction(editedSnapshot, liveEvent, mergeType: mergeType);
+        return new BeatmapObjectUpdatedAction(editedSnapshot, liveEvent, mergeType: mergeType, preserveSelection: true);
     }
 
     public static bool IsHoveringRingOrZoom { get; private set; }
@@ -729,7 +729,8 @@ public class BeatmapEventInputController : BeatmapInputController<EventContainer
 
     private void FinalizeBasicEventTweak(EventContainer e, BaseObject original, ActionMergeType mergeType)
     {
-        if (e.EventData.CompareTo(original) == 0) return;
+        if (e.EventData.HasSameContent(original))
+            return;
 
         eventAppearance.SetAppearance(e, TrackDefinition);
         // Record successful scrolling before the replacement action invalidates the hovered container.

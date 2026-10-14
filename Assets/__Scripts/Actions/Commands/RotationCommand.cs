@@ -65,13 +65,14 @@ public static class RotationCommand
                 }
         }
 
-        if (newObject.CompareTo(originalObject) == 0) return null;
+        if (newObject.HasSameContent(originalObject)) return null;
 
         BeatmapActionContainer.AddAction(
             new BeatmapObjectUpdatedAction(
                 newObject,
                 originalObject,
-                mergeType: ActionMergeType.ModifyRotationValue),
+                mergeType: ActionMergeType.ModifyRotationValue,
+                preserveSelection: true),
             true);
         return newObject;
     }
@@ -96,13 +97,15 @@ public static class RotationCommand
                 }
         }
 
-        if (newObject.CompareTo(originalObject) == 0) return null;
+        // Content equality detects a no-op without relying on the collection ordering keys.
+        if (newObject.HasSameContent(originalObject)) return null;
 
         BeatmapActionContainer.AddAction(
             new BeatmapObjectUpdatedAction(
                 newObject,
                 originalObject,
-                mergeType: ActionMergeType.ModifyRotationValue),
+                mergeType: ActionMergeType.ModifyRotationValue,
+                preserveSelection: true),
             true);
         return newObject;
     }
@@ -125,13 +128,15 @@ public static class RotationCommand
                 }
         }
 
-        if (newObject.CompareTo(originalObject) == 0) return null;
+        // Content equality detects a no-op without relying on the collection ordering keys.
+        if (newObject.HasSameContent(originalObject)) return null;
 
         BeatmapActionContainer.AddAction(
             new BeatmapObjectUpdatedAction(
                 newObject,
                 originalObject,
-                mergeType: ActionMergeType.ModifyRotationValue),
+                mergeType: ActionMergeType.ModifyRotationValue,
+                preserveSelection: true),
             true);
         return newObject;
     }
@@ -146,7 +151,8 @@ public static class RotationCommand
             new BeatmapObjectUpdatedAction(
                 newObject,
                 originalObject,
-                mergeType: ActionMergeType.ModifyRotationValue),
+                mergeType: ActionMergeType.ModifyRotationValue,
+                preserveSelection: true),
             true);
         return newObject;
     }
@@ -157,13 +163,15 @@ public static class RotationCommand
 
         newObject.Rotation = Mathf.Round((newObject.Rotation + (modifier * prec)) * 1_000f) / 1_000f % 360f;
 
-        if (newObject.CompareTo(originalObject) == 0) return null;
+        // Content equality detects a no-op without relying on the collection ordering keys.
+        if (newObject.HasSameContent(originalObject)) return null;
 
         BeatmapActionContainer.AddAction(
             new BeatmapObjectUpdatedAction(
                 newObject,
                 originalObject,
-                mergeType: ActionMergeType.ModifyRotationValue),
+                mergeType: ActionMergeType.ModifyRotationValue,
+                preserveSelection: true),
             true);
         return newObject;
     }

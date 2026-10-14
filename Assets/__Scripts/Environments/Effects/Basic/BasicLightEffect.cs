@@ -14,6 +14,8 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
     [SerializeField] public float OffIntensity;
     [SerializeField] public bool LightOnStart;
     [SerializeField] public bool InvertColorScheme;
+    // In Pyro, several fire switches use the same game ColorSO for both channels, so their flash has no alpha contrast.
+    [SerializeField] public bool HighlightMatchesNormalColor;
 
     public static readonly float FadeTimeSecond = 1.5f;
     public static readonly float FlashTimeSecond = 0.6f;
@@ -33,32 +35,42 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             BasicEventStateChunksContainer<BasicLightStateData> container)>
         controllerToContainer = new();
 
-    private (LightController controller, LightColorTween tween,
-        BasicEventStateChunksContainer<BasicLightStateData> container)[]
-        activeControllers =
-            Array.Empty<(LightController controller, LightColorTween tween,
-                BasicEventStateChunksContainer<BasicLightStateData> container)>();
+    private readonly List<(LightController controller, LightColorTween tween,
+        BasicEventStateChunksContainer<BasicLightStateData> container)> activeControllers = new();
 
-    private int activeSize;
+    private int activeSize => activeControllers.Count;
 
-    private List<ChromaLiteData> chromaLiteData = new();
-    private List<ChromaGradientData> chromaGradientData = new();
+    // Enhancements can register thousands of lights. Seed indexes from serialized scene data once,
+    // then update membership and append counters with each registration.
+    // Fix O(n^2) issue on controllers. Big deal on envs with massive amounts of clones.
+    private int nextRegistrationId = -1;
+    private int nextRemapKey;
+    private readonly HashSet<int> remapKeys = new();
+    private readonly HashSet<LightController> registeredControllers = new();
+    private readonly Dictionary<int, LightController> registeredIds = new();
 
+    private readonly BasicEventChromaColorTimeline colorTimeline = new();
+    private readonly List<LightController[]> propagationGroups = new();
+    private Func<float, float> defaultFlashEasing;
+    private Func<float, float> defaultFadeEasing;
+    private int sampledColorVersion = -1;
+    private float sampledRefreshTime = float.NegativeInfinity;
+
+    private void Awake() => ReseedRegistrationCounters();
     private void Start() => ColorBoostEffect.OnStateChanged += HandleBoostChanged;
     private void OnDestroy() => ColorBoostEffect.OnStateChanged -= HandleBoostChanged;
 
     public void Register(LightController controller, bool strict = true)
     {
         LightController overlight = null;
-        if (lightEntries.Exists(l => l == controller))
+        if (registeredControllers.Contains(controller))
         {
             Debug.LogWarning($"{controller} is already registered in {this}");
             return;
         }
 
-        if (strict && controller.ID != -1 && lightEntries.Exists(l => l.ID == controller.ID))
+        if (strict && controller.ID != -1 && registeredIds.TryGetValue(controller.ID, out overlight))
         {
-            overlight = lightEntries.First(l => l.ID == controller.ID);
             var marker = controller.GetComponent<ChromaIDMarker>();
             var overmarker = overlight.GetComponent<ChromaIDMarker>();
             Debug.LogError(
@@ -68,12 +80,91 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         }
 
         if (controller.ID == -1) controller.ID = 0;
-        while (lightEntries.Exists(l => l.ID == controller.ID)) controller.ID++;
+        while (registeredIds.ContainsKey(controller.ID))
+            controller.ID++;
         lightEntries.Add(controller);
+        registeredControllers.Add(controller);
+        registeredIds.Add(controller.ID, controller);
+        if (controller.ID > nextRegistrationId) nextRegistrationId = controller.ID;
         if (overlight != null) Register(overlight, false);
     }
 
-    public void Unregister(LightController controller) => lightEntries.Remove(controller);
+    // Chroma registers every enhancement light (duplicates, ILightWithId retargets, geometry lights) at the next
+    // index of its event-type list and records a lightID-table entry for it (LightIDTableManager.RegisterIndex):
+    // the mapper's requested key when _lightID is given (bumped while occupied), else the next free key. Pinning
+    // controller.ID to the authored _lightID instead stole a scene light's index and bound the key to the wrong
+    // light - e.g. RunwayAndTrapezoidLightsFollowChromaLightIdsAroundBeat170's duplicated runway lights.
+    public void Register(LightController controller, int? requestedKey)
+    {
+        if (registeredControllers.Contains(controller))
+        {
+            Debug.LogWarning($"{controller} is already registered in {this}");
+            return;
+        }
+
+        controller.ID = ++nextRegistrationId;
+        lightEntries.Add(controller);
+        registeredControllers.Add(controller);
+        registeredIds.Add(controller.ID, controller);
+
+        var key = requestedKey ?? nextRemapKey;
+        while (remapKeys.Contains(key)) key++;
+        remapKeys.Add(key);
+        nextRemapKey = remapKeys.Count == 1 ? key + 1 : Mathf.Max(nextRemapKey, key + 1);
+        LightIdRemapEntries.Add(new Vector2(key, controller.ID));
+
+        // The serialized entries feed CalculateMapping, so the new key/index survives the post-enhancement
+        // Reinitialize; adopt the controller into the dispatch structures immediately so lightID events
+        // dispatch before that rebuild too. KamikaziLightArrayTest's generated-light fixture proved a full
+        // RebuildLightIdMapping per registration is O(n^3): each call rebuilt the lane tables (IndexOf in a
+        // loop) and reallocated the whole dispatch array. Only the dispatch dictionaries and the new
+        // controller's state container are needed here; the lane tables rebuild once in the post-load
+        // Reinitialize -> Initialize path.
+        lightIDToController[controller.ID] = controller;
+        lightIdRemap[key] = controller.ID;
+        AdoptController(controller);
+        activeControllers.Add((controller, controllerToContainer[controller].tween,
+            controllerToContainer[controller].container));
+    }
+
+    // Shared state-container adoption used by Initialize, RebuildLightIdMapping, and incremental Register.
+    private void AdoptController(LightController controller)
+    {
+        if (controllerToContainer.ContainsKey(controller)) return;
+        controllerToContainer[controller] =
+            (new LightColorTween(), InitializeStates(new BasicEventStateChunksContainer<BasicLightStateData>()));
+        foreach (var state in controllerToContainer[controller].container.Collection.Select(chunk => chunk))
+        {
+            if (!LightOnStart) continue;
+            state.Base.FloatValue = 1f;
+            state.StartAlpha = state.EndAlpha = state.Base.FloatValue * OffIntensity;
+        }
+    }
+
+    public void Unregister(LightController controller)
+    {
+        if (!lightEntries.Remove(controller)) return;
+
+        // Chroma's ForceUnregister unbinds the first table entry that pointed at the freed index, so the authored
+        // key falls back to identity rather than silently retargeting the re-registered light's new index.
+        var remapIndex = LightIdRemapEntries.FindIndex(entry => (int)entry.y == controller.ID);
+        if (remapIndex != -1)
+        {
+            remapKeys.Remove((int)LightIdRemapEntries[remapIndex].x);
+            LightIdRemapEntries.RemoveAt(remapIndex);
+        }
+
+        // Removing the max ID must reseed the append counter or the next registration's Max+1 differs from
+        // the tracked counter.
+        if (controller.ID == nextRegistrationId)
+            nextRegistrationId = lightEntries.Count != 0 ? lightEntries.Max(l => l.ID) : -1;
+
+        // Drop the stale state container so UpdateTime stops driving the light in this effect (Chroma removes its
+        // tween via ChromaLightSwitchEventEffect.UnregisterLight).
+        controllerToContainer.Remove(controller);
+        activeControllers.RemoveAll(x => x.controller == controller);
+        RebuildLightIdMapping();
+    }
 
     public bool SetColorForId(int lightId, Color color)
     {
@@ -110,30 +201,120 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
                 .GroupBy(x => Mathf.RoundToInt(x.controller.transform.position.z))
                 .OrderBy(x => x.Key)
                 .Select(x => x.Select(y => y.ID).ToArray()));
-        foreach (var x in physicalLights) LightIDToLane[x.ID] = LaneToLightID.IndexOf(x.ID);
+        // LaneToLightID.IndexOf per entry made the rebuild O(n^2); a direct dictionary lookup keeps it
+        // linear while TryAdd preserves IndexOf's first-match semantics on duplicate IDs.
+        for (var i = 0; i < LaneToLightID.Count; i++) LightIDToLane.TryAdd(LaneToLightID[i], i);
+    }
+
+    private void CalculatePropagationGroups()
+    {
+        // Native propID uses registration order and ring membership, whereas editor lanes use
+        // sorted light IDs and world Z. Cache the two different groupings independently at load time.
+        var managers = FindObjectsByType<TrackLaneRingsManager>(FindObjectsSortMode.InstanceID);
+        var ringGroups = new Dictionary<TrackLaneRing, int>();
+        foreach (var manager in managers)
+        {
+            for (var i = 0; i < manager.Rings.Count; i++)
+                ringGroups.TryAdd(manager.Rings[i], 1000 + i);
+
+        }
+
+        var groupIndexes = new Dictionary<int, int>();
+        var groups = new List<List<LightController>>();
+        foreach (var controller in lightEntries)
+        {
+            var groupKey = Mathf.RoundToInt(controller.transform.position.z);
+            var ring = controller.GetComponentInParent<TrackLaneRing>();
+            if (ring != null && ringGroups.TryGetValue(ring, out var ringKey))
+                groupKey = ringKey;
+
+            if (!groupIndexes.TryGetValue(groupKey, out var groupIndex))
+            {
+                groupIndex = groups.Count;
+                groupIndexes.Add(groupKey, groupIndex);
+                groups.Add(new List<LightController>());
+            }
+
+            groups[groupIndex].Add(controller);
+        }
+
+        propagationGroups.Clear();
+        foreach (var group in groups)
+            propagationGroups.Add(group.ToArray());
+
     }
 
     public override void Initialize()
     {
-        // Reinitialization rebuilds the event cache, so discard auxiliary Chroma state before re-inserting map events.
-        chromaLiteData.Clear();
-        chromaGradientData.Clear();
+        // Shipping Chroma replaces the native switch only for an activated capability. Its
+        // default Expo differs from vanilla even without an authored easing field.
+        var useChromaTweens = (Settings.Instance.EmulateChromaLite || Settings.Instance.EmulateChromaAdvanced)
+            && BeatmapRuntimeContext.MapDeclaresBasicChroma();
+        defaultFlashEasing = useChromaTweens
+            ? Easing.HeckNamed("easeOutCubic")
+            : Easing.Cubic.Out;
+        defaultFadeEasing = useChromaTweens
+            ? Easing.HeckNamed("easeOutExpo")
+            : Easing.Exponential.Out;
+        colorTimeline.Initialize(BeatSaberSongContainer.Instance.Map, Settings.Instance.EmulateChromaLite);
+        sampledColorVersion = -1;
+        sampledRefreshTime = float.NegativeInfinity;
         CalculateMapping();
+        CalculatePropagationGroups();
+        ReseedRegistrationCounters();
         controllerToContainer.Clear();
         foreach (var controller in lightEntries.Select(x => x))
         {
-            controllerToContainer[controller] =
-                (new LightColorTween(), InitializeStates(new BasicEventStateChunksContainer<BasicLightStateData>()));
-            foreach (var state in controllerToContainer[controller].container.Collection.Select(chunk => chunk))
-            {
-                if (!LightOnStart) continue;
-                state.Base.FloatValue = 1f;
-                state.StartAlpha = state.EndAlpha = state.Base.FloatValue * OffIntensity;
-            }
+            AdoptController(controller);
         }
 
-        activeControllers = controllerToContainer.Select(x => (x.Key, x.Value.tween, x.Value.container)).ToArray();
-        activeSize = activeControllers.Length;
+        activeControllers.Clear();
+        activeControllers.AddRange(
+            controllerToContainer.Select(x => (x.Key, x.Value.tween, x.Value.container)));
+    }
+
+    // The append counters track Register's sequential Max+1 ID allocation; rebuild them whenever the
+    // serialized lists may have been edited outside Register (scene deserialization, full rebuilds).
+    private void ReseedRegistrationCounters()
+    {
+        registeredControllers.Clear();
+        registeredIds.Clear();
+        nextRegistrationId = lightEntries.Count == 0 ? -1 : lightEntries[0].ID;
+        foreach (var controller in lightEntries)
+        {
+            registeredControllers.Add(controller);
+            registeredIds.TryAdd(controller.ID, controller);
+            nextRegistrationId = Mathf.Max(nextRegistrationId, controller.ID);
+        }
+        remapKeys.Clear();
+        nextRemapKey = LightIdRemapEntries.Count == 0 ? 0 : (int)LightIdRemapEntries[0].x + 1;
+        foreach (var entry in LightIdRemapEntries)
+        {
+            var key = (int)entry.x;
+            remapKeys.Add(key);
+            nextRemapKey = Mathf.Max(nextRemapKey, key + 1);
+        }
+    }
+
+    // Environment enhancements register their generated ILightWithId lights during 
+    // HardRefresh, which runs AFTER Descriptor.Initialize built lightIDToController
+    // from the scene's serialized lights. Every customData.lightID-filtered event targeting a generated light
+    // then resolved to nothing and the light never received a color (unlit TransparentLight geometry renders
+    // nothing). Rebuild the ID mapping and adopt post-initialize registrations once, after the enhancement
+    // load has finished, so lightID routing covers the full registered light set.
+    public void RebuildLightIdMapping()
+    {
+        CalculateMapping();
+        CalculatePropagationGroups();
+        ReseedRegistrationCounters();
+        foreach (var controller in lightEntries)
+        {
+            AdoptController(controller);
+        }
+
+        activeControllers.Clear();
+        activeControllers.AddRange(
+            controllerToContainer.Select(x => (x.Key, x.Value.tween, x.Value.container)));
     }
 
     public override void Refresh()
@@ -147,57 +328,98 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
     public override void UpdateTime(bool isPlaying, float currentTime)
     {
+        var frame = colorTimeline.GetFrame(currentTime, ColorBoostEffect.GetLastChange(currentTime));
+        var refreshColors = sampledColorVersion != colorTimeline.Version
+            || sampledRefreshTime != frame.RefreshTime
+            || frame.ActiveGradient;
         for (var i = 0; i < activeSize; i++)
         {
             var (controller, tween, container) = activeControllers[i];
-            if (!container.IsCurrentOrFindState(currentTime, isPlaying)) UpdateObject(tween, container.CurrentState);
+            var stateChanged = !container.IsCurrentOrFindState(currentTime, isPlaying);
+            if (stateChanged || refreshColors)
+                UpdateObject(tween, container.CurrentState, frame);
 
-            if (tween.UpdateTime(currentTime)) controller.SetColor(tween.Color);
+            if (tween.UpdateTime(currentTime))
+                controller.SetColor(tween.Color);
+
         }
+
+        sampledColorVersion = colorTimeline.Version;
+        sampledRefreshTime = frame.RefreshTime;
     }
 
     private void UpdateObject(LightColorTween tween, BasicLightStateData stateData)
     {
-        tween.StartTimeAlpha = stateData.StartTime;
-        tween.StartTimeColor = stateData.StartTimeColor;
-        tween.StartAlpha = stateData.StartAlpha;
-        tween.StartColor = stateData.StartChromaColor
-            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
-
-        tween.EndTimeAlpha = stateData.EndTimeAlpha;
-        tween.EndTimeColor = stateData.EndTimeColor;
-        tween.EndAlpha = stateData.EndAlpha;
-        tween.EndColor =
-            stateData.EndChromaColor
-            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
-
-        // The state caches serialized lerpType classification so the per-frame tween never compares strings.
-        tween.ColorLerpType = stateData.ColorLerpType;
-        tween.Easing = stateData.Easing;
-        tween.ColorEasing = stateData.HasChromaGradient
-            ? stateData.GradientEasing
-            : stateData.Easing;
-        // Chroma composes endpoints only when color and brightness share the ordinary Basic Event timeline.
-        tween.ComposeAlphaAtColorEndpoints = !stateData.HasChromaGradient
-            && Mathf.Approximately(stateData.StartTimeColor, stateData.StartTime)
-            && Mathf.Approximately(stateData.EndTimeColor, stateData.EndTimeAlpha);
+        var time = Atsc.CurrentSongBpmTime;
+        UpdateObject(tween, stateData, colorTimeline.GetFrame(time, ColorBoostEffect.GetLastChange(time)));
     }
 
-    public void UpdateStartAndEndColor(LightColorTween tween, BasicLightStateData stateData)
+    private void UpdateObject(
+        LightColorTween tween,
+        BasicLightStateData stateData,
+        BasicEventChromaColorTimeline.Frame frame)
     {
-        tween.StartColor = stateData.StartChromaColor
-            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.StartColor, InvertColorScheme);
-        tween.EndColor =
-            stateData.EndChromaColor
-            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(stateData.EndColor, InvertColorScheme);
+        var sourceColor = colorTimeline.GetSourceColor(stateData.Base);
+        if (frame.ActiveGradient || frame.RefreshTime > stateData.StartTime)
+            sourceColor = frame.Color;
+
+        // Soft colorizer refreshes replace a tween's source color, but its next transition still
+        // resolves that node's own color data. Fixed flash/fade clocks also retain their start time.
+        var targetColor = stateData.TransitionTarget != null
+            ? colorTimeline.GetColorData(stateData.TransitionTarget)
+            : sourceColor;
+        tween.StartTimeAlpha = stateData.StartTime;
+        tween.StartTimeColor = stateData.StartTime;
+        tween.StartAlpha = stateData.StartAlpha;
+        tween.StartColor = GetPreviewLightColor(stateData, sourceColor, false);
+        tween.EndTimeAlpha = stateData.EndTimeAlpha;
+        tween.EndTimeColor = stateData.EndTimeAlpha;
+        tween.EndAlpha = stateData.EndAlpha;
+        tween.EndColor = GetPreviewLightColor(stateData, targetColor, true);
+        tween.ColorLerpType = stateData.ColorLerpType;
+        tween.Easing = stateData.Easing;
+        tween.ColorEasing = stateData.Easing;
+        tween.ComposeAlphaAtColorEndpoints = true;
+    }
+
+    private Color GetPreviewLightColor(BasicLightStateData stateData, Color? customColor, bool end)
+    {
+        var lightColor = end ? stateData.EndColor : stateData.StartColor;
+        var colorEvent = end && stateData.TransitionTarget != null
+            ? stateData.TransitionTarget
+            : stateData.Base;
+        var color = (colorEvent.IsWhite
+            ? null
+            : customColor)
+            ?? ColorSchemeProvider.ColorScheme.GetColorFrom(lightColor, InvertColorScheme);
+        var isOff = end ? stateData.Base.IsFade : stateData.Base.IsOff;
+        var isHighlight = !end && (stateData.Base.IsFade || stateData.Base.IsFlash);
+        // Native switches apply ColorSO alpha before dispatch to every adapter, including
+        // combined-light and lightmap inputs. Normalizing it here overexposes their outputs.
+        if (isOff)
+            color.a = 1f;
+        else if (!HighlightMatchesNormalColor)
+        {
+            color = BasicEventLightIntensity.ApplyNative(
+                color,
+                lightColor == LightColor.White,
+                ColorBoostEffect.Boost,
+                isHighlight);
+        }
+
+        return color;
     }
 
     private void HandleBoostChanged(bool boost)
     {
+        var time = Atsc.CurrentSongBpmTime;
+        var frame = colorTimeline.GetFrame(time, ColorBoostEffect.GetLastChange(time));
         for (var i = 0; i < activeSize; i++)
         {
-            var (_, tween, container) = activeControllers[i];
-            UpdateStartAndEndColor(tween, container.CurrentState);
+            var (controller, tween, container) = activeControllers[i];
+            UpdateObject(tween, container.CurrentState, frame);
+            if (tween.UpdateTime(time))
+                controller.SetColor(tween.Color);
         }
     }
 
@@ -211,27 +433,11 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
         if (newStateData.Base.IsTransition && IsValidEventToTransition(previousStateData.Base))
         {
-            if (previousStateData.Base.IsOff) previousStateData.StartColor = newStateData.StartColor;
-            previousStateData.EndTimeAlpha = newStateData.StartTime;
-            previousStateData.EndTimeColor = newStateData.StartTime;
-            previousStateData.EndColor = newStateData.StartColor;
-            previousStateData.EndChromaColor = newStateData.StartChromaColor;
-            previousStateData.EndAlpha = newStateData.StartAlpha;
-            // Basic Event transition interpolation is serialized on the preceding source node.
-            previousStateData.Easing = Easing.Named(previousStateData.Base.CustomEasing ?? "easeLinear");
-            previousStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(
-                previousStateData.Base.CustomLerpType);
+            LinkTransition(previousStateData, newStateData);
             return;
         }
 
-        // LoadingLegacyAlphaZeroChromaGradientCachesEveryPreviewPhase and the production V2 load regressions prove
-        // gradient-owned endpoints must survive later event insertion; ordinary states still need stale endpoints reset.
-        if (!previousStateData.HasChromaGradient)
-        {
-            previousStateData.EndTimeColor = newStateData.StartTimeColor;
-            previousStateData.EndChromaColor = previousStateData.StartChromaColor;
-        }
-
+        previousStateData.TransitionTarget = null;
         previousStateData.EndColor = previousStateData.StartColor;
 
         if (!previousStateData.Base.IsFade && !previousStateData.Base.IsFlash)
@@ -246,7 +452,9 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
                 previousStateData.EndAlpha = previousStateData.Base.FloatValue * OffIntensity;
         }
 
-        if (newStateData.Base.IsOff) newStateData.StartColor = previousStateData.EndColor;
+        if (newStateData.Base.IsOff)
+            newStateData.StartColor = previousStateData.EndColor;
+
     }
 
     protected override void OnInsertUpdateFromPreviousStateAndNextState(
@@ -265,15 +473,7 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         base.OnInsertUpdateFromNextState(newStateData, nextStateData);
         if (nextStateData.Base.IsTransition && IsValidEventToTransition(newStateData.Base))
         {
-            if (newStateData.Base.IsOff) newStateData.StartColor = nextStateData.StartColor;
-            newStateData.EndTimeAlpha = nextStateData.StartTime;
-            newStateData.EndTimeColor = nextStateData.StartTime;
-            newStateData.EndColor = nextStateData.StartColor;
-            newStateData.EndChromaColor = nextStateData.StartChromaColor;
-            newStateData.EndAlpha = nextStateData.StartAlpha;
-            // Basic Event transition interpolation is serialized on the preceding source node.
-            newStateData.Easing = Easing.Named(newStateData.Base.CustomEasing ?? "easeLinear");
-            newStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(newStateData.Base.CustomLerpType);
+            LinkTransition(newStateData, nextStateData);
             return;
         }
 
@@ -285,196 +485,42 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         BasicLightStateData newStateData,
         BasicLightStateData nextState)
     {
-        if (nextState.Base.IsOff) nextState.StartColor = nextState.EndColor = newStateData.StartColor;
-    }
+        if (nextState.Base.IsOff)
+            nextState.StartColor = nextState.EndColor = newStateData.StartColor;
 
-    private void UpdateExistingWithChromaLite(float time)
-    {
-        var fromIndex = chromaLiteData.FindLastIndex(cl => cl.Base.SongBpmTime <= time);
-        var from = fromIndex != -1 && fromIndex < chromaLiteData.Count
-            ? chromaLiteData[fromIndex]
-            : new ChromaLiteData { Base = new BaseEvent { songBpmTime = float.MinValue } };
-
-        var untilIndex = chromaLiteData.FindIndex(cl => cl.Base.SongBpmTime > time);
-        var until = untilIndex != -1 ? chromaLiteData[untilIndex].Base.SongBpmTime : float.MaxValue;
-
-        foreach (var enumerator in controllerToContainer.Values.Select(c =>
-            c.container.Collection.EnumerateFrom(from.Base.SongBpmTime)))
-        {
-            while (enumerator.MoveNext())
-            {
-                var state = enumerator.Current;
-                if (state!.StartTime >= until) break;
-                if (state.Base.CustomColor == null) state.StartChromaColor = state.EndChromaColor = from.Color;
-            }
-        }
-    }
-
-    // i would like if chroma gradient just stopped working entirely so i dont have to deal with this shit again
-    private void UpdateExistingWithChromaGradient(float startTime, float endTime)
-    {
-        foreach (var (container, enumerator) in controllerToContainer.Values.Select(c =>
-            (c.container, c.container.Collection.EnumerateFrom(startTime))))
-        {
-            while (enumerator.MoveNext())
-            {
-                var state = enumerator.Current;
-                if (state!.StartTime >= endTime) break;
-
-                var fromIndex = chromaGradientData.FindLastIndex(cl =>
-                    cl.StartTime <= state.StartTime && state.StartTime <= cl.EndTime);
-                if (fromIndex == -1)
-                {
-                    // Removing or moving a legacy gradient must return affected states to ordinary insertion semantics.
-                    state.HasChromaGradient = false;
-                    // Clear the removed gradient's interpolation mode before ordinary transition linking classifies it again.
-                    state.ColorLerpType = BasicEventColorLerpType.RGB;
-                    state.GradientEasing = null;
-                    state.StartTimeColor = state.StartTime;
-                    state.EndTimeColor = state.EndTime;
-
-                    if (state.Base.IsFlash)
-                        state.Easing = Easing.Cubic.Out;
-                    else if (state.Base.IsFade)
-                        state.Easing = Easing.Exponential.Out;
-                    else
-                        state.Easing = Easing.Linear;
-
-                    state.StartChromaColor = state.EndChromaColor = null;
-                    if (state.Base.CustomColor != null
-                        && Settings.Instance.EmulateChromaLite
-                        && !state.Base.IsWhite)
-                        state.StartChromaColor = state.EndChromaColor = (Color)state.Base.CustomColor;
-
-                    if (chromaLiteData.Count > 0)
-                    {
-                        var chromaLiteIndex =
-                            chromaLiteData.FindLastIndex(data =>
-                                data.Base.SongBpmTime <= state.Base.SongBpmTime);
-                        if (chromaLiteIndex != -1 && Settings.Instance.EmulateChromaLite)
-                            state.StartChromaColor = state.EndChromaColor = chromaLiteData[chromaLiteIndex].Color;
-                    }
-                }
-                else
-                {
-                    var from = chromaGradientData[fromIndex];
-                    UpdateStateWithChromaGradient(state, from);
-                }
-
-                var prevState = container.GetPreviousStateFrom(state);
-                var nextState = container.GetNextStateFrom(state);
-
-                OnInsertUpdateToPreviousState(state, prevState);
-                OnInsertUpdateFromPreviousStateAndNextState(state, prevState, nextState);
-                OnInsertUpdateFromNextState(state, nextState);
-                OnInsertUpdateToNextState(state, nextState);
-            }
-        }
-    }
-
-    private void InsertWithChromaGradient(BasicLightStateData stateData)
-    {
-        var chromaGradientIndex =
-            chromaGradientData.FindLastIndex(cg =>
-                cg.StartTime <= stateData.StartTime && stateData.StartTime <= cg.EndTime);
-        if (chromaGradientIndex != -1)
-            UpdateStateWithChromaGradient(stateData, chromaGradientData[chromaGradientIndex]);
-    }
-
-    private void UpdateStateWithChromaGradient(BasicLightStateData stateData, ChromaGradientData chromaGradientData)
-    {
-        if (stateData.Base.IsOff)
-        {
-            Debug.LogWarning($"[ChromaGradient] Skipping gradient application for OFF event at {stateData.StartTime} (type {stateData.Base.Type}) - gradient from {chromaGradientData.StartTime} to {chromaGradientData.EndTime}");
-            return;
-        }
-        stateData.StartTimeColor = chromaGradientData.StartTime;
-        stateData.EndTimeColor = chromaGradientData.EndTime;
-        stateData.StartChromaColor = chromaGradientData.StartColor;
-        stateData.EndChromaColor = chromaGradientData.EndColor;
-        // BasicEventChromaColorParityTest proves Chroma applies gradient easing only to its RGB color interpolation.
-        stateData.GradientEasing = chromaGradientData.Easing;
-        stateData.ColorLerpType = BasicEventColorLerpType.RGB;
-        // Cache the classification on the state so later insertion remains O(1) without rescanning gradient data.
-        stateData.HasChromaGradient = true;
     }
 
     public override void InsertData(BaseEvent data)
     {
-        Color? chromaColor = null;
-
-        // Check if its a legacy Chroma RGB event
-        switch (data.Value)
+        colorTimeline.Insert(data);
+        if (Settings.Instance.EmulateChromaLite
+            && (data.Value >= ColourManager.RgbintOffset || data.Value == ColourManager.RGBReset))
         {
-            case >= ColourManager.RgbintOffset when Settings.Instance.EmulateChromaLite:
-                {
-                    chromaLiteData.Add(
-                        new ChromaLiteData { Base = data, Color = ColourManager.ColourFromInt(data.Value) });
-                    chromaLiteData = chromaLiteData.OrderBy(cl => cl.Base.SongBpmTime).ToList();
-                    UpdateExistingWithChromaLite(data.SongBpmTime);
-                    return;
-                }
-            case ColourManager.RGBReset when Settings.Instance.EmulateChromaLite:
-                {
-                    chromaLiteData.Add(new ChromaLiteData { Base = data, Color = null });
-                    chromaLiteData = chromaLiteData.OrderBy(cl => cl.Base.SongBpmTime).ToList();
-                    UpdateExistingWithChromaLite(data.SongBpmTime);
-                    return; // this was a break, not sure why
-                }
+            return;
         }
 
-        //Check if it is a PogU new Chroma event
-        if (data.CustomColor != null
-            && Settings.Instance.EmulateChromaLite
-            && !data.IsWhite) // White overrides Chroma
-            chromaColor = (Color)data.CustomColor;
-
-        if (chromaLiteData.Count > 0)
-        {
-            var chromaLiteIndex = chromaLiteData.FindLastIndex(d => d.Base.SongBpmTime <= data.SongBpmTime);
-            if (chromaLiteIndex != -1 && Settings.Instance.EmulateChromaLite)
-                chromaColor = chromaLiteData[chromaLiteIndex].Color;
-        }
-
-        if (data.CustomLightGradient != null && Settings.Instance.EmulateChromaLite)
-        {
-            chromaGradientData.Add(
-                new ChromaGradientData
-                {
-                    Base = data,
-                    StartTime = data.SongBpmTime,
-                    EndTime =
-                        data.SongBpmTime
-                        + data.CustomLightGradient.Duration, // TODO: duration is not actual song bpm time
-                    StartColor = data.CustomLightGradient.StartColor,
-                    EndColor = data.CustomLightGradient.EndColor,
-                    Easing = Easing.Named(data.CustomLightGradient.EasingType)
-                });
-            chromaGradientData = chromaGradientData.OrderBy(cl => cl.StartTime).ToList();
-            UpdateExistingWithChromaGradient(data.SongBpmTime, data.SongBpmTime + data.CustomLightGradient.Duration);
-        }
-
-        //Check to see if we're soloing any particular event
-        // wtf is solo event
-        // if (SoloAnEventType && data.Type != SoloEventType) mainColor = invertedColor = Color.black.WithAlpha(0);
-
-        var affectedLights = data.CustomLightID != null && Settings.Instance.EmulateChromaAdvanced
-            ? GetLightControllerFromLightIds(data)
-            : lightIDToController.Values.AsEnumerable();
+        var affectedLights = GetAffectedLights(data);
+        var defaultEasing = data.IsFlash
+            ? defaultFlashEasing
+            : data.IsFade
+                ? defaultFadeEasing
+                : Easing.Linear;
+        var easing = data.CustomEasing != null
+            ? Easing.HeckNamed(data.CustomEasing)
+            : defaultEasing;
+        var colorLerpType = BasicEventColorLerp.FromSerializedName(data.CustomLerpType);
 
         foreach (var lightingObject in affectedLights)
         {
             var newState = CreateState(data);
+            newState.Easing = easing;
+            newState.ColorLerpType = colorLerpType;
             newState.StartTime = data.SongBpmTime;
-            newState.StartTimeColor = data.SongBpmTime;
             newState.StartColor = InferColorFromEvent(data);
-            newState.StartChromaColor = chromaColor;
             newState.StartAlpha = data.FloatValue;
             newState.EndTime = float.MaxValue;
             newState.EndTimeAlpha = float.MaxValue;
-            newState.EndTimeColor = float.MaxValue;
             newState.EndColor = InferColorFromEvent(data);
-            newState.EndChromaColor = chromaColor;
             newState.EndAlpha = data.FloatValue;
 
             if (data.IsOff)
@@ -482,61 +528,41 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             else if (data.IsFlash)
             {
                 newState.EndTimeAlpha = newState.StartTime + FlashTimeBeat;
-                newState.StartAlpha = data.FloatValue * 1.2f;
+                newState.StartAlpha = data.FloatValue;
                 newState.EndAlpha = data.FloatValue;
-                newState.Easing = Easing.Cubic.Out;
             }
             else if (data.IsFade)
             {
                 newState.EndTimeAlpha = newState.StartTime + FadeTimeBeat;
-                newState.StartAlpha = data.FloatValue * 1.2f;
-                newState.EndAlpha = 0f;
-                newState.Easing = Easing.Exponential.Out;
+                // Native fade retains its 1.5-second highlight-to-off clock when interrupted.
+                newState.StartAlpha = data.FloatValue;
                 newState.EndAlpha = data.FloatValue * OffIntensity;
             }
 
-            InsertWithChromaGradient(newState);
-
             var (tween, container) = controllerToContainer[lightingObject];
 
-            // let's assume this will be previous state if this is inserted within the range
             var previousState = container.CurrentState;
             var previousValid = previousState.IsWithinRange(data.SongBpmTime);
             HandleInsertState(container, newState);
 
-            if (!previousValid) continue;
+            if (!previousValid)
+                continue;
+
             container.SetStateAt(Atsc.CurrentSongBpmTime);
             UpdateObject(tween, container.CurrentState);
         }
-
     }
 
     public override void RemoveData(BaseEvent reference, BaseEvent original)
     {
-        switch (original.Value)
+        colorTimeline.Remove(reference);
+        if (Settings.Instance.EmulateChromaLite
+            && (original.Value >= ColourManager.RgbintOffset || original.Value == ColourManager.RGBReset))
         {
-            case >= ColourManager.RgbintOffset when Settings.Instance.EmulateChromaLite:
-            case ColourManager.RGBReset when Settings.Instance.EmulateChromaLite:
-                {
-                    var d = chromaLiteData.Find(d => d.Base == reference);
-                    chromaLiteData.Remove(d);
-                    UpdateExistingWithChromaLite(original.SongBpmTime);
-                    return;
-                }
+            return;
         }
 
-        if (original.CustomLightGradient != null && Settings.Instance.EmulateChromaLite)
-        {
-            var d = chromaGradientData.Find(d => d.Base == reference);
-            chromaGradientData.Remove(d);
-            UpdateExistingWithChromaGradient(
-                original.SongBpmTime,
-                original.SongBpmTime + original.CustomLightGradient.Duration);
-        }
-
-        var affectedLights = original.CustomLightID != null && Settings.Instance.EmulateChromaAdvanced
-            ? GetLightControllerFromLightIds(original)
-            : lightIDToController.Values.AsEnumerable();
+        var affectedLights = GetAffectedLights(original);
 
         foreach (var lightingObject in affectedLights)
         {
@@ -544,9 +570,10 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
 
             HandleRemoveState(container, reference, original);
 
-            // unfortunately, we cannot do the same as insertion so we need to search
             var (_, _, previousState) = container.GetStateAt(Atsc.CurrentSongBpmTime);
-            if (!previousState.IsWithinRange(reference.SongBpmTime)) continue;
+            if (!previousState.IsWithinRange(reference.SongBpmTime))
+                continue;
+
             container.SetStateAt(Atsc.CurrentSongBpmTime);
             UpdateObject(tween, container.CurrentState);
         }
@@ -561,22 +588,13 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
         base.OnRemoveUpdatePreviousAndNextState(currentStateData, previousStateData, nextStateData);
         if (nextStateData.Base.IsTransition && IsValidEventToTransition(previousStateData.Base))
         {
-            if (previousStateData.Base.IsOff) previousStateData.StartColor = nextStateData.StartColor;
-            previousStateData.EndTimeAlpha = nextStateData.StartTime;
-            previousStateData.EndTimeColor = nextStateData.StartTimeColor;
-            previousStateData.EndColor = nextStateData.StartColor;
-            previousStateData.EndChromaColor = nextStateData.StartChromaColor;
-            previousStateData.EndAlpha = nextStateData.StartAlpha;
-            // Basic Event transition interpolation is serialized on the preceding source node.
-            previousStateData.Easing = Easing.Named(previousStateData.Base.CustomEasing ?? "easeLinear");
-            previousStateData.ColorLerpType = BasicEventColorLerp.FromSerializedName(
-                previousStateData.Base.CustomLerpType);
+            LinkTransition(previousStateData, nextStateData);
         }
         else
         {
-            previousStateData.EndTimeColor = nextStateData.StartTimeColor;
+            previousStateData.TransitionTarget = null;
+            // Removing a later event must not stretch the fixed flash/fade clock.
             previousStateData.EndColor = previousStateData.StartColor;
-            previousStateData.EndChromaColor = previousStateData.StartChromaColor;
 
             if (!previousStateData.Base.IsFade && !previousStateData.Base.IsFlash)
             {
@@ -590,17 +608,47 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
                     previousStateData.EndAlpha = previousStateData.Base.FloatValue * OffIntensity;
             }
 
-            if (nextStateData.Base.IsOff) nextStateData.StartColor = previousStateData.EndColor;
-        }
+            if (nextStateData.Base.IsOff)
+                nextStateData.StartColor = previousStateData.EndColor;
 
-        InsertWithChromaGradient(previousStateData);
-        InsertWithChromaGradient(nextStateData);
+        }
+    }
+
+    private static void LinkTransition(BasicLightStateData source, BasicLightStateData target)
+    {
+        if (source.Base.IsOff)
+            source.StartColor = target.StartColor;
+
+        source.EndTimeAlpha = target.StartTime;
+        source.EndColor = target.StartColor;
+        source.TransitionTarget = target.Base;
+        source.EndAlpha = target.StartAlpha;
     }
 
     private static LightColor InferColorFromEvent(BaseEvent evt) =>
         evt.IsBlue ? LightColor.Blue : evt.IsRed ? LightColor.Red : LightColor.White;
 
     private static bool IsValidEventToTransition(BaseEvent evt) => evt.IsOn || evt.IsOff || evt.IsTransition;
+
+    private IEnumerable<LightController> GetAffectedLights(BaseEvent data)
+    {
+        if (Settings.Instance.EmulateChromaAdvanced)
+        {
+            if (data.CustomLegacyPropID.HasValue)
+            {
+                var groupId = data.CustomLegacyPropID.Value;
+                return groupId >= 0 && groupId < propagationGroups.Count
+                    ? propagationGroups[groupId]
+                    : Array.Empty<LightController>();
+            }
+
+            if (data.CustomLightID != null)
+                return GetLightControllerFromLightIds(data);
+
+        }
+
+        return lightIDToController.Values;
+    }
 
     private IEnumerable<LightController> GetLightControllerFromLightIds(BaseEvent data)
     {
@@ -610,58 +658,29 @@ public class BasicLightEffect : BasicEventEffect<BasicLightStateData>
             var lightID = data.CustomLightID[i];
             var newId = lightIdRemap.GetValueOrDefault(lightID, lightID);
             if (!set.Add(newId)) continue;
-            if (!lightIDToController.TryGetValue(newId, out var controller)) continue;
+            if (!lightIDToController.TryGetValue(newId, out var controller))
+                continue;
+
             yield return controller;
         }
-    }
-
-    public struct ChromaLiteData : IEquatable<ChromaLiteData>
-    {
-        public BaseEvent Base;
-        public Color? Color;
-
-        public bool Equals(ChromaLiteData other) => Equals(Base, other.Base);
-        public override bool Equals(object obj) => obj is ChromaLiteData other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Base, Color);
-    }
-
-    public struct ChromaGradientData : IEquatable<ChromaGradientData>
-    {
-        public BaseEvent Base;
-        public float StartTime;
-        public float EndTime;
-        public Color StartColor;
-        public Color EndColor;
-        public Func<float, float> Easing;
-
-        public bool Equals(ChromaGradientData other) => Equals(Base, other.Base);
-        public override bool Equals(object obj) => obj is ChromaGradientData other && Equals(other);
-
-        public override int GetHashCode() => HashCode.Combine(Base, StartTime, EndTime, StartColor, EndColor, Easing);
     }
 }
 
 public class BasicLightStateData : BasicEventStateData
 {
-    public float
-        StartTimeColor = float.MinValue; // this is supposedly the same as start time, special case for chroma gradient
-
     public LightColor StartColor;
-    public Color? StartChromaColor;
     public float StartAlpha;
 
-    public float EndTimeAlpha; // similarly this match next start, otherwise used to interpolate flash/fade
-    public float EndTimeColor; // also same case above, only special case for chroma gradient
+    public float EndTimeAlpha;
     public LightColor EndColor;
-    public Color? EndChromaColor;
     public float EndAlpha;
 
     public Func<float, float> Easing = global::Easing.Linear;
-    public Func<float, float> GradientEasing;
     public BasicEventColorLerpType ColorLerpType;
 
-    // Preserve authored gradient timing and colors across subsequent event insertion without querying the gradient list.
-    public bool HasChromaGradient;
+    public BaseEvent TransitionTarget;
 
-    public BasicLightStateData(BaseEvent evt) : base(evt) { }
+    public BasicLightStateData(BaseEvent evt) : base(evt)
+    {
+    }
 }

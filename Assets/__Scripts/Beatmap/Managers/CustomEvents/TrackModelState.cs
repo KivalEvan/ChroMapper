@@ -28,8 +28,8 @@ public class TrackModelState
 
         public void Set(VisualModelSO model, int priority)
         {
-            HasSet = true;
             histories.Push(new() { HasSet = HasSet, Model = Model, Models = new(Models) });
+            HasSet = true;
             Model = new PriorityModel { Model = model, Priority = priority };
             Models.Clear();
         }
@@ -50,6 +50,14 @@ public class TrackModelState
             Model = history.Model;
             Models.Clear();
             Models.AddRange(history.Models);
+        }
+
+        public void Reset()
+        {
+            histories.Clear();
+            HasSet = false;
+            Model = default;
+            Models.Clear();
         }
     }
 
@@ -166,5 +174,14 @@ public class TrackModelState
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
         }
+    }
+
+    public void Reset()
+    {
+        DirectionalNote.Reset();
+        AnyNote.Reset();
+        Bomb.Reset();
+        BurstSlider.Reset();
+        BurstSliderElement.Reset();
     }
 }

@@ -1,383 +1,305 @@
 using System;
 using System.Collections.Generic;
+using SimpleJSON;
 using UnityEngine;
-using UnityEngine.Pool;
-using ZLinq;
 
 public class ObjectPropertyManager
 {
     public InstantiateObjectPrefabManager InstantiateObjectPrefabManager;
     public VivifyAssetBundleManager VivifyAssetBundleManager;
-    public TweenManager TweenManager;
+    public CustomEventPropertyTimeline PropertyTimeline;
 
-    private readonly Dictionary<CustomEventStateData, (TweenFloat tween, List<Action<float>> pooledList)> stateToTween =
-        new();
-
-    private readonly Dictionary<CustomEventStateData, List<CustomEventStateHistory>> stateHistory = new();
+    private readonly List<TriggerHistory> triggerHistories = new();
+    private readonly List<AnimatedAnimatorProperty> animatedAnimatorProperties = new();
 
     public void AssignMaterial(CustomEventStateData state)
     {
         var data = state.Base.Data;
-        var asset = data["asset"];
-        if (!VivifyAssetBundleManager.AssetPathToMaterial.TryGetValue(asset, out var material)) return;
+        if (!VivifyAssetBundleManager.AssetPathToMaterial.TryGetValue(data["asset"], out var material)) return;
+        var easing = GetEasing(data);
 
-        var duration = data["duration"] ?? 0;
-        var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
-
-        stateHistory.Add(state, ListPool<CustomEventStateHistory>.Get());
-        var funcs = ListPool<Action<float>>.Get();
-
-        var properties = data["properties"];
-        foreach (var child in properties.Children)
+        foreach (var child in data["properties"].Children)
         {
             var id = (string)child["id"];
             var propertyId = Shader.PropertyToID(id);
-
-            var type = (string)child["type"];
+            var key = "property:" + propertyId;
             var value = child["value"];
-            switch (type)
+            switch ((string)child["type"])
             {
                 case "Texture":
-                    {
-                        var history = new MaterialHistoryTexture(material, id);
-                        stateHistory[state].Add(history);
-
-                        var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
-                        material.SetTexture(propertyId, texture);
-                    }
+                    var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
+                    PropertyTimeline.Register(state, material, key,
+                        () => material.GetTexture(propertyId), v => material.SetTexture(propertyId, v), _ => texture);
                     break;
                 case "Keyword":
-                    {
-                        var history = new MaterialHistoryKeyword(material, id, value);
-                        stateHistory[state].Add(history);
-
-                        material.EnableKeyword(value);
-                    }
+                    var keyword = id;
+                    var keywordPoints = value.IsBoolean || value.IsNumber ? null : PointDefinitionParser.Get(value);
+                    PropertyTimeline.Register(state, material, "keyword:" + keyword,
+                        () => material.IsKeywordEnabled(keyword),
+                        enabled =>
+                        {
+                            if (enabled) material.EnableKeyword(keyword);
+                            else material.DisableKeyword(keyword);
+                        }, t => keywordPoints != null ? keywordPoints.GetFloat(t) >= 1f
+                            : value.IsBoolean ? value.AsBool : value.AsFloat >= 1f, easing);
                     break;
                 case "Float":
-                    {
-                        var history = new MaterialHistoryFloat(material, id);
-                        stateHistory[state].Add(history);
-
-                        if (value.IsNumber)
-                            material.SetFloat(propertyId, value);
-                        else
-                        {
-                            var pd = PointDefinitionParser.Get(value);
-                            if (pd == null) break;
-                            funcs.Add(t =>
-                            {
-                                var v = pd.GetFloat(t);
-                                material.SetFloat(propertyId, v);
-                            });
-                        }
-                    }
+                    RegisterFloat(state, material, key, value,
+                        () => material.GetFloat(propertyId), v => material.SetFloat(propertyId, v), easing);
                     break;
                 case "Vector":
-                    {
-                        var history = new MaterialHistoryVector(material, id);
-                        stateHistory[state].Add(history);
-
-                        var pd = PointDefinitionParser.Get(value);
-                        if (pd == null) break;
-                        funcs.Add(t =>
-                        {
-                            var v = pd.GetVector4(t);
-                            material.SetVector(propertyId, v);
-                        });
-                    }
+                    var vector = PointDefinitionParser.Get(value);
+                    if (vector != null)
+                        PropertyTimeline.Register(state, material, key,
+                            () => material.GetVector(propertyId), v => material.SetVector(propertyId, v),
+                            vector.GetVector4, easing);
                     break;
                 case "Color":
-                    {
-                        var history = new MaterialHistoryColor(material, id);
-                        stateHistory[state].Add(history);
-
-                        var pd = PointDefinitionParser.Get(value);
-                        if (pd == null) break;
-                        funcs.Add(t =>
-                        {
-                            var v = pd.GetColor(t);
-                            material.SetColor(propertyId, v);
-                        });
-                    }
+                    var color = PointDefinitionParser.Get(value);
+                    if (color != null)
+                        PropertyTimeline.Register(state, material, key,
+                            () => material.GetColor(propertyId), v => material.SetColor(propertyId, v),
+                            color.GetColor, easing);
                     break;
             }
         }
-
-        if (funcs.Count > 0)
-        {
-            var tween = new TweenFloat(
-                state.StartTime,
-                state.StartTime + duration,
-                0,
-                1,
-                easing,
-                t =>
-                {
-                    for (var i = 0; i < funcs.Count; i++) funcs[i](t);
-                });
-            stateToTween.Add(state, (tween, funcs));
-            TweenManager.Add(tween);
-        }
-        else
-            ListPool<Action<float>>.Release(funcs);
     }
 
     public void AssignGlobal(CustomEventStateData state)
     {
         var data = state.Base.Data;
-
-        var duration = data["duration"] ?? 0;
-        var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
-
-        stateHistory.Add(state, ListPool<CustomEventStateHistory>.Get());
-        var funcs = ListPool<Action<float>>.Get();
-
-        var properties = data["properties"];
-        foreach (var child in properties.Children)
+        var easing = GetEasing(data);
+        foreach (var child in data["properties"].Children)
         {
-            var id = (string)child["id"];
-            var propertyId = Shader.PropertyToID(id);
-
-            var type = (string)child["type"];
+            var propertyId = Shader.PropertyToID(child["id"]);
+            var key = "property:" + propertyId;
             var value = child["value"];
-            switch (type)
+            switch ((string)child["type"])
             {
                 case "Texture":
-                    {
-                        var history = new GlobalHistoryTexture(id);
-                        stateHistory[state].Add(history);
-
-                        var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
-                        Shader.SetGlobalTexture(propertyId, texture);
-                    }
+                    var texture = VivifyAssetBundleManager.AssetPathToTexture.GetValueOrDefault(value);
+                    PropertyTimeline.Register(state, null, key,
+                        () => Shader.GetGlobalTexture(propertyId), v => Shader.SetGlobalTexture(propertyId, v),
+                        _ => texture);
                     break;
                 case "Keyword":
-                    {
-                        var history = new GlobalHistoryKeyword(id, value);
-                        stateHistory[state].Add(history);
-
-                        Shader.EnableKeyword(value);
-                    }
+                    var keyword = (string)child["id"];
+                    var keywordPoints = value.IsBoolean || value.IsNumber ? null : PointDefinitionParser.Get(value);
+                    PropertyTimeline.Register(state, null, "keyword:" + keyword,
+                        () => Shader.IsKeywordEnabled(keyword),
+                        enabled =>
+                        {
+                            if (enabled) Shader.EnableKeyword(keyword);
+                            else Shader.DisableKeyword(keyword);
+                        }, t => keywordPoints != null ? keywordPoints.GetFloat(t) >= 1f
+                            : value.IsBoolean ? value.AsBool : value.AsFloat >= 1f, easing);
                     break;
                 case "Float":
-                    {
-                        var history = new GlobalHistoryFloat(id);
-                        stateHistory[state].Add(history);
-
-                        if (value.IsNumber)
-                            Shader.SetGlobalFloat(propertyId, value);
-                        else
-                        {
-                            var pd = PointDefinitionParser.Get(value);
-                            if (pd == null) break;
-                            funcs.Add(t =>
-                            {
-                                var v = pd.GetFloat(t);
-                                Shader.SetGlobalFloat(propertyId, v);
-                            });
-                        }
-                    }
+                    RegisterFloat(state, null, key, value,
+                        () => Shader.GetGlobalFloat(propertyId), v => Shader.SetGlobalFloat(propertyId, v), easing);
                     break;
                 case "Vector":
-                    {
-                        var history = new GlobalHistoryVector(id);
-                        stateHistory[state].Add(history);
-
-                        var pd = PointDefinitionParser.Get(value);
-                        if (pd == null) break;
-                        funcs.Add(t =>
-                        {
-                            var v = pd.GetVector4(t);
-                            Shader.SetGlobalVector(propertyId, v);
-                        });
-                    }
+                    var vector = PointDefinitionParser.Get(value);
+                    if (vector != null)
+                        PropertyTimeline.Register(state, null, key,
+                            () => Shader.GetGlobalVector(propertyId), v => Shader.SetGlobalVector(propertyId, v),
+                            vector.GetVector4, easing);
                     break;
                 case "Color":
-                    {
-                        var history = new GlobalHistoryColor(id);
-                        stateHistory[state].Add(history);
-
-                        var pd = PointDefinitionParser.Get(value);
-                        if (pd == null) break;
-                        funcs.Add(t =>
-                        {
-                            var v = pd.GetColor(t);
-                            Shader.SetGlobalColor(propertyId, v);
-                        });
-                    }
+                    var color = PointDefinitionParser.Get(value);
+                    if (color != null)
+                        PropertyTimeline.Register(state, null, key,
+                            () => Shader.GetGlobalColor(propertyId), v => Shader.SetGlobalColor(propertyId, v),
+                            color.GetColor, easing);
                     break;
             }
         }
-
-        if (funcs.Count > 0)
-        {
-            var tween = new TweenFloat(
-                state.StartTime,
-                state.StartTime + duration,
-                0,
-                1,
-                easing,
-                t =>
-                {
-                    for (var i = 0; i < funcs.Count; i++) funcs[i](t);
-                });
-            stateToTween.Add(state, (tween, funcs));
-            TweenManager.Add(tween);
-        }
-        else
-            ListPool<Action<float>>.Release(funcs);
     }
 
     public void AssignAnimator(CustomEventStateData state)
     {
         var data = state.Base.Data;
-
-        var objectId = data["id"];
-
-        var duration = data["duration"] ?? 0;
-        var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
-
-        stateHistory.Add(state, ListPool<CustomEventStateHistory>.Get());
-        var funcs = ListPool<Action<float>>.Get();
-
-        var properties = data["properties"];
-        foreach (var child in properties.Children)
+        var objects = InstantiateObjectPrefabManager.GetObjectById(data["id"]);
+        var easing = GetEasing(data);
+        foreach (var child in data["properties"].Children)
         {
             var id = (string)child["id"];
+            var key = "parameter:" + id;
             var type = (string)child["type"];
             var value = child["value"];
-
-            var objects = InstantiateObjectPrefabManager.GetObjectById(objectId);
-            var animators = objects
-                .AsValueEnumerable()
-                .SelectMany(x => x.Animators)
-                .ToArray();
-            switch (type)
+            var points = value.IsNumber || value.IsBoolean ? null : PointDefinitionParser.Get(value);
+            if (points != null && (type is "Float" or "Integer" or "Bool"))
             {
-                case "Trigger":
+                var property = new AnimatedAnimatorProperty(state, data["id"], animator =>
+                {
+                    switch (type)
                     {
-                        var history = new AnimatorHistoryTrigger(animators, id);
-                        stateHistory[state].Add(history);
-
-                        foreach (var a in animators)
-                        {
-                            if (value)
-                                a.SetTrigger(id);
-                            else
-                                a.ResetTrigger(id);
-                        }
+                        case "Float":
+                            PropertyTimeline.Register(state, animator, key,
+                                () => animator.GetFloat(id), v => animator.SetFloat(id, v), points.GetFloat, easing);
+                            break;
+                        case "Integer":
+                            PropertyTimeline.Register(state, animator, key,
+                                () => animator.GetInteger(id), v => animator.SetInteger(id, v),
+                                t => (int)points.GetFloat(t), easing);
+                            break;
+                        case "Bool":
+                            PropertyTimeline.Register(state, animator, key,
+                                () => animator.GetBool(id), v => animator.SetBool(id, v),
+                                t => points.GetFloat(t) >= 1, easing);
+                            break;
                     }
-                    break;
-                case "Float":
-                    {
-                        var history = new AnimatorHistoryFloat(animators, id);
-                        stateHistory[state].Add(history);
-
-                        if (value.IsNumber)
-                        {
-                            foreach (var a in animators) a.SetFloat(id, value);
-                        }
-                        else
-                        {
-                            var pd = PointDefinitionParser.Get(value);
-                            if (pd == null) break;
-                            funcs.Add(t =>
-                            {
-                                var v = pd.GetFloat(t);
-                                foreach (var a in InstantiateObjectPrefabManager
-                                    .GetObjectById(objectId)
-                                    .AsValueEnumerable()
-                                    .SelectMany(x => x.Animators))
-                                    a.SetFloat(id, v);
-                            });
-                        }
-                    }
-                    break;
-                case "Integer":
-                    {
-                        var history = new AnimatorHistoryInt(animators, id);
-                        stateHistory[state].Add(history);
-
-                        if (value.IsNumber)
-                        {
-                            foreach (var a in animators) a.SetInteger(id, value);
-                        }
-                        else
-                        {
-                            var pd = PointDefinitionParser.Get(value);
-                            if (pd == null) break;
-                            funcs.Add(t =>
-                            {
-                                var v = pd.GetFloat(t);
-                                foreach (var a in InstantiateObjectPrefabManager
-                                    .GetObjectById(objectId)
-                                    .AsValueEnumerable()
-                                    .SelectMany(x => x.Animators))
-                                    a.SetInteger(id, (int)v);
-                            });
-                        }
-                    }
-                    break;
-                case "Bool":
-                    {
-                        var history = new AnimatorHistoryBool(animators, id);
-                        stateHistory[state].Add(history);
-
-                        if (value.IsBoolean)
-                        {
-                            foreach (var a in animators) a.SetBool(id, value);
-                        }
-                        else
-                        {
-                            var pd = PointDefinitionParser.Get(value);
-                            if (pd == null) break;
-                            funcs.Add(t =>
-                            {
-                                var v = pd.GetFloat(t);
-                                foreach (var a in InstantiateObjectPrefabManager
-                                    .GetObjectById(objectId)
-                                    .AsValueEnumerable()
-                                    .SelectMany(x => x.Animators))
-                                    a.SetBool(id, v >= 1);
-                            });
-                        }
-                    }
-                    break;
+                });
+                animatedAnimatorProperties.Add(property);
+                RefreshTargets(property);
+                continue;
             }
 
-            if (funcs.Count > 0)
+            foreach (var obj in objects)
             {
-                var tween = new TweenFloat(
-                    state.StartTime,
-                    state.StartTime + duration,
-                    0,
-                    1,
-                    easing,
-                    t =>
+                foreach (var animator in obj.Animators)
+                {
+                    switch (type)
                     {
-                        for (var i = 0; i < funcs.Count; i++) funcs[i](t);
-                    });
-                stateToTween.Add(state, (tween, funcs));
-                TweenManager.Add(tween);
+                        case "Trigger":
+                            triggerHistories.Add(new TriggerHistory(state, animator, id));
+                            if (value) animator.SetTrigger(id);
+                            else animator.ResetTrigger(id);
+                            break;
+                        case "Float":
+                            if (value.IsNumber)
+                            {
+                                float number = value;
+                                PropertyTimeline.Register(state, animator, key,
+                                    () => animator.GetFloat(id), v => animator.SetFloat(id, v), _ => number);
+                            }
+                            break;
+                        case "Integer":
+                            if (value.IsNumber)
+                            {
+                                int number = value;
+                                PropertyTimeline.Register(state, animator, key,
+                                    () => animator.GetInteger(id), v => animator.SetInteger(id, v), _ => number);
+                            }
+                            break;
+                        case "Bool":
+                            if (value.IsBoolean)
+                            {
+                                bool boolean = value;
+                                PropertyTimeline.Register(state, animator, key,
+                                    () => animator.GetBool(id), v => animator.SetBool(id, v), _ => boolean);
+                            }
+                            break;
+                    }
+                }
             }
-            else
-                ListPool<Action<float>>.Release(funcs);
         }
     }
 
     public void Revert(CustomEventStateData state)
     {
-        if (stateHistory.Remove(state, out var history))
+        PropertyTimeline.Remove(state);
+        animatedAnimatorProperties.RemoveAll(property => ReferenceEquals(property.Owner, state));
+        for (var i = triggerHistories.Count - 1; i >= 0; i--)
         {
-            foreach (var h in history) h.Revert();
-            ListPool<CustomEventStateHistory>.Release(history);
+            if (!ReferenceEquals(triggerHistories[i].Owner, state)) continue;
+            triggerHistories[i].Restore();
+            triggerHistories.RemoveAt(i);
+        }
+    }
+
+    /// <summary>Restores trigger commands and forgets animated ID bindings; the shared timeline resets separately.</summary>
+    public void Reset()
+    {
+        for (var i = triggerHistories.Count - 1; i >= 0; i--) triggerHistories[i].Restore();
+        triggerHistories.Clear();
+        animatedAnimatorProperties.Clear();
+    }
+
+    /// <summary>Binds active animated ID properties to newly instantiated or reinstantiated targets.</summary>
+    public void RefreshTargets()
+    {
+        foreach (var property in animatedAnimatorProperties) RefreshTargets(property);
+    }
+
+    /// <summary>Restores a target's trigger history and forgets its bindings before timeline cleanup and pooling.</summary>
+    public void RemoveTarget(UnityEngine.Object target)
+    {
+        if (target is Animator animator)
+            foreach (var property in animatedAnimatorProperties) property.Targets.Remove(animator);
+        for (var i = triggerHistories.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(triggerHistories[i].Animator, target)) continue;
+            triggerHistories[i].Restore();
+            triggerHistories.RemoveAt(i);
+        }
+    }
+
+    private void RefreshTargets(AnimatedAnimatorProperty property)
+    {
+        foreach (var obj in InstantiateObjectPrefabManager.GetObjectById(property.ObjectId))
+        {
+            foreach (var animator in obj.Animators)
+            {
+                if (animator == null || !property.Targets.Add(animator)) continue;
+                property.Register(animator);
+            }
+        }
+    }
+
+    private void RegisterFloat(CustomEventStateData state, UnityEngine.Object target, string key, JSONNode value,
+        Func<float> read, Action<float> write, Func<float, float> easing)
+    {
+        if (value.IsNumber)
+        {
+            float number = value;
+            PropertyTimeline.Register(state, target, key, read, write, _ => number);
+        }
+        else
+        {
+            var points = PointDefinitionParser.Get(value);
+            if (points != null) PropertyTimeline.Register(state, target, key, read, write, points.GetFloat, easing);
+        }
+    }
+
+    private static Func<float, float> GetEasing(JSONNode data) =>
+        data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
+
+    private sealed class AnimatedAnimatorProperty
+    {
+        public readonly CustomEventStateData Owner;
+        public readonly string ObjectId;
+        public readonly Action<Animator> Register;
+        public readonly HashSet<Animator> Targets = new();
+
+        public AnimatedAnimatorProperty(CustomEventStateData owner, string objectId, Action<Animator> register)
+        {
+            Owner = owner;
+            ObjectId = objectId;
+            Register = register;
+        }
+    }
+
+    private sealed class TriggerHistory
+    {
+        public readonly CustomEventStateData Owner;
+        public readonly Animator Animator;
+        private readonly string property;
+        private readonly bool value;
+
+        public TriggerHistory(CustomEventStateData owner, Animator animator, string property)
+        {
+            Owner = owner;
+            Animator = animator;
+            this.property = property;
+            value = animator.GetBool(property);
         }
 
-        if (stateToTween.Remove(state, out var p))
+        public void Restore()
         {
-            TweenManager.Remove(p.tween);
-            ListPool<Action<float>>.Release(p.pooledList);
+            if (Animator == null) return;
+            if (value) Animator.SetTrigger(property);
+            else Animator.ResetTrigger(property);
         }
     }
 }

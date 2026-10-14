@@ -90,6 +90,7 @@ public class LoadedDifficultySelectController : MonoBehaviour
         // If saving, wait until it's done
         while (autoSaveController.IsSaving) ;
 
+        FindAnyObjectByType<CustomEventManager>().SuspendForMapChange();
         var currentPlatform = EnvironmentInfoHelper.GetCurrentEnvironment();
         
         var infoDifficulty = setDifficulties[value];
@@ -106,8 +107,11 @@ public class LoadedDifficultySelectController : MonoBehaviour
         //         customPlat = true;
         // }
 
-        //Instantiate platform, grab descriptor
-        if (currentPlatform != nextPlatform || customPlat)
+        // Enhancements mutate native objects and can reparent them out of their scene. Release those targets
+        // before track reset, and reload an enhanced environment even when both difficulties select the same one.
+        var reloadEnhancedEnvironment = BeatSaberSongContainer.Instance.Map.EnvironmentEnhancements.Count > 0;
+        mapLoader.DestroyTrackBoundEnvironmentObjects();
+        if (currentPlatform != nextPlatform || customPlat || reloadEnhancedEnvironment)
         {
             context.SetEnvironment(null);
             var sceneUnload = SceneManager.UnloadSceneAsync(currentPlatform);
@@ -135,10 +139,9 @@ public class LoadedDifficultySelectController : MonoBehaviour
         var newMap = BeatSaberSongUtils.GetMapFromInfoFiles(
             BeatSaberSongContainer.Instance.Info,
             BeatSaberSongContainer.Instance.MapDifficultyInfo);
-        mapLoader.UpdateMapData(newMap);
-        mapLoader.HardRefresh();
-
         BeatSaberSongContainer.Instance.Map = newMap;
+        mapLoader.UpdateMapData(newMap);
+        mapLoader.HardRefreshBeforeEditorStateRestore(context.Descriptor);
 
         previousDropdownValue = value;
 

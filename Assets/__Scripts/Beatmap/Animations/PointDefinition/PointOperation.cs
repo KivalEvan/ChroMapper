@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 public abstract class PointOperation
 {
     public IPointDefinitionValue Rhs;
@@ -53,13 +51,10 @@ public class PointOperationMul : PointOperation
 
 public class PointOperationDiv : PointOperation
 {
-    public override float EvaluateX(float lhs) => SafeDivide(lhs, Rhs.X);
-    public override float EvaluateY(float lhs) => SafeDivide(lhs, Rhs.Y);
-    public override float EvaluateZ(float lhs) => SafeDivide(lhs, Rhs.Z);
-    public override float EvaluateW(float lhs) => SafeDivide(lhs, Rhs.W);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float SafeDivide(float lhs, float rhs) => rhs == 0f ? 0f : lhs / rhs;
+    public override float EvaluateX(float lhs) => lhs / Rhs.X;
+    public override float EvaluateY(float lhs) => lhs / Rhs.Y;
+    public override float EvaluateZ(float lhs) => lhs / Rhs.Z;
+    public override float EvaluateW(float lhs) => lhs / Rhs.W;
 
     public PointOperationDiv(IPointDefinitionValue rhs) : base(rhs) { }
 }

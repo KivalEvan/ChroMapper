@@ -1,132 +1,112 @@
 using System;
 using UnityEngine;
 
+/// <summary>A normalized curve whose parsed structure is shared by all typed animation consumers.</summary>
 public sealed class PointDefinitionInterpolator
 {
     private readonly IPointDefinitionValue[] points;
+    public int Count => points.Length;
+    internal bool HasBaseProvider { get; }
+    public IPointDefinitionValue this[int index] => points[index];
 
-    private (int index, IPointDefinitionValue value) a;
-    private (int index, IPointDefinitionValue value) b;
+    public PointDefinitionInterpolator(IPointDefinitionValue value) : this(new[] { value }) { }
 
-    public PointDefinitionInterpolator(IPointDefinitionValue value)
+    public PointDefinitionInterpolator(IPointDefinitionValue[] values, bool hasBaseProvider = false)
     {
-        points = new[] { value };
-        a = b = (0, value);
+        if (values.Length == 0) throw new ArgumentException("Point definition must contain at least one point.");
+        points = (IPointDefinitionValue[])values.Clone();
+        HasBaseProvider = hasBaseProvider;
     }
 
-    public PointDefinitionInterpolator(IPointDefinitionValue[] values)
+    public T Get<T>(float normalized) where T : struct => typeof(T) switch
     {
-        points = values;
-        if (points.Length == 0) throw new ArgumentException("Point definition must contain at least 1 point");
-        a = (0, points[0]);
-        b = points.Length > 1 ? (1, points[1]) : a;
-    }
+        var type when type == typeof(float) => (T)(object)GetFloat(normalized),
+        var type when type == typeof(Vector3) => (T)(object)GetVector3(normalized),
+        var type when type == typeof(Vector4) => (T)(object)GetVector4(normalized),
+        var type when type == typeof(Quaternion) => (T)(object)GetQuaternion(normalized),
+        var type when type == typeof(Color) => (T)(object)GetColor(normalized),
+        _ => throw new ArgumentException($"Unsupported point definition type {typeof(T).Name}.")
+    };
 
     public float GetFloat(float normalized)
     {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Float;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Mathf.LerpUnclamped(a.value.Float, b.value.Float, t);
+        Search(normalized, out var a, out var b, out var t);
+        return a == b ? points[b].Float : Mathf.LerpUnclamped(points[a].Float, points[b].Float, t);
     }
 
     public Vector3 GetVector3(float normalized)
     {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Vector3;
+        Search(normalized, out var a, out var b, out var t);
+        if (a == b) return points[b].Vector3;
+        if (!points[b].SplineCatmullRom) return Vector3.LerpUnclamped(points[a].Vector3, points[b].Vector3, t);
 
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        if (!b.value.SplineCatmullRom) return Vector3.LerpUnclamped(a.value.Vector3, b.value.Vector3, t);
-
-        // Catmull-Rom Spline
-        var p0 = a.index - 1 < 0 ? points[a.index].Vector3 : points[a.index - 1].Vector3;
-        var p1 = points[a.index].Vector3;
-        var p2 = points[b.index].Vector3;
-        var p3 = b.index + 1 > points.Length - 1
-            ? points[b.index].Vector3
-            : points[b.index + 1].Vector3;
-
+        var p0 = points[Mathf.Max(a - 1, 0)].Vector3;
+        var p1 = points[a].Vector3;
+        var p2 = points[b].Vector3;
+        var p3 = points[Mathf.Min(b + 1, points.Length - 1)].Vector3;
         var tt = t * t;
         var ttt = tt * t;
-
-        var q0 = -ttt + (2.0f * tt) - t;
-        var q1 = (3.0f * ttt) - (5.0f * tt) + 2.0f;
-        var q2 = (-3.0f * ttt) + (4.0f * tt) + t;
-        var q3 = ttt - tt;
-
-        var c = 0.5f * ((p0 * q0) + (p1 * q1) + (p2 * q2) + (p3 * q3));
-
-        return c;
+        return 0.5f * ((p0 * (-ttt + 2 * tt - t)) + (p1 * (3 * ttt - 5 * tt + 2))
+            + (p2 * (-3 * ttt + 4 * tt + t)) + (p3 * (ttt - tt)));
     }
 
     public Vector4 GetVector4(float normalized)
     {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Vector4;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Vector4.LerpUnclamped(a.value.Vector4, b.value.Vector4, t);
+        Search(normalized, out var a, out var b, out var t);
+        if (a == b) return points[b].Vector4;
+        return points[b].LerpHSV
+            ? LerpHSV(points[a].Color, points[b].Color, t)
+            : Vector4.LerpUnclamped(points[a].Vector4, points[b].Vector4, t);
     }
 
     public Quaternion GetQuaternion(float normalized)
     {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Quaternion;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        return Quaternion.SlerpUnclamped(a.value.Quaternion, b.value.Quaternion, t);
+        Search(normalized, out var a, out var b, out var t);
+        // Evaluate point modifiers before interpolating the resulting quaternions.
+        return a == b ? points[b].Quaternion : Quaternion.SlerpUnclamped(points[a].Quaternion, points[b].Quaternion, t);
     }
 
     public Color GetColor(float normalized)
     {
-        SearchIfNeeded(normalized);
-        if (a.value == b.value) return b.value.Color;
-
-        var t = Mathf.InverseLerp(a.value.T, b.value.T, normalized);
-        var easing = b.value.Easing;
-        t = Mathf.Clamp01(easing(t));
-
-        var p = a.value.Color;
-        var q = b.value.Color;
-
-        return b.value.LerpHSV ? LightColorTween.LerpHSV(p, q, t) : Color.LerpUnclamped(p, q, t);
+        Search(normalized, out var a, out var b, out var t);
+        if (a == b) return points[b].Color;
+        return points[b].LerpHSV
+            ? LerpHSV(points[a].Color, points[b].Color, t)
+            : Color.LerpUnclamped(points[a].Color, points[b].Color, t);
     }
 
-    private void SearchIfNeeded(float normalized)
+    // Heck's lerpHSV point flag interpolates normalized hue as a scalar, unlike Chroma's trueHSV light effect.
+    private static Color LerpHSV(Color start, Color end, float t)
     {
-        if (points.Length < 3) return;
-        if (a.value.T <= normalized && normalized < b.value.T) return;
+        Color.RGBToHSV(start, out var startHue, out var startSaturation, out var startValue);
+        Color.RGBToHSV(end, out var endHue, out var endSaturation, out var endValue);
+        var color = Color.HSVToRGB(
+            Mathf.LerpUnclamped(startHue, endHue, t),
+            Mathf.LerpUnclamped(startSaturation, endSaturation, t),
+            Mathf.LerpUnclamped(startValue, endValue, t));
+        color.a = Mathf.LerpUnclamped(start.a, end.a, t);
+        return color;
+    }
 
-        var prev = 0;
-        var next = points.Length - 1;
-
-        while (prev < next - 1)
+    private void Search(float time, out int a, out int b, out float interpolation)
+    {
+        // Upper bound chooses the last authored row at an exact (including repeated) point time.
+        var left = 0;
+        var right = points.Length;
+        while (left < right)
         {
-            var m = (prev + next) / 2;
-            var t = points[m].T;
-
-            if (t < normalized)
-                prev = m;
-            else
-                next = m;
+            var middle = left + (right - left) / 2;
+            if (points[middle].T <= time) left = middle + 1;
+            else right = middle;
         }
-
-        a.index = prev;
-        a.value = points[prev];
-        b.index = next;
-        b.value = points[next];
+        a = Mathf.Max(left - 1, 0);
+        b = Mathf.Min(left, points.Length - 1);
+        if (left == 0 || left == points.Length)
+        {
+            b = a;
+            interpolation = 0;
+            return;
+        }
+        interpolation = points[b].Easing((time - points[a].T) / (points[b].T - points[a].T));
     }
 }

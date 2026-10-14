@@ -9,6 +9,7 @@ namespace Beatmap.Containers
     {
         protected static readonly int ColorId = Shader.PropertyToID("_Color");
         private static readonly int rotationId = Shader.PropertyToID("_Rotation");
+        private static readonly int objectTimeId = Shader.PropertyToID("_ObjectTime");
 
         [SerializeField] public ObjectAnimator Animator;
         [SerializeField] protected List<IntersectionCollider> Colliders;
@@ -34,7 +35,7 @@ namespace Beatmap.Containers
 
         private bool highlighted;
 
-        public bool Highlighted
+        public virtual bool Highlighted
         {
             get => highlighted;
             set
@@ -62,17 +63,26 @@ namespace Beatmap.Containers
 
         public Track AssignedTrack { get; private set; }
 
+        public bool IsPlacementVisual { get; internal set; }
+
         public abstract BaseObject ObjectData { get; set; }
 
         public int ChunkID => (int)(ObjectData.JsonTime / Intersections.ChunkSize);
 
         public void Start() => RegisterCallback();
+
         public void OnDestroy() => UnregisterCallback();
 
         protected virtual void RegisterCallback() { }
         protected virtual void UnregisterCallback() { }
 
         public virtual void Setup() { }
+
+        protected void DisablePassedObjectDither()
+        {
+            MpbController.Mpb.SetFloat(objectTimeId, 9999f);
+            MpbController.ApplyChanges();
+        }
 
         internal void SafeSetActive(bool active) => gameObject.SetActive(active);
 

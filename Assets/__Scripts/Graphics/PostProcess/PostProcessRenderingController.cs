@@ -16,12 +16,37 @@ public sealed class PostProcessRenderingController : MonoBehaviour
     private CommandBuffer commandBuffer;
     private bool active;
     private bool commandBufferAttached;
+    private VivifyRenderingManager vivify;
+
+    public void AttachVivify(VivifyRenderingManager rendering)
+    {
+        if (vivify != null) vivify.AssignToCamera(null);
+        vivify = rendering;
+        if (vivify != null)
+        {
+            vivify.Cameras.RenderMainEffect = RenderCaptureMainEffect;
+            vivify.AssignToCamera(activeCamera);
+        }
+        var cameraSetup = FindFirstObjectByType<PerCameraShaderSetupController>();
+        if (cameraSetup != null) cameraSetup.VivifyCameras = vivify?.Cameras;
+        var bloomFog = FindFirstObjectByType<BloomfogRenderingController>();
+        if (bloomFog != null) bloomFog.VivifyCameras = vivify?.Cameras;
+        var displacement = FindFirstObjectByType<ScreenDisplacementRenderingController>();
+        if (displacement != null) displacement.VivifyCameras = vivify?.Cameras;
+        if (vivify != null)
+            vivify.Cameras.AfterCaptureRender = camera =>
+            {
+                if (bloomFog != null) bloomFog.RestoreCameraState(camera);
+                if (displacement != null) displacement.ReleaseCaptureBuffer(camera);
+            };
+    }
 
     public void AssignToCamera(CameraController cameraController)
     {
         DetachCommandBuffer();
         activeCamera = cameraController == null ? null : cameraController.Camera;
         AttachCommandBuffer();
+        vivify?.AssignToCamera(activeCamera);
     }
 
     private void OnEnable() => Activate();
@@ -30,6 +55,7 @@ public sealed class PostProcessRenderingController : MonoBehaviour
 
     private void OnDestroy()
     {
+        AttachVivify(null);
         Deactivate();
         if (commandBuffer == null) return;
         commandBuffer.Release();
@@ -73,57 +99,67 @@ public sealed class PostProcessRenderingController : MonoBehaviour
     private void OnCameraPreRender(Camera renderingCamera)
     {
         if (renderingCamera != activeCamera || commandBuffer == null) return;
-
         commandBuffer.Clear();
-        var renderPostBloom = pyramidBloomController != null && pyramidBloomController.IsReady;
-        var renderChromaticAberration =
-            chromaticAberrationRenderer != null && chromaticAberrationRenderer.IsReady;
-        var renderFade = pyramidBloomController != null && pyramidBloomController.IsFadeReady;
-        if (!renderPostBloom && !renderChromaticAberration && !renderFade) return;
-
-        var sourceDescriptor = GetCopyDescriptor(GetCameraTargetDescriptor());
-        var sourceWidth = sourceDescriptor.width;
-        var sourceHeight = sourceDescriptor.height;
+        var before = vivify?.HasBlits(VivifyRenderOrder.BeforeMainEffect) == true;
+        var after = vivify?.HasBlits(VivifyRenderOrder.AfterMainEffect) == true;
+        var mainEffect = vivify == null || vivify.Cameras.MainEffectEnabled(renderingCamera);
+        if (!before && !after && (!mainEffect || !HasMainEffect)) return;
         var cameraTarget = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
-
-        if (!renderPostBloom && !renderChromaticAberration)
+        if (!before && !after && pyramidBloomController != null && pyramidBloomController.IsFadeReady
+            && !pyramidBloomController.IsReady
+            && (chromaticAberrationRenderer == null || !chromaticAberrationRenderer.IsReady))
         {
             pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
             return;
         }
 
-        commandBuffer.GetTemporaryRT(sourceTextureId, sourceDescriptor, FilterMode.Bilinear);
-        commandBuffer.Blit(cameraTarget, sourceTextureId);
+        var descriptor = before || after ? VivifyRenderingManager.GetDescriptor(activeCamera)
+            : GetCopyDescriptor(GetCameraTargetDescriptor());
+        commandBuffer.GetTemporaryRT(sourceTextureId, descriptor, FilterMode.Bilinear);
+        if (before)
+            vivify.RecordBlits(commandBuffer, VivifyRenderOrder.BeforeMainEffect, cameraTarget, sourceTextureId, descriptor);
+        else commandBuffer.Blit(cameraTarget, sourceTextureId);
 
-        // Bloom composites first; chromatic aberration then samples that result. Fade is part of
-        // the bloom compositor, or a final overlay when chromatic aberration runs alone.
-        if (renderPostBloom && renderChromaticAberration)
+        if (mainEffect) RecordMainEffect(commandBuffer, sourceTextureId, cameraTarget, descriptor);
+        else commandBuffer.Blit(sourceTextureId, cameraTarget);
+        if (after)
+            vivify.RecordBlits(commandBuffer, VivifyRenderOrder.AfterMainEffect, cameraTarget, cameraTarget, descriptor);
+        commandBuffer.ReleaseTemporaryRT(sourceTextureId);
+    }
+
+    private bool HasMainEffect => (pyramidBloomController != null &&
+        (pyramidBloomController.IsReady || pyramidBloomController.IsFadeReady)) ||
+        (chromaticAberrationRenderer != null && chromaticAberrationRenderer.IsReady);
+
+    private void RecordMainEffect(CommandBuffer command, RenderTargetIdentifier source,
+        RenderTargetIdentifier destination, RenderTextureDescriptor descriptor)
+    {
+        var bloom = pyramidBloomController != null && pyramidBloomController.IsReady;
+        var chromaticAberration = chromaticAberrationRenderer != null && chromaticAberrationRenderer.IsReady;
+        var fade = pyramidBloomController != null && pyramidBloomController.IsFadeReady;
+        if (bloom && chromaticAberration)
         {
-            commandBuffer.GetTemporaryRT(
-                postBloomOutputId, sourceDescriptor, FilterMode.Bilinear);
-            pyramidBloomController.RecordRender(
-                commandBuffer, sourceTextureId, sourceWidth, sourceHeight, postBloomOutputId);
-            chromaticAberrationRenderer.RecordRender(
-                commandBuffer, postBloomOutputId, cameraTarget, sourceWidth, sourceHeight);
-            commandBuffer.ReleaseTemporaryRT(postBloomOutputId);
+            command.GetTemporaryRT(postBloomOutputId, descriptor, FilterMode.Bilinear);
+            pyramidBloomController.RecordRender(command, source, descriptor.width, descriptor.height, postBloomOutputId);
+            chromaticAberrationRenderer.RecordRender(command, postBloomOutputId, destination, descriptor.width, descriptor.height);
+            command.ReleaseTemporaryRT(postBloomOutputId);
         }
-        else if (renderPostBloom)
-        {
-            pyramidBloomController.RecordRender(
-                commandBuffer, sourceTextureId, sourceWidth, sourceHeight, cameraTarget);
-        }
-        else if (renderChromaticAberration)
-        {
-            chromaticAberrationRenderer.RecordRender(
-                commandBuffer, sourceTextureId, cameraTarget, sourceWidth, sourceHeight);
-            if (renderFade) pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
-        }
+        else if (bloom)
+            pyramidBloomController.RecordRender(command, source, descriptor.width, descriptor.height, destination);
         else
         {
-            pyramidBloomController.RecordFade(commandBuffer, cameraTarget);
+            if (chromaticAberration)
+                chromaticAberrationRenderer.RecordRender(command, source, destination, descriptor.width, descriptor.height);
+            else command.Blit(source, destination);
+            if (fade) pyramidBloomController.RecordFade(command, destination);
         }
+    }
 
-        commandBuffer.ReleaseTemporaryRT(sourceTextureId);
+    private void RenderCaptureMainEffect(RenderTexture source, RenderTexture destination)
+    {
+        using var command = new CommandBuffer { name = "Vivify Capture Main Effect" };
+        RecordMainEffect(command, source, destination, source.descriptor);
+        Graphics.ExecuteCommandBuffer(command);
     }
 
     private RenderTextureDescriptor GetCameraTargetDescriptor()

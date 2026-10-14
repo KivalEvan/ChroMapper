@@ -1,5 +1,6 @@
 using System;
 using Beatmap.Enums;
+using Beatmap.Shared;
 using Beatmap.V2.Customs;
 using Beatmap.V3.Customs;
 using LiteNetLib.Utils;
@@ -66,7 +67,15 @@ namespace Beatmap.Base.Customs
         public void SetData(JSONNode node) => Data = node;
 
         public float? DataDuration { get; set; }
-        public string? DataEasing { get; set; }
+
+        private SerializedChromaEnumName dataEasing;
+
+        public string? DataEasing
+        {
+            get => dataEasing.RuntimeName;
+            set => dataEasing.SetEasingName(value);
+        }
+
         public int? DataRepeat { get; set; }
         public JSONNode DataChildrenTracks { get; set; }
         public JSONNode DataParentTrack { get; set; }
@@ -186,7 +195,7 @@ namespace Beatmap.Base.Customs
             else
                 DataWorldPositionStays = null;
 
-            DataEasing = Data.HasKey(DataKeyEasing) ? Data[DataKeyEasing] : null;
+            dataEasing.SetSerializedEasing(Data[DataKeyEasing]);
             DataChildrenTracks = Data.HasKey(DataKeyChildrenTracks) ? Data[DataKeyChildrenTracks] : null;
             DataParentTrack = Data.HasKey(DataKeyParentTrack) ? Data[DataKeyParentTrack] : null;
         }
@@ -195,7 +204,7 @@ namespace Beatmap.Base.Customs
         {
             if (CustomTrack != null) Data[CustomKeyTrack] = CustomTrack; else Data.Remove(CustomKeyTrack);
             if (DataDuration != null) Data[DataKeyDuration] = DataDuration; else Data.Remove(DataKeyDuration);
-            if (DataEasing != null) Data[DataKeyEasing] = DataEasing; else Data.Remove(DataKeyEasing);
+            dataEasing.WriteTo(Data, DataKeyEasing);
             if (DataRepeat != null) Data[DataKeyRepeat] = DataRepeat; else Data.Remove(DataKeyRepeat);
             if (DataChildrenTracks != null) Data[DataKeyChildrenTracks] = DataChildrenTracks; else Data.Remove(DataKeyChildrenTracks);
             if (DataParentTrack != null) Data[DataKeyParentTrack] = DataParentTrack; else Data.Remove(DataKeyParentTrack);
@@ -203,18 +212,28 @@ namespace Beatmap.Base.Customs
             return Data;
         }
 
-        public override int CompareTo(BaseObject other)
-        {
-            var comparison = base.CompareTo(other);
-
-            if (other is not BaseCustomEvent customEvent) return comparison; ;
-
-            // Order by custom event type if times match up
-            return comparison == 0
-                ? string.Compare(Type, customEvent.Type, StringComparison.Ordinal)
-                : comparison;
-        }
+        // Custom-event edits can change only Data. Beat/type equality alone would discard those edits and
+        // match the wrong packet.
+        public override bool HasSameContent(BaseObject other) =>
+            other is BaseCustomEvent customEvent
+            && base.HasSameContent(other)
+            && Type == customEvent.Type
+            && string.Equals(Data?.ToString(), customEvent.Data?.ToString(), StringComparison.Ordinal);
         
+        // Duration is measured in beats, but animation points contain values and normalized times.
+        // Replace only duration on a shallow export copy so saving cannot round the editable Data tree.
+        public JSONNode GetExportData()
+        {
+            if (!Data.HasKey(DataKeyDuration))
+                return Data;
+
+            var output = new JSONObject();
+            foreach (var entry in Data)
+                output[entry.Key] = entry.Value;
+            output[DataKeyDuration] = JSONNumber.RoundBeat(Data[DataKeyDuration].AsDouble);
+            return output;
+        }
+
         public override JSONNode ToJson() => Settings.Instance.MapVersion switch
         {
             2 => V2CustomEvent.ToJson(this),

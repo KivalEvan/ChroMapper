@@ -10,6 +10,7 @@ namespace Beatmap.Containers
 {
     public class NoteContainer : ObjectContainer
     {
+        private static readonly int glowColorId = Shader.PropertyToID("_GlowColor");
         private static readonly int colorMultiplierId = Shader.PropertyToID("_ColorMultiplier");
         private static readonly int objectTime = Shader.PropertyToID("_ObjectTime");
         private static readonly int translucentAlpha = Shader.PropertyToID("_TranslucentAlpha");
@@ -99,6 +100,7 @@ namespace Beatmap.Containers
                         : VisualSettings.GetNoteLeftModel();
             }
 
+            var defaultModel = vm;
             ArrowMpbController.gameObject.SetActive(!vm.DisableAux);
 
             var kind = NoteData.Chains.Count > 0
@@ -112,7 +114,7 @@ namespace Beatmap.Containers
                 if (NoteData.CustomTrack.IsString)
                 {
                     var result = AssignObjectPrefabManager.GetCurrentModels(kind, NoteData.CustomTrack);
-                    if (result.HasOverride)
+                    if (result.HasOverride && result.OverrideModel != null)
                     {
                         vm = result.OverrideModel;
                         ArrowMpbController.gameObject.SetActive(false);
@@ -125,14 +127,19 @@ namespace Beatmap.Containers
                     }
 
                     ModelController.Set(vm);
-                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model != null ? model : defaultModel);
+                    if (result.AdditiveModels.Contains(null))
+                    {
+                        ArrowMpbController.gameObject.SetActive(!defaultModel.DisableAux);
+                        ArrowMpbController.ShowRenderer(true);
+                    }
                 }
                 else if (NoteData.CustomTrack.IsArray)
                 {
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         kind,
                         NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
-                    if (result.HasOverride)
+                    if (result.HasOverride && result.OverrideModel != null)
                     {
                         vm = result.OverrideModel;
                         ArrowMpbController.gameObject.SetActive(false);
@@ -145,7 +152,12 @@ namespace Beatmap.Containers
                     }
 
                     ModelController.Set(vm);
-                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model != null ? model : defaultModel);
+                    if (result.AdditiveModels.Contains(null))
+                    {
+                        ArrowMpbController.gameObject.SetActive(!defaultModel.DisableAux);
+                        ArrowMpbController.ShowRenderer(true);
+                    }
                 }
             }
             else
@@ -159,26 +171,27 @@ namespace Beatmap.Containers
         {
             ArrowMpbController.ShowRenderer(false);
             var vm = VisualSettings.GetBombModel();
+            var defaultModel = vm;
 
-            if (NoteData.CustomTrack != null)
+            if (NoteData.CustomTrack != null && AssignObjectPrefabManager != null)
             {
                 if (NoteData.CustomTrack.IsString)
                 {
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         TrackModelState.Kind.Bomb,
                         NoteData.CustomTrack);
-                    if (result.HasOverride) vm = result.OverrideModel;
+                    if (result.HasOverride && result.OverrideModel != null) vm = result.OverrideModel;
                     ModelController.Set(vm);
-                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model != null ? model : defaultModel);
                 }
                 else if (NoteData.CustomTrack.IsArray)
                 {
                     var result = AssignObjectPrefabManager.GetCurrentModels(
                         TrackModelState.Kind.Bomb,
                         NoteData.CustomTrack.Children.Select(x => (string)x).ToArray());
-                    if (result.HasOverride) vm = result.OverrideModel;
+                    if (result.HasOverride && result.OverrideModel != null) vm = result.OverrideModel;
                     ModelController.Set(vm);
-                    foreach (var model in result.AdditiveModels) ModelController.Add(model);
+                    foreach (var model in result.AdditiveModels) ModelController.Add(model != null ? model : defaultModel);
                 }
             }
             else
@@ -318,6 +331,7 @@ namespace Beatmap.Containers
 
             var arrowColor = Color.Lerp(color, Color.white, Settings.Instance.ArrowColorWhiteBlend);
             ArrowMpbController.Mpb.SetColor(ColorId, arrowColor);
+            ArrowMpbController.Mpb.SetColor(glowColorId, color);
             ArrowMpbController.Mpb.SetFloat(colorMultiplierId, Settings.Instance.ArrowColorMultiplier);
 
             UpdateMaterials();

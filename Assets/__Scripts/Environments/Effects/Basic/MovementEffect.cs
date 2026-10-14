@@ -5,6 +5,9 @@ public class MovementEffect : BasicMovementEffect<MovementStateData>
 {
     public Movement Visual;
 
+    private Vector3[] positionsBeforeMovement;
+    private bool movementApplied;
+
     private void Awake()
     {
         if (Visual == null)
@@ -18,6 +21,7 @@ public class MovementEffect : BasicMovementEffect<MovementStateData>
             throw new System.InvalidOperationException($"MovementEffect on '{name}' has no Movement visual.");
 
         Visual.Initialize();
+        positionsBeforeMovement ??= new Vector3[Visual.Transforms.Length];
         base.Initialize();
     }
 
@@ -41,7 +45,9 @@ public class MovementEffect : BasicMovementEffect<MovementStateData>
             current.SnapshotSeconds = Atsc.GetSecondsFromBeat(current.StartTime);
             current.SnapshotFrame = Mathf.FloorToInt(current.SnapshotSeconds / Time.fixedDeltaTime);
             current.AssignmentFrame = int.MinValue;
-            current.SameTypeIndex = -1;
+            // Beat Saber numbers sameTypeIndex from 1 (BasicBeatmapEventData.SetFirstSameTypeIndex),
+            // so the first real event must select movement data 1 % len
+            current.SameTypeIndex = 0;
             return;
         }
 
@@ -76,6 +82,30 @@ public class MovementEffect : BasicMovementEffect<MovementStateData>
 
     protected override void ApplyVisual(float beat, float seconds, MovementStateData current, MovementStateData next)
     {
+        // Native movement stops writing its settled startup pose before Chroma applies enhancements.
+        // Restore the pre-movement pose once on rewind, then leave it alone (The15SublimitPrismParityTest).
+        var transforms = Visual.Transforms;
+        if (IsStartSentinel(current))
+        {
+            if (movementApplied)
+            {
+                for (var i = 0; i < transforms.Length; i++)
+                    transforms[i].localPosition = positionsBeforeMovement[i];
+
+                movementApplied = false;
+            }
+
+            return;
+        }
+
+        if (!movementApplied)
+        {
+            for (var i = 0; i < transforms.Length; i++)
+                positionsBeforeMovement[i] = transforms[i].localPosition;
+
+            movementApplied = true;
+        }
+
         // Render between the previous and current completed fixed states, matching TimeHelper interpolation.
         var framePosition = Atsc.GetSecondsFromBeat(beat) / Time.fixedDeltaTime;
         var fixedFrame = Mathf.FloorToInt(framePosition);

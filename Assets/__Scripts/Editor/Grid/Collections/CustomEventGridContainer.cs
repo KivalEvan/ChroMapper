@@ -1,7 +1,6 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using Beatmap.Animations;
 using Beatmap.Base;
 using Beatmap.Base.Customs;
 using Beatmap.Containers;
@@ -24,9 +23,30 @@ public class CustomEventGridContainer : BeatmapObjectContainerCollection<BaseCus
     private List<string> customEventTypes = new();
     public override ObjectType ContainerType => ObjectType.CustomEvent;
 
+    /// <inheritdoc />
+    public override void DeleteObject(BaseCustomEvent obj, bool triggersAction = true, bool refreshesPool = true,
+        string comment = "No comment.", bool inCollectionOfDeletes = false, bool deselect = true,
+        bool triggerHandle = true)
+    {
+        var index = MapObjects.BinarySearch(obj);
+        // Custom events on different tracks can compare equal. Local edits must remove their exact source.
+        if (index < 0 || !ReferenceEquals(MapObjects[index], obj)) index = MapObjects.IndexOf(obj);
+        if (index < 0)
+        {
+            base.DeleteObject(obj, triggersAction, refreshesPool, comment, inCollectionOfDeletes, deselect, triggerHandle);
+            return;
+        }
+        DeleteObjectAt(index, triggersAction, refreshesPool, comment, inCollectionOfDeletes, deselect, triggerHandle);
+    }
+
     public ReadOnlyCollection<string> CustomEventTypes => customEventTypes.AsReadOnly();
 
-    public Dictionary<string, List<BaseCustomEvent>> EventsByTrack;
+    public Dictionary<string, List<BaseCustomEvent>> EventsByTrack
+    {
+        get => tracksManager.CustomEventsByTrack;
+        set => tracksManager.CustomEventsByTrack = value;
+    }
+    internal CameraController PlayerCamera => playerCamera;
 
     private void Start()
     {
@@ -40,12 +60,11 @@ public class CustomEventGridContainer : BeatmapObjectContainerCollection<BaseCus
 
     public void LoadAll()
     {
-        EventsByTrack = new Dictionary<string, List<BaseCustomEvent>>();
-
-        var span = MapObjects.AsSpan();
-
-        foreach (var ev in span) AddCustomEvent(ev);
+        customEventTypes = MapObjects.Select(evt => evt.Type).Distinct().ToList();
+        RefreshTrack();
     }
+
+    public void RefreshBpmTiming(float jsonTime) => tracksManager.RefreshBpmTiming(jsonTime);
 
     public void OnAssignObjectstoTrack(InputAction.CallbackContext context)
     {
@@ -81,93 +100,6 @@ public class CustomEventGridContainer : BeatmapObjectContainerCollection<BaseCus
             RefreshTrack();
         }
 
-        AddCustomEvent(customEvent);
-    }
-
-    protected override void HandleObjectDelete(BaseObject obj, bool inCollection = false)
-    {
-        var ev = obj as BaseCustomEvent;
-
-        var tracks = ev.CustomTrack switch
-        {
-            JSONString s => new List<string> { s },
-            JSONArray arr => new List<string>(arr.Children.Select(c => (string)c)),
-            _ => new List<string>()
-        };
-
-        foreach (var track in tracks)
-        {
-            EventsByTrack[track].Remove(ev);
-            if (EventsByTrack[track].Count == 0)
-            {
-                EventsByTrack.Remove(track);
-            }
-
-            if (ev.Type == "AnimateTrack") tracksManager.GetAnimationTrack(track).RemoveEvent(ev);
-        }
-    }
-
-    private void AddCustomEvent(BaseCustomEvent ev)
-    {
-        var tracks = ev.CustomTrack switch
-        {
-            JSONString s => new List<string> { s },
-            JSONArray arr => new List<string>(arr.Children.Select(c => (string)c)),
-            _ => new List<string>()
-        };
-
-        foreach (var track in tracks)
-        {
-            if (!EventsByTrack.ContainsKey(track))
-            {
-                EventsByTrack[track] = new List<BaseCustomEvent>();
-            }
-
-            EventsByTrack[track].Add(ev);
-
-            if (ev.Type == "AnimateTrack") tracksManager.GetAnimationTrack(track).AddEvent(ev);
-        }
-
-        switch (ev.Type)
-        {
-            case "AssignTrackParent":
-                if (ev.DataParentTrack == null) return;
-                var parent = tracksManager.GetAnimationTrack(ev.DataParentTrack);
-                var children = ev.DataChildrenTracks switch
-                {
-                    JSONArray arr => arr,
-                    JSONString s => JSONObject.Parse($"[{s}]").AsArray,
-                    _ => new JSONArray(),
-                };
-                foreach (var tr in children)
-                {
-                    var at = tracksManager.GetAnimationTrack(tr.Value);
-                    at.Track.transform.SetParent(
-                        parent.Track.ObjectParentTransform,
-                        ev.DataWorldPositionStays ?? false);
-                    if (at.Animator == null)
-                    {
-                        at.Animator = at.gameObject.AddComponent<ObjectAnimator>();
-                        at.Animator.Context = BeatmapContext;
-                        at.Animator.AttachToTrack(at.Track, tr.Value);
-                    }
-
-                    if (!parent.Children.Contains(at.Animator))
-                    {
-                        parent.Children.Add(at.Animator);
-                        at.Parents.Add(parent);
-                        at.OnChildrenChanged();
-                    }
-                }
-
-                break;
-            case "AssignPlayerToTrack":
-                if (ev.CustomTrack == null) return;
-                playerCamera.gameObject.SetActive(true);
-                var track = tracksManager.GetAnimationTrack(ev.CustomTrack);
-                playerCamera.AddPlayerTrack(ev.JsonTime, track);
-                break;
-        }
     }
 
     private void OnUIPreviewModeSwitch() => RefreshPool(true);

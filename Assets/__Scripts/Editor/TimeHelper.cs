@@ -104,7 +104,8 @@ public class TimeHelper : MonoBehaviour
     public static Vector4 EncodeTimeAsVector(float time) =>
         new(time / 20f, time, time * 2f, time * 3f);
 
-    public static float GetShaderTimeValue() => Time.time;
+    // Built-in shader _Time starts when the scene loads, rather than when the application starts.
+    public static float GetShaderTimeValue() => Time.timeSinceLevelLoad;
 
     // Beat Saber dispatches zero-ahead beatmap callbacks on the first render LateUpdate
     // whose song clock has reached the event; 90 Hz is the editor's deterministic cadence.

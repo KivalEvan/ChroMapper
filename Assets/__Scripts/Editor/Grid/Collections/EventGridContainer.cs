@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Beatmap.Appearances;
 using Beatmap.Base;
+using Beatmap.Comparers;
 using Beatmap.Containers;
 using Beatmap.Enums;
 using UnityEngine;
@@ -14,6 +15,8 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
                                   CMInput.IEventGridActions,
                                   IEditorStateProvider
 {
+    public override IComparer<BaseEvent> SortComparer => EventOrderComparer.Instance;
+
     public enum PropMode
     {
         Off, Prop, Light
@@ -44,6 +47,13 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
 
     // LightIdTransitionRibbonEndsAtAllLightsTransitionInterrupt needs logarithmic lookup of the next unscoped interrupt.
     private readonly Dictionary<int, List<BaseEvent>> allLightsInterruptsByType = new();
+
+    private EventDesyncRiskIndex desyncRiskIndex;
+
+    private EventDesyncRiskIndex DesyncRiskIndex =>
+        desyncRiskIndex ??= new EventDesyncRiskIndex(
+            type => BeatmapContext.TrackDefinitions.GetBasicOrDefault(type).Components,
+            RefreshDesyncRiskAppearance);
 
     // Let GLS preview collections repaint only the palette interval changed by a boost node edit.
     public event Action<float, float> OnBoostAppearanceRangeInvalidated;
@@ -220,6 +230,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
             .BasicEventEffectManager.GetEffects<BasicLightEffect>()
             .ToDictionary(x => x.type, x => x.effect);
         PropagationEditing = PropMode.Off;
+        LinkRingEvents();
         // Register after environment setup so stale metadata cannot restore before light managers are authoritative.
         EditorStateService.Register(this);
     }
@@ -280,6 +291,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
                 }
             }
 
+            DesyncRiskIndex.HandleRemoved(e, MapObjects);
             MarkEventToBeRelinked(e);
         }
 
@@ -324,6 +336,8 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
                 RefreshScopedRibbonSourcesInterruptedByAllLights(e, AllLightEvents[e.Type]);
                 lightEventsWithKnownPrevNext.Add(e);
             }
+
+            DesyncRiskIndex.HandleSpawned(e, MapObjects);
         }
 
         countersPlus.UpdateStatistic(CountersPlusStatistic.Events);
@@ -835,10 +849,12 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
             .GroupBy(x => x.Type)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-    private void LinkRingEvents()
+    public void LinkRingEvents()
     {
         BaseEvent prevRotation = null;
         BaseEvent prevZoom = null;
+
+        DesyncRiskIndex.BeginScan();
 
         foreach (var e in MapObjects)
         {
@@ -873,10 +889,22 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
 
                 prevZoom = e;
             }
+
+            DesyncRiskIndex.Observe(e);
         }
 
         if (prevRotation != null) prevRotation.Next = null;
         if (prevZoom != null) prevZoom.Next = null;
+
+        DesyncRiskIndex.FinishScan();
+    }
+
+    public bool IsDesyncRisk(BaseEvent evt) => DesyncRiskIndex.IsFlagged(evt);
+
+    private void RefreshDesyncRiskAppearance(BaseEvent evt)
+    {
+        if (LoadedContainers.TryGetValue(evt, out var container))
+            (container as EventContainer).RefreshAppearance();
     }
 
     public bool IsBoostAt(float jsonTime)
@@ -895,10 +923,11 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
         if (obj is not BaseEvent evt || !evt.IsColorBoostEvent())
         {
             base.SilentRemoveObject(obj);
+            if (obj is BaseEvent desyncEvt) DesyncRiskIndex.HandleRemoved(desyncEvt, MapObjects);
             return;
         }
 
-        if (!TryBinarySearch(evt, out _))
+        if (!TryBinarySearchForObjectIndexLogged(evt, out _))
         {
             return;
         }
@@ -906,6 +935,7 @@ public class EventGridContainer : BeatmapObjectContainerCollection<BaseEvent>,
         // Alt-drag temporarily removes the authored boost, so invalidate both its old and replacement ranges.
         boostEventIndex.InvalidateAppearanceRange(evt.JsonTime);
         base.SilentRemoveObject(evt);
+        DesyncRiskIndex.HandleRemoved(evt, MapObjects);
         boostEventIndex.Remove(evt);
         boostEventIndex.InvalidateAppearanceRange(evt.JsonTime);
     }

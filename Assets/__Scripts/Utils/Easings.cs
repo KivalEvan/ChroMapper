@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Beatmap.Enums;
 using UnityEngine;
 
@@ -50,6 +51,23 @@ public static class Easing
         { "easeOutBounce", Bounce.Out },
         { "easeInOutBounce", Bounce.InOut },
         { "easeStep", Step }
+    };
+
+    // Point-data easing uses Heck's variants for these four families.
+    public static readonly Dictionary<string, Func<float, float>> HeckByName = new()
+    {
+        { "easeInBack", HeckBack.In },
+        { "easeOutBack", HeckBack.Out },
+        { "easeInOutBack", HeckBack.InOut },
+        { "easeInBounce", HeckBounce.In },
+        { "easeOutBounce", HeckBounce.Out },
+        { "easeInOutBounce", HeckBounce.InOut },
+        { "easeInElastic", HeckElastic.In },
+        { "easeOutElastic", HeckElastic.Out },
+        { "easeInOutElastic", HeckElastic.InOut },
+        { "easeInExpo", HeckExponential.In },
+        { "easeOutExpo", HeckExponential.Out },
+        { "easeInOutExpo", HeckExponential.InOut }
     };
 
     /// <summary>
@@ -271,6 +289,95 @@ public static class Easing
     public static Func<float, float> FromID(int id) => ByID.TryGetValue(id, out var easing) ? easing : Linear;
 
     /// <summary>
+    ///     If an easing named <paramref name="name" /> exists in Chroma's function table, returns it.
+    ///     Otherwise, returns <see cref="Linear(float)" />.
+    ///     <seealso cref="HeckByName" />
+    /// </summary>
+    /// <param name="name">The name of the desired easing.</param>
+    /// <returns>The desired easing, or <see cref="Linear(float)" /> if that easing doesn't exist.</returns>
+    public static Func<float, float> HeckNamed(string name)
+    {
+        var canonicalName = CanonicalHeckName(name);
+        if (canonicalName == null)
+            return Linear;
+
+        return HeckByName.TryGetValue(canonicalName, out var easing)
+            ? easing
+            : Named(canonicalName);
+    }
+
+    // Heck enum ordinals differ from GLS save IDs and the ribbon's shader IDs.
+    public static string CanonicalHeckName(string name)
+    {
+        if (name == null || ByName.ContainsKey(name))
+            return name;
+
+        var token = name.Trim();
+        int ordinal;
+        if (token.Length > 0 && (char.IsDigit(token[0]) || token[0] == '+' || token[0] == '-'))
+        {
+            if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out ordinal))
+                return name;
+
+        }
+        else
+        {
+            ordinal = 0;
+            foreach (var part in token.Split(','))
+            {
+                if (!HeckFunctionOrdinals.TryGetValue(part.Trim(), out var value))
+                    return name;
+
+                ordinal |= value;
+            }
+
+        }
+
+        return ordinal >= 0 && ordinal < HeckFunctionNames.Length
+            ? HeckFunctionNames[ordinal]
+            : name;
+    }
+
+    private static readonly string[] HeckFunctionNames = CreateHeckFunctionNames();
+    private static readonly Dictionary<string, int> HeckFunctionOrdinals = CreateHeckFunctionOrdinals();
+
+    private static string[] CreateHeckFunctionNames()
+    {
+        var nativeOrder = new[]
+        {
+            EaseType.Linear, EaseType.None,
+            EaseType.InQuadratic, EaseType.OutQuadratic, EaseType.InOutQuadratic,
+            EaseType.InCubic, EaseType.OutCubic, EaseType.InOutCubic,
+            EaseType.InQuartic, EaseType.OutQuartic, EaseType.InOutQuartic,
+            EaseType.InQuintic, EaseType.OutQuintic, EaseType.InOutQuintic,
+            EaseType.InSinusoidal, EaseType.OutSinusoidal, EaseType.InOutSinusoidal,
+            EaseType.InCircular, EaseType.OutCircular, EaseType.InOutCircular,
+            EaseType.InExponential, EaseType.OutExponential, EaseType.InOutExponential,
+            EaseType.InElastic, EaseType.OutElastic, EaseType.InOutElastic,
+            EaseType.InBack, EaseType.OutBack, EaseType.InOutBack,
+            EaseType.InBounce, EaseType.OutBounce, EaseType.InOutBounce
+        };
+        var functionNames = new Dictionary<Func<float, float>, string>();
+        foreach (var pair in ByName)
+            functionNames.Add(pair.Value, pair.Key);
+
+        var names = new string[nativeOrder.Length];
+        for (var index = 0; index < nativeOrder.Length; index++)
+            names[index] = functionNames[ByID[(int)nativeOrder[index]]];
+
+        return names;
+    }
+
+    private static Dictionary<string, int> CreateHeckFunctionOrdinals()
+    {
+        var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < HeckFunctionNames.Length; index++)
+            ordinals.Add(HeckFunctionNames[index], index);
+
+        return ordinals;
+    }
+
+    /// <summary>
     /// Returns the shader ID for a given easing.
     /// </summary>
     /// <param name="easingId">Internal easing ID (what Chroma uses)</param>
@@ -471,6 +578,104 @@ public static class Easing
                 < 0.90909094f => (7.5625f * (t -= 0.8181818f) * t) + 0.9375f,
                 _ => (7.5625f * (t -= 21f / 22f) * t) + (63f / 64f)
             };
+        }
+    }
+    // Chroma's Back family (Heck/Animation/Easings.cs) is a sine-overshoot variant, not the
+    // easings.net cubic the classic Back class implements; point-data easings must use these.
+    public static class HeckBack
+    {
+        public static float In(float k) => (k * k * k) - (k * Mathf.Sin(k * Mathf.PI));
+
+        public static float Out(float k)
+        {
+            var f = 1f - k;
+            return 1f - ((f * f * f) - (f * Mathf.Sin(f * Mathf.PI)));
+        }
+
+        public static float InOut(float k)
+        {
+            if (k < 0.5f)
+            {
+                var f = 2f * k;
+                return 0.5f * ((f * f * f) - (f * Mathf.Sin(f * Mathf.PI)));
+            }
+
+            var g = 1f - ((2f * k) - 1f);
+            return (0.5f * (1f - ((g * g * g) - (g * Mathf.Sin(g * Mathf.PI))))) + 0.5f;
+        }
+    }
+
+    // Chroma's Bounce family takes the minimum of four parabolas (collision points 4/11, 8/11,
+    // 9/11, 1) rather than Penner's piecewise bounce used by the classic Bounce class.
+    public static class HeckBounce
+    {
+        public static float In(float k) => 1f - Out(1f - k);
+
+        public static float Out(float k)
+        {
+            var x = (121f / 16f) * k * k;
+
+            var q1 = k - (6f / 11f);
+            var b = ((363f / 40f) * q1 * q1) + (7f / 10f);
+            if (b < x) x = b;
+
+            var q2 = k - (179f / 220f);
+            var c = ((4356f / 361f) * q2 * q2) + (91f / 100f);
+            if (c < x) x = c;
+
+            var q3 = k - (19f / 20f);
+            var d = ((54f / 5f) * q3 * q3) + (973f / 1000f);
+            if (d < x) x = d;
+
+            return x;
+        }
+
+        public static float InOut(float k)
+        {
+            if (k < 0.5f) return 0.5f * In(k * 2f);
+            return (0.5f * Out((k * 2f) - 1f)) + 0.5f;
+        }
+    }
+
+    // Chroma's Elastic family uses a fixed sin(13pi/2 * t) frequency where the classic Elastic
+    // class uses the easings.net phase-shifted form.
+    public static class HeckElastic
+    {
+        private const float HalfPi = Mathf.PI / 2f;
+
+        public static float In(float k) => Mathf.Sin(13f * HalfPi * k) * Mathf.Pow(2f, 10f * (k - 1f));
+
+        public static float Out(float k) =>
+            (Mathf.Sin(-13f * HalfPi * (k + 1f)) * Mathf.Pow(2f, -10f * k)) + 1f;
+
+        public static float InOut(float k)
+        {
+            if (k < 0.5f)
+            {
+                return 0.5f * Mathf.Sin(13f * HalfPi * (2f * k)) * Mathf.Pow(2f, 10f * ((2f * k) - 1f));
+            }
+
+            return 0.5f * ((Mathf.Sin(-13f * HalfPi * (2f * k)) * Mathf.Pow(2f, -10f * ((2f * k) - 1f))) + 2f);
+        }
+    }
+
+    // Chroma's Expo family normalizes with 1023-scale constants instead of the classic
+    // 1024-scale forms, so endpoints land exactly on 0 and 1.
+    public static class HeckExponential
+    {
+        public static float In(float k) =>
+            k <= 0f ? k : (Mathf.Pow(2f, 10f * k) * (1f / 1023f)) - (1f / 1023f);
+
+        public static float Out(float k) =>
+            k > 1f ? k : (1024f / 1023f) - ((1024f / 1023f) * Mathf.Pow(2f, -10f * k));
+
+        public static float InOut(float k)
+        {
+            if (k > 1f) return k;
+            var p = (k * 20f) - 10f;
+            const float s = 512f / 1023f;
+            if (p < 0f) return 0.5f - (s - (s * Mathf.Pow(2f, p)));
+            return 0.5f + (s - (s * Mathf.Pow(2f, -p)));
         }
     }
 }

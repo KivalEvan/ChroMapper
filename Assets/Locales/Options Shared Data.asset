@@ -171,16 +171,8 @@ MonoBehaviour:
     m_Key: graphics.rgb
     m_Metadata:
       m_Items: []
-  - m_Id: 41
-    m_Key: graphics.reflection
-    m_Metadata:
-      m_Items: []
   - m_Id: 42
     m_Key: graphics.colorfakewalls
-    m_Metadata:
-      m_Items: []
-  - m_Id: 43
-    m_Key: graphics.measurelinesontop
     m_Metadata:
       m_Items: []
   - m_Id: 44
@@ -393,14 +385,6 @@ MonoBehaviour:
       m_Items: []
   - m_Id: 103
     m_Key: map.precisionplacement.tooltip
-    m_Metadata:
-      m_Items: []
-  - m_Id: 104
-    m_Key: graphics.reflection.tooltip
-    m_Metadata:
-      m_Items: []
-  - m_Id: 105
-    m_Key: graphics.measurelinesontop.tooltip
     m_Metadata:
       m_Items: []
   - m_Id: 106
@@ -1475,12 +1459,20 @@ MonoBehaviour:
     m_Key: map.rotationfollowwall
     m_Metadata:
       m_Items: []
-  - m_Id: 664292683422597120
-    m_Key: graphics.bloomfog
+  - m_Id: 664292683443568643
+    m_Key: graphics.editmodeworldparticles
     m_Metadata:
       m_Items: []
-  - m_Id: 664292683443568640
-    m_Key: graphics.bloomfog.tooltip
+  - m_Id: 664292683443568644
+    m_Key: graphics.editmodeworldparticles.tooltip
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683443568645
+    m_Key: graphics.editmodesmoke
+    m_Metadata:
+      m_Items: []
+  - m_Id: 664292683443568646
+    m_Key: graphics.editmodesmoke.tooltip
     m_Metadata:
       m_Items: []
   - m_Id: 664292683443568641
@@ -1489,6 +1481,16 @@ MonoBehaviour:
       m_Items: []
   - m_Id: 664292683443568642
     m_Key: graphics.screendisplacement.tooltip
+  - m_Id: 439117794545255041
+    m_Key: map.glsinnerpreviewshrink
+    m_Metadata:
+      m_Items: []
+  - m_Id: 781108813288137151
+    m_Key: map.glsinnerpreviewshrink.info
+    m_Metadata:
+      m_Items: []
+  - m_Id: 627154617426568411
+    m_Key: map.glsinnerpreviewshrink.tooltip
     m_Metadata:
       m_Items: []
   m_Metadata:

@@ -24,6 +24,7 @@ public class VivifyObject : MonoBehaviour
 
     public void Initialize()
     {
+        if (Animator != null) Animator.ResetData();
         transform.localScale = InitialScale;
         transform.SetPositionAndRotation(InitialPosition, InitialRotation);
     }
@@ -37,11 +38,11 @@ public class VivifyObject : MonoBehaviour
 
     public void SetAnimatorDefault()
     {
-        Animator.OffsetPosition.Default = InitialPosition;
-        Animator.WorldPosition.Default = InitialPosition;
+        Animator.OffsetPosition.Default = transform.localPosition;
+        Animator.WorldPosition.Default = transform.position;
         Animator.LocalRotation.Default = transform.localRotation;
         Animator.WorldRotation.Default = transform.rotation;
-        Animator.Scale.Default = InitialScale;
+        Animator.Scale.Default = transform.localScale;
     }
 
     public void Activate() => gameObject.SetActive(true);

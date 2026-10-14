@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.Animations;
+using UnityEngine.Serialization;
 
 public class ParametricBloomFogLightController : LightController
 {
@@ -7,8 +8,10 @@ public class ParametricBloomFogLightController : LightController
     public bool OverrideChildrenLength = true;
     [SerializeField] private float length = 1f;
     public float Center = 0.5f;
-    public float ColorAlphaMultiplier = 1f;
-    public float BloomFogIntensityMultiplier = 1f;
+    [FormerlySerializedAs("ColorAlphaMultiplier")]
+    [SerializeField] private float colorAlphaMultiplier = 1f;
+    [FormerlySerializedAs("BloomFogIntensityMultiplier")]
+    [SerializeField] private float bloomFogIntensityMultiplier = 1f;
     public BloomFogLightType LightType;
     public float FakeBloomIntensityMultiplier = 1f;
     public float BoostToWhite;
@@ -72,6 +75,26 @@ public class ParametricBloomFogLightController : LightController
         }
     }
 
+    public float ColorAlphaMultiplier
+    {
+        get => colorAlphaMultiplier;
+        set
+        {
+            colorAlphaMultiplier = value;
+            shouldRefresh = true;
+        }
+    }
+
+    public float BloomFogIntensityMultiplier
+    {
+        get => bloomFogIntensityMultiplier;
+        set
+        {
+            bloomFogIntensityMultiplier = value;
+            shouldRefresh = true;
+        }
+    }
+
     public float Width
     {
         get => width;
@@ -110,6 +133,25 @@ public class ParametricBloomFogLightController : LightController
             collisionLength = value;
             shouldRefresh = true;
         }
+    }
+
+    // Heck's TubeBloomLightCustomizer.SetColorAlphaMultiplier marks the light dirty
+    // after animating so the next light update re-renders. Initialize copies the multipliers into the box and
+    // sprite lights once, so an animated value must refresh the same way the static enhancement path relies on.
+    // The pushed float comes from one evaluated property per controller, so an unchanged value leaves no
+    // dirty mark and no refresh. TubeBloomAnimator.PushAt performs the deferred refresh once after all writes.
+    public void SetColorAlphaMultiplier(float value)
+    {
+        if (ColorAlphaMultiplier == value) return;
+        ColorAlphaMultiplier = value;
+        shouldRefresh = true;
+    }
+
+    public void SetBloomFogIntensityMultiplier(float value)
+    {
+        if (BloomFogIntensityMultiplier == value) return;
+        BloomFogIntensityMultiplier = value;
+        shouldRefresh = true;
     }
 
     private float CalculatedCollisionEndAlpha =>
@@ -248,6 +290,7 @@ public class ParametricBloomFogLightController : LightController
             BoxLight.Length = width;
             if (useCollision) BoxLight.CollisionHeight = CollisionLength;
 
+            BoxLight.AlphaMultiplier = ColorAlphaMultiplier;
             BoxLight.SetColor(Color);
         }
 
@@ -267,6 +310,7 @@ public class ParametricBloomFogLightController : LightController
 
             if (useCollision) SpriteLight.CollisionLength = CollisionLength;
 
+            SpriteLight.AlphaMultiplier = ColorAlphaMultiplier * FakeBloomIntensityMultiplier;
             SpriteLight.SetColor(Color);
         }
 

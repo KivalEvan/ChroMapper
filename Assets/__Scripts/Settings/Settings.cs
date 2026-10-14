@@ -74,6 +74,7 @@ public class Settings
     public bool Animations = true;
     // Controls the visibility and rendering cost of additional GLS group previews in the outer track.
     public float GLSOuterTrackGhostNodeOpacity = 0.8f;
+    public float GLSInnerEventPreviewShrink = 0.1f;
     public float PastNotesGridScale = 0.5f;
     public float SongSpeedChangeAmount = 2;
     // SongSpeed is a non-persistent setting
@@ -143,23 +144,23 @@ public class Settings
     public int SpectrogramSlices = 0;
     public float SpectrogramHeight = 0.15f;
 
-    public bool Reflections = true;
     public int MirrorQuality = (int)MirrorRendererSO.MirrorQuality.High;
     public bool Bloom = true;
-    public bool BloomFog = true;
     public bool ChromaticAberration = true;
     public bool ScreenDisplacement = true;
+    public bool EditModeWorldParticles = false;
+    public bool EditModeSmoke = false;
     public float CameraFOV = 60f;
     public float PlayerCameraFOV = 60f;
     public float PlayerCameraOffsetZ = 3.6f; // 3.6m => 6 Z
-    public int CameraAA = 0;
+    // Default only applies to new installations, this wont bump anyone already at 0 to 4
+    public int CameraAA = 4;
     public int RenderScale = 100;
 
     #endregion
 
     #region Appearance
 
-    public bool MeasureLinesShowOnTop = false;
     public bool HighContrastGrids = false;
     public bool DisplayHJDLine = true;
     public float GridTransparency = 0f;
@@ -286,11 +287,15 @@ public class Settings
 #if UNITY_EDITOR
         if (TestMode)
         {
-            // Test in Unity 6 for some reason triggers the language dropdown in the first boot screen
-            var languageFieldInfo = typeof(Settings)
-                .GetMember("Language", BindingFlags.Public | BindingFlags.Instance)
-                .First();
-            AllFieldInfos.Add("Language", (FieldInfo)languageFieldInfo);
+            // Tests still return the runner settings without file IO, but register every field so
+            // ApplyOptionByName works for any setting, matching the non-test load path.
+            foreach (var info in typeof(Settings).GetMembers(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (info is FieldInfo field)
+                {
+                    AllFieldInfos.Add(field.Name, field);
+                }
+            }
 
             return TestRunnerSettings;
         }
@@ -522,14 +527,16 @@ public class Settings
     /// </summary>
     public static void NotifyBySettingName(string name, Action<object> callback)
     {
-        if (nameToActions.ContainsKey(name) && callback != null)
+        if (callback == null)
+            return;
+
+        if (nameToActions.ContainsKey(name))
         {
             nameToActions[name] += callback;
         }
-        else if (!nameToActions.ContainsKey(name) && callback != null)
+        else
         {
-            var newBoy = new Action<object>(callback);
-            nameToActions.Add(name, newBoy);
+            nameToActions.Add(name, callback);
         }
     }
 
@@ -554,7 +561,23 @@ public class Settings
     public static void ManuallyNotifySettingUpdatedEvent(string name, object value)
     {
         if (NonPersistentSettings.ContainsKey(name)) NonPersistentSettings[name] = value;
-        if (nameToActions.TryGetValue(name, out var boy)) boy?.Invoke(value);
+        if (!nameToActions.TryGetValue(name, out var actions)) return;
+
+        // This static list outlives scene reloads, so drop subscribers bound to destroyed Unity objects
+        // instead of invoking a dead target.
+        Action<object> liveActions = null;
+        foreach (var subscriber in actions.GetInvocationList())
+        {
+            if (subscriber.Target is UnityEngine.Object unityTarget && unityTarget == null) continue;
+            liveActions += (Action<object>)subscriber;
+        }
+
+        if (liveActions == null)
+            nameToActions.Remove(name);
+        else
+            nameToActions[name] = liveActions;
+
+        liveActions?.Invoke(value);
     }
 
     public static bool ValidateDirectory(Action<string> errorFeedback = null)

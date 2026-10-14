@@ -22619,7 +22619,6 @@ GameObject:
   - component: {fileID: 443861354}
   - component: {fileID: 443861353}
   - component: {fileID: 443861356}
-  - component: {fileID: 443861357}
   m_Layer: 0
   m_Name: Measure Lines Canvas
   m_TagString: Untagged
@@ -22728,19 +22727,6 @@ MonoBehaviour:
   IgnoreZScale: 1
   RotationValue: {x: 0, y: 0, z: 0}
   GridContainer: {fileID: 0}
---- !u!114 &443861357
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 443861351}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2ecf905aef41c6b4c816cf596d4c22c8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  effectingCanvas: {fileID: 443861355}
 --- !u!1 &444276308
 GameObject:
   m_ObjectHideFlags: 0
@@ -30487,6 +30473,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4085374639500124, guid: 20e633c6c4c50f744a0f7f171d45ad00, type: 3}
       propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 20081004887261610, guid: 20e633c6c4c50f744a0f7f171d45ad00,
+        type: 3}
+      propertyPath: m_HDR
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 20081004887261610, guid: 20e633c6c4c50f744a0f7f171d45ad00,
@@ -46165,6 +46156,7 @@ MonoBehaviour:
   modelUpdateQueueManager: {fileID: 2055101784}
   rotationEventGridContainer: {fileID: 379166760}
   atsc: {fileID: 570484802}
+  cameraManager: {fileID: 1206999167}
   vNjsProvider: {fileID: 597767624}
 --- !u!1001 &903183536
 PrefabInstance:
@@ -93907,6 +93899,7 @@ MonoBehaviour:
   modesGameObject: {fileID: 756850812}
   selected: {fileID: 540347201}
   cameraManager: {fileID: 1206999167}
+  editModeContext: {fileID: 405385889}
   gameObjectsWithRenderersToToggle:
   - {fileID: 1591641560}
   - {fileID: 1629008648}

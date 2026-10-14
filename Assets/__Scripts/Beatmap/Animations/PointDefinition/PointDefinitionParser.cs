@@ -2,309 +2,393 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Beatmap.Animations;
+using Beatmap.Base;
+using Beatmap;
 using SimpleJSON;
 using UnityEngine;
-using UnityEngine.Pool;
-using ZLinq;
 
 public static class PointDefinitionParser
 {
     public static readonly Dictionary<string, PointDefinitionInterpolator> NameCacheParsedInterpolators = new();
-    public static readonly Dictionary<JSONNode, PointDefinitionInterpolator> NodeCacheParsedInterpolators = new();
+    public static readonly Dictionary<JSONNode, PointDefinitionInterpolator> NodeCacheParsedInterpolators =
+        new(NodeIdentityComparer.Instance);
+
+    private static readonly Dictionary<string, string> namedContent = new();
+    private static readonly Dictionary<JSONNode, string> nodeContent = new(NodeIdentityComparer.Instance);
+    private static readonly Dictionary<JSONNode, string> registrationContent = new(NodeIdentityComparer.Instance);
+    private static int registrationDepth;
+    private static readonly Dictionary<(JSONNode Node, int Dimension, bool Quaternion), (string Content, PointDefinitionInterpolator Curve)> typedCurves =
+        new(TypedCurveIdentityComparer.Instance);
+    private static BaseDifficulty cacheMap;
+    private static readonly HashSet<JSONNode> retainedNodes = new(NodeIdentityComparer.Instance);
+    private static readonly List<JSONNode> staleNodes = new();
+    private static readonly List<string> staleNames = new();
+    private static readonly List<(JSONNode Node, int Dimension, bool Quaternion)> staleTypedCurves = new();
+    internal static int SampleVersion => BaseProviderManager.SampleVersion;
+    internal static bool ResetSmoothing => BaseProviderManager.ResetSmoothing;
+
+    /// <summary>Clears definitions and live provider state when loading or unloading a map.</summary>
+    /// <param name="preserveInvalidDefinitions">Retain unchanged failed validation during a rebuild of the same map.</param>
+    public static void ResetCache(bool preserveInvalidDefinitions = false)
+    {
+        NameCacheParsedInterpolators.Clear();
+        NodeCacheParsedInterpolators.Clear();
+        namedContent.Clear();
+        nodeContent.Clear();
+        registrationContent.Clear();
+        BaseProviderManager.ResetForMapLoad();
+        var map = BeatSaberSongContainer.Instance != null ? BeatSaberSongContainer.Instance.Map : null;
+        if (!preserveInvalidDefinitions || map == null || !ReferenceEquals(cacheMap, map))
+        {
+            typedCurves.Clear();
+        }
+        else
+        {
+            // Timing refreshes can rebuild the same map twice. Invalid curves have no live bindings;
+            // retain their validation result until the authored content changes instead of logging it again.
+            foreach (var cached in typedCurves)
+                if (cached.Value.Curve != null) staleTypedCurves.Add(cached.Key);
+            foreach (var key in staleTypedCurves) typedCurves.Remove(key);
+            staleTypedCurves.Clear();
+        }
+        cacheMap = preserveInvalidDefinitions ? map : null;
+    }
+
+    /// <summary>Releases cached definitions no longer present in the current authored animation data.</summary>
+    /// <param name="definitions">The current map's named definitions.</param>
+    /// <param name="animationRoots">Current event data and object animation roots whose cached curves should be retained.</param>
+    /// <remarks>
+    /// Call after registering edited definitions. Removed cache entries do not invalidate existing wrappers;
+    /// their curves and live provider getters remain valid until those wrappers are rebound or released.
+    /// Provider sampling and smoothing state are preserved. Changed names must still be registered with Get.
+    /// </remarks>
+    internal static void RetainDefinitions(IReadOnlyDictionary<string, JSONArray> definitions,
+        IEnumerable<JSONNode> animationRoots)
+    {
+        try
+        {
+            foreach (var definition in definitions.Values) RetainDefinitionNodes(definition);
+            foreach (var root in animationRoots) RetainDefinitionNodes(root);
+
+            foreach (var name in NameCacheParsedInterpolators.Keys)
+                if (!definitions.ContainsKey(name)) staleNames.Add(name);
+            foreach (var name in staleNames)
+            {
+                NameCacheParsedInterpolators.Remove(name);
+                namedContent.Remove(name);
+            }
+
+            foreach (var node in NodeCacheParsedInterpolators.Keys)
+                if (!retainedNodes.Contains(node)) staleNodes.Add(node);
+            foreach (var node in staleNodes)
+            {
+                NodeCacheParsedInterpolators.Remove(node);
+                nodeContent.Remove(node);
+            }
+
+            foreach (var key in typedCurves.Keys)
+                if (!retainedNodes.Contains(key.Node)) staleTypedCurves.Add(key);
+            foreach (var key in staleTypedCurves) typedCurves.Remove(key);
+        }
+        finally
+        {
+            retainedNodes.Clear();
+            staleNodes.Clear();
+            staleNames.Clear();
+            staleTypedCurves.Clear();
+        }
+    }
+
+    private static void RetainDefinitionNodes(JSONNode node)
+    {
+        if (node == null || !retainedNodes.Add(node)) return;
+        foreach (var child in node.Values) RetainDefinitionNodes(child);
+    }
+
+    // Numeric JSON nodes are mutable and hash by value. Cache ownership follows the authored
+    // node's identity so editing its value cannot strand an entry under its previous hash.
+    private sealed class NodeIdentityComparer : IEqualityComparer<JSONNode>
+    {
+        internal static readonly NodeIdentityComparer Instance = new();
+        public bool Equals(JSONNode left, JSONNode right) => ReferenceEquals(left, right);
+        public int GetHashCode(JSONNode node) => RuntimeHelpers.GetHashCode(node);
+    }
+
+    private sealed class TypedCurveIdentityComparer : IEqualityComparer<(JSONNode Node, int Dimension, bool Quaternion)>
+    {
+        internal static readonly TypedCurveIdentityComparer Instance = new();
+        public bool Equals((JSONNode Node, int Dimension, bool Quaternion) left,
+            (JSONNode Node, int Dimension, bool Quaternion) right) => ReferenceEquals(left.Node, right.Node)
+            && left.Dimension == right.Dimension && left.Quaternion == right.Quaternion;
+        public int GetHashCode((JSONNode Node, int Dimension, bool Quaternion) key) =>
+            HashCode.Combine(RuntimeHelpers.GetHashCode(key.Node), key.Dimension, key.Quaternion);
+    }
+
+    /// <summary>Samples live providers once before evaluating consumers. A seek resets smoothing to current input.</summary>
+    public static void BeginSample(float time, bool seek = false) => BaseProviderManager.BeginSample(time, seek);
+
+    /// <summary>Reuses the current evaluation sample, or starts one for a new Unity frame.</summary>
+    public static void BeginSample() => BaseProviderManager.BeginSample();
+
+    /// <summary>Binds the preview camera and movement provider without scene searches while sampling.</summary>
+    public static void BindSceneReferences(CameraManager cameras, VariableNJSProvider movement,
+        AudioTimeSyncController audioTime = null) => BaseProviderManager.BindSceneReferences(cameras, movement, audioTime);
+
+    internal static int Dimension<T>() where T : struct => typeof(T) == typeof(float) ? 1
+        : typeof(T) == typeof(Vector3) || typeof(T) == typeof(Quaternion) ? 3
+        : typeof(T) == typeof(Color) || typeof(T) == typeof(Vector4) ? 4
+        : throw new ArgumentException($"Unsupported point definition type {typeof(T).Name}.");
+
+    // A synchronous rebuild cannot change authored JSON between its consumers. Serialize each
+    // definition once in that scope; the next rebuild and ordinary Get calls inspect fresh content.
+    internal static void BeginRegistration()
+    {
+        if (registrationDepth++ == 0) registrationContent.Clear();
+    }
+
+    internal static void EndRegistration()
+    {
+        if (--registrationDepth == 0) registrationContent.Clear();
+    }
+
+    private static string GetContent(JSONNode node)
+    {
+        if (node == null) return null;
+        if (registrationDepth == 0) return node.ToString();
+        if (registrationContent.TryGetValue(node, out var content)) return content;
+        content = node.ToString();
+        registrationContent.Add(node, content);
+        return content;
+    }
+
+    internal static PointDefinitionInterpolator Get(JSONNode node, int dimension, AnimationLogContext context,
+        bool quaternion = false, string valueTypeName = null)
+    {
+        if (node == null || node.IsNull) return null;
+        if (node is JSONString named)
+        {
+            var map = BeatSaberSongContainer.Instance != null ? BeatSaberSongContainer.Instance.Map : null;
+            if (map == null || !map.PointDefinitions.TryGetValue(named.Value, out var definition))
+            {
+                Debug.LogError($"Could not find point definition [{named.Value}]. {context.Describe()}");
+                return null;
+            }
+            node = definition;
+        }
+        var content = GetContent(node);
+        var key = (node, dimension, quaternion);
+        if (typedCurves.TryGetValue(key, out var cached) && cached.Content == content) return cached.Curve;
+        PointDefinitionInterpolator curve;
+        if (node.IsNumber && dimension == 1)
+            curve = Parse(node);
+        else if (!node.IsArray || node.Count == 0)
+            curve = null;
+        else
+        {
+            var points = new List<IPointDefinitionValue>();
+            var bare = !node[0].IsArray;
+            var rows = bare ? new[] { node } : node.Children;
+            var index = 0;
+            foreach (var row in rows)
+            {
+                try
+                {
+                    if (!row.IsArray) throw new FormatException("Point definition rows must be arrays.");
+                    points.Add(ParseTypedPoint(row.AsArray, dimension, bare, quaternion));
+                }
+                catch (PointComponentCountException error)
+                {
+                    var typeName = valueTypeName ?? (dimension == 1 ? nameof(Single)
+                        : dimension == 3 ? quaternion ? nameof(Quaternion) : nameof(Vector3) : nameof(Vector4));
+                    Debug.LogError($"Point for [{typeName}] must have {dimension} numbers plus an optional time; "
+                        + $"got {error.Count} and it was skipped. {context.Describe(index)}");
+                }
+                catch (FormatException error)
+                {
+                    Debug.LogError($"{error.Message} The point was skipped. {context.Describe(index)}");
+                }
+                index++;
+            }
+            curve = points.Count == 0 ? null : new PointDefinitionInterpolator(points.OrderBy(point => point.T).ToArray(), ContainsBaseProvider(node));
+        }
+        typedCurves[key] = (content, curve);
+        return curve;
+    }
+
+    private static bool ContainsBaseProvider(JSONNode node)
+    {
+        if (node.IsString) return node.Value.StartsWith("base", StringComparison.Ordinal);
+        foreach (var child in node.Values)
+            if (child != null && ContainsBaseProvider(child)) return true;
+        return false;
+    }
+
+    private static IPointDefinitionValue ParseTypedPoint(JSONArray row, int dimension, bool bare, bool quaternion = false)
+    {
+        var value = new PointDefinitionValueBuilder();
+        var count = 0;
+        var hasEasing = false;
+        foreach (var child in row.Children)
+        {
+            if (child.IsArray)
+            {
+                value.AddOperation(ParseTypedOperation(child.AsArray, dimension, quaternion));
+                continue;
+            }
+            if (child.IsNumber || child == null || child.IsNull)
+            {
+                var component = child == null || child.IsNull ? 0 : child.AsFloat;
+                if (count < dimension) value.SetGetter(count, component);
+                else if (count == dimension) value.T = component;
+                count++;
+                continue;
+            }
+            if (!child.IsString) throw new FormatException($"Point contains an unsupported entry [{child.Value}].");
+            var token = child.Value;
+            if (token.StartsWith("base", StringComparison.Ordinal))
+            {
+                foreach (var getter in GetBaseGetter(token))
+                {
+                    if (count < dimension) value.SetGetter(count, getter);
+                    else if (count == dimension) value.T = getter();
+                    count++;
+                }
+            }
+            else if (!hasEasing && token.StartsWith("ease", StringComparison.Ordinal))
+            {
+                hasEasing = true;
+                value.Easing = Easing.HeckNamed(token);
+            }
+            else if (token == "splineCatmullRom" || token == "lerpHSV")
+            {
+                value.SplineCatmullRom = token == "splineCatmullRom";
+                value.LerpHSV = token == "lerpHSV";
+            }
+        }
+        if (count < (bare ? dimension : dimension + 1) || count > dimension + 1)
+            throw new PointComponentCountException(dimension, bare, count);
+        return value.Build(quaternion);
+    }
+
+    private sealed class PointComponentCountException : FormatException
+    {
+        internal int Count { get; }
+
+        internal PointComponentCountException(int dimension, bool bare, int count)
+            : base($"Point must have {dimension} components plus {(bare ? "an optional" : "a")} time; got {count}.")
+            => Count = count;
+    }
+
+    private static PointOperation ParseTypedOperation(JSONArray row, int dimension, bool quaternion = false)
+    {
+        var value = new PointDefinitionValueBuilder();
+        string operation = null;
+        var count = 0;
+        foreach (var child in row.Children)
+        {
+            if (child.IsArray)
+                value.AddOperation(ParseTypedOperation(child.AsArray, dimension, quaternion));
+            else if (child == null || child.IsNull || child.IsNumber)
+                value.SetGetter(count++, child == null || child.IsNull ? 0 : child.AsFloat);
+            else if (child.IsString && child.Value.StartsWith("base", StringComparison.Ordinal))
+            {
+                foreach (var getter in GetBaseGetter(child.Value)) value.SetGetter(count++, getter);
+            }
+            else if (child.IsString && operation == null)
+                operation = child.Value;
+            else
+                throw new FormatException("Modifier must contain components and exactly one operation.");
+        }
+        if (count != dimension) throw new FormatException($"Modifier must have {dimension} components; got {count}.");
+        var rhs = value.Build(quaternion);
+        return operation switch
+        {
+            "opNone" => new PointOperationNone(rhs),
+            "opAdd" => new PointOperationAdd(rhs),
+            "opSub" => new PointOperationSub(rhs),
+            "opMul" => new PointOperationMul(rhs),
+            "opDiv" => new PointOperationDiv(rhs),
+            _ => throw new FormatException($"Unknown modifier operation [{operation}].")
+        };
+    }
 
     public static PointDefinitionInterpolator Get(string name, JSONNode node)
     {
-        if (NameCacheParsedInterpolators.TryGetValue(name, out var cached)) return cached;
-        var pd = Parse(node);
-        NameCacheParsedInterpolators.Add(name, pd);
-        return pd;
+        var content = GetContent(node);
+        if (namedContent.TryGetValue(name, out var previous) && previous == content)
+            return NameCacheParsedInterpolators.GetValueOrDefault(name);
+        var parsed = Get(node);
+        namedContent[name] = content;
+        NameCacheParsedInterpolators[name] = parsed;
+        return parsed;
     }
 
     public static PointDefinitionInterpolator Get(string name) => NameCacheParsedInterpolators.GetValueOrDefault(name);
 
     public static PointDefinitionInterpolator Get(JSONNode node)
     {
-        if (node == null) return null;
-        if (node.IsString) return NameCacheParsedInterpolators.GetValueOrDefault(node);
-        if (NodeCacheParsedInterpolators.TryGetValue(node, out var cached)) return cached;
-        var interpolators = Parse(node);
-        NodeCacheParsedInterpolators.Add(node, interpolators);
-        return interpolators;
+        if (node == null || node.IsNull) return null;
+        if (node.IsString) return Get((string)node);
+        var content = GetContent(node);
+        if (nodeContent.TryGetValue(node, out var previous) && previous == content)
+            return NodeCacheParsedInterpolators.GetValueOrDefault(node);
+        var parsed = Parse(node);
+        nodeContent[node] = content;
+        NodeCacheParsedInterpolators[node] = parsed;
+        return parsed;
     }
 
     private static PointDefinitionInterpolator Parse(JSONNode node)
     {
-        if (!node.IsArray) return null;
-        if (node.AsArray.Count == 0) return null;
-
-        if (!node[0].IsArray)
+        if (node.IsNumber)
         {
-            var pd = new PointDefinitionInterpolator(ParseOperation(node).Rhs);
-            return pd;
+            var value = new PointDefinitionValueBuilder();
+            value.SetGetter(0, node.AsFloat);
+            return new PointDefinitionInterpolator(value.Build());
         }
-
-        using (ListPool<IPointDefinitionValue>.Get(out var values))
+        if (!node.IsArray || node.Count == 0) return null;
+        var bare = !node[0].IsArray;
+        var first = bare ? node.AsArray : node[0].AsArray;
+        try
         {
-            foreach (var point in node.Children)
-            {
-                if (!point.IsArray) return null; // bruh
-
-                var value = new PointDefinitionValueBuilder();
-                var children = point.Children.ToArray();
-
-                var valueIndex = 0;
-                var reachedEnd = false;
-                var lastTimeIndex = Array.FindLastIndex(children, x => x.IsNumber);
-                if (lastTimeIndex == -1) return null; // also bruh
-
-                for (var i = 0; i < children.Length; i++)
-                {
-                    var child = children[i];
-                    if (lastTimeIndex == i)
-                    {
-                        value.T = child;
-                        reachedEnd = true;
-                    }
-
-                    if (child.IsArray)
-                    {
-                        value.AddOperation(ParseOperation(child));
-                        reachedEnd = true;
-                        continue;
-                    }
-
-                    if (reachedEnd)
-                    {
-                        if (child.IsString)
-                        {
-                            if ((string)child == "splineCatmullRom")
-                                value.SplineCatmullRom = true;
-                            else if ((string)child == "lerpHSV")
-                                value.LerpHSV = true;
-                            else if (((string)child).StartsWith("e")) value.Easing = Easing.Named(child);
-                        }
-
-                        continue;
-                    }
-
-                    if (child.IsString)
-                        foreach (var func in GetBaseGetter(child))
-                            value.SetGetter(valueIndex++, func);
-                    else if (child.IsNumber)
-                        value.SetGetter(valueIndex++, child);
-                    else
-                        value.SetGetter(valueIndex++, 0f);
-                }
-
-                values.Add(value.Build());
-            }
-
-            var pd = new PointDefinitionInterpolator(values.AsValueEnumerable().OrderBy(x => x.T).ToArray());
-            return pd;
+            return Get(node, InferDimension(first, bare), default);
+        }
+        catch (FormatException error)
+        {
+            Debug.LogError($"{error.Message} The point definition was skipped.");
+            return null;
         }
     }
+
+    private static int InferDimension(JSONArray row, bool bare)
+    {
+        var count = 0;
+        foreach (var child in row.Children)
+        {
+            if (child.IsNumber || child == null || child.IsNull) count++;
+            else if (child.IsString && child.Value.StartsWith("base", StringComparison.Ordinal))
+                count += GetBaseGetter(child.Value).Count();
+        }
+        var dimension = bare ? Mathf.Min(count, 4) : count - 1;
+        if (dimension <= 0 || dimension > 4)
+            throw new FormatException($"Point has an invalid component count [{count}].");
+        return dimension;
+    }
+
+    public static IPointDefinitionValue ParsePoint(JSONArray row) => ParseTypedPoint(row, InferDimension(row, false), false);
+
+    internal static IPointDefinitionValue ParsePoint<T>(JSONArray row) where T : struct =>
+        ParseTypedPoint(row, Dimension<T>(), false, typeof(T) == typeof(Quaternion));
 
     public static PointOperation ParseOperation(JSONNode node)
     {
-        var value = new PointDefinitionValueBuilder();
-        PointOperation valueOp = null;
-        var valueIndex = 0;
-        var reachedEnd = false;
-
-        foreach (var child in node.Children)
-        {
-            if (child.IsArray)
-            {
-                var op = ParseOperation(child);
-                value.AddOperation(op);
-                continue;
-            }
-
-            if (reachedEnd) continue;
-
-            if (child.IsString)
-            {
-                switch ((string)child)
-                {
-                    case "opAdd":
-                        valueOp = new PointOperationAdd(value);
-                        reachedEnd = true;
-                        break;
-                    case "opSub":
-                        valueOp = new PointOperationSub(value);
-                        reachedEnd = true;
-                        break;
-                    case "opMul":
-                        valueOp = new PointOperationMul(value);
-                        reachedEnd = true;
-                        break;
-                    case "opDiv":
-                        valueOp = new PointOperationDiv(value);
-                        reachedEnd = true;
-                        break;
-                }
-
-                if (reachedEnd) continue;
-
-                foreach (var func in GetBaseGetter(child)) value.SetGetter(valueIndex++, func);
-            }
-            else if (child.IsNumber)
-                value.SetGetter(valueIndex++, child);
-            else
-                value.SetGetter(valueIndex++, 0f);
-        }
-
-        valueOp ??= new PointOperationNone(value);
-        valueOp.Rhs = value.Build();
-        return valueOp;
+        var dimension = InferDimension(node.AsArray, true);
+        return node.Children.Any(child => child.IsString && child.Value.StartsWith("op", StringComparison.Ordinal))
+            ? ParseTypedOperation(node.AsArray, dimension)
+            : new PointOperationNone(ParseTypedPoint(node.AsArray, dimension, true));
     }
 
-    private static readonly Dictionary<char, int> swizzleToIndex = new()
-    {
-        { 'x', 0 }, { 'y', 1 }, { 'z', 2 }, { 'w', 3 }
-    };
-
-    public static IEnumerable<Func<float>> GetBaseGetter(string modifier)
-    {
-        var mods = modifier.Split(".");
-
-        var swizzling =
-            mods.AsValueEnumerable().Skip(1).FirstOrDefault(s => s.AsValueEnumerable().Any(t => "xyzw".Contains(t)));
-        var smoothing = mods.AsValueEnumerable().Skip(1).FirstOrDefault(s => s.StartsWith('s'));
-        var hasSmoothing = !string.IsNullOrEmpty(smoothing);
-        var smoothingValue = hasSmoothing ? float.Parse(smoothing.AsSpan()[1..]) : 0f;
-
-        Func<float> getter;
-
-        switch (mods[0])
-        {
-            case "baseHeadPosition":
-                foreach (var c in swizzling ?? "xyz")
-                {
-                    var i = swizzleToIndex[c];
-                    getter = () =>
-                    {
-                        var t = Camera.main.transform;
-                        return t.position[i];
-                    };
-                    yield return hasSmoothing
-                        ? new PointGetterSmoothing(
-                            getter,
-                            smoothingValue).GetValue
-                        : getter;
-                }
-
-                break;
-            case "baseHeadLocalPosition":
-                foreach (var c in swizzling ?? "xyz")
-                {
-                    var i = swizzleToIndex[c];
-                    getter = () =>
-                    {
-                        var t = Camera.main.transform;
-                        return t.localPosition[i];
-                    };
-                    yield return hasSmoothing
-                        ? new PointGetterSmoothing(
-                            getter,
-                            smoothingValue).GetValue
-                        : getter;
-                }
-
-                break;
-            case "baseHeadRotation":
-                foreach (var c in swizzling ?? "xyz")
-                {
-                    var i = swizzleToIndex[c];
-                    getter = () =>
-                    {
-                        var t = Camera.main.transform;
-                        return t.eulerAngles[i];
-                    };
-                    yield return hasSmoothing
-                        ? new PointGetterSmoothing(
-                            getter,
-                            smoothingValue).GetValue
-                        : getter;
-                }
-
-                break;
-            case "baseHeadLocalRotation":
-                foreach (var c in swizzling ?? "xyz")
-                {
-                    var i = swizzleToIndex[c];
-                    getter = () =>
-                    {
-                        var t = Camera.main.transform;
-                        return t.localEulerAngles[i];
-                    };
-                    yield return hasSmoothing
-                        ? new PointGetterSmoothing(
-                            getter,
-                            smoothingValue).GetValue
-                        : getter;
-                }
-
-                break;
-            case "baseHeadLocalScale":
-                foreach (var c in swizzling ?? "xyz")
-                {
-                    var i = swizzleToIndex[c];
-                    getter = () =>
-                    {
-                        var t = Camera.main.transform;
-                        return t.localScale[i];
-                    };
-                    yield return hasSmoothing
-                        ? new PointGetterSmoothing(
-                            getter,
-                            smoothingValue).GetValue
-                        : getter;
-                }
-
-                break;
-            case "baseLeftHandPosition":
-            case "baseLeftHandLocalPosition":
-            case "baseLeftHandRotation":
-            case "baseLeftHandLocalRotation":
-            case "baseLeftHandLocalScale":
-            case "baseRightHandPosition":
-            case "baseRightHandLocalPosition":
-            case "baseRightHandRotation":
-            case "baseRightHandLocalRotation":
-            case "baseRightHandLocalScale":
-                foreach (var c in swizzling ?? "xyz") yield return () => 0f;
-                break;
-
-            case "baseNote0Color":
-            case "baseNote1Color":
-            case "baseObstaclesColor":
-            case "baseSaberAColor":
-            case "baseSaberBColor":
-            case "baseEnvironmentColor0":
-            case "baseEnvironmentColor1":
-            case "baseEnvironmentColorW":
-            case "baseEnvironmentColor0Boost":
-            case "baseEnvironmentColor1Boost":
-            case "baseEnvironmentColorWBoost":
-                foreach (var c in swizzling ?? "xyzw") yield return () => 0f;
-                break;
-
-            case "baseCombo":
-            case "baseMultipliedScore":
-            case "baseImmediateMaxPossibleMultipliedScore":
-            case "baseModifiedScore":
-            case "baseImmediateMaxPossibleModifiedScore":
-            case "baseRelativeScore":
-            case "baseMultiplier":
-            case "baseEnergy":
-            case "baseSongTime":
-            case "baseSongLength":
-                foreach (var c in swizzling ?? "x") yield return () => 0f;
-                break;
-        }
-    }
+    public static IEnumerable<Func<float>> GetBaseGetter(string modifier) =>
+        BaseProviderManager.GetBaseGetter(modifier);
 }
-
-// unity cant use c# expression tree without runnin into exception for unsupported platform :(
-// also i need to clean this up with better structure, just throwing ideas out first

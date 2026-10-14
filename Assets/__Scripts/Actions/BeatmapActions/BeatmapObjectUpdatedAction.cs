@@ -35,6 +35,7 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
     public int MergeCount { get; set; }
 
     private bool addToSelection;
+    private bool preserveSelection;
 
     // This constructor is needed for United Mapping
     public BeatmapObjectUpdatedAction() : base() { }
@@ -45,20 +46,23 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
     /// <param name="editedObject">A separately cloned object containing the edits.</param>
     /// <param name="originalObject">The exact currently live, unedited object instance; never a clone.</param>
     /// <param name="comment">Description stored in the action history.</param>
-    /// <param name="keepSelection">Whether the replacement should remain selected.</param>
+    /// <param name="keepSelection">Whether the replacement should be added to the current selection.</param>
     /// <param name="mergeType">The operation identity used to merge consecutive compatible replacements.</param>
+    /// <param name="preserveSelection">Whether unrelated selection remains unchanged and the replacement inherits only the original object's selected state.</param>
     public BeatmapObjectUpdatedAction(
         BaseObject editedObject,
         BaseObject originalObject,
         string comment = "No comment.",
         bool keepSelection = false,
-        ActionMergeType mergeType = ActionMergeType.None)
+        ActionMergeType mergeType = ActionMergeType.None,
+        bool preserveSelection = false)
         : base(new[] { editedObject, originalObject }, comment)
     {
         EditedObject = editedObject;
         OriginalObject = originalObject;
         addToSelection = keepSelection;
         MergeType = mergeType;
+        this.preserveSelection = preserveSelection;
     }
 
     public IMergeableAction TryMerge(IMergeableAction previous)
@@ -75,7 +79,8 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
             // Don't merge if the new edit restores the previous action's pre-edit state (e.g. a toggle back to the original value).
             // Without this check, toggle operations (A→B then B→A) would merge into A→A, causing undo to appear broken
             // since the intermediate state B would be lost and undoing would leave the object at A instead of B.
-            && EditedObject.CompareTo(previousAction.OriginalObject) != 0;
+            // Compare payloads independently of chronology: clones lack file ordinals and custom events can edit only Data.
+            && !EditedObject.HasSameContent(previousAction.OriginalObject);
     }
 
     public IMergeableAction DoMerge(IMergeableAction previous)
@@ -86,7 +91,8 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
             previousAction.OriginalObject,
             Comment,
             addToSelection,
-            MergeType);
+            MergeType,
+            preserveSelection);
 
         merged.MergeCount = previousAction.MergeCount + 1;
         merged.Comment += $" ({merged.MergeCount}x merged)";
@@ -99,16 +105,17 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
 
     public override void Undo(BeatmapActionContainer.BeatmapActionParams param)
     {
+        var restoreOriginalSelection = preserveSelection && SelectionController.IsObjectSelected(EditedObject);
         DeleteObject(EditedObject, false, EditedObject is not BaseGLSEvent);
         SpawnObject(OriginalObject);
-        if (!addToSelection) SelectionController.DeselectAll();
+        if (!preserveSelection && !addToSelection) SelectionController.DeselectAll();
         // This is necessary or else undo's leave weird ghost stuff around that reappears on redo or something wonky like that.
         // Unclear why this is necessary but Redo's isnt.
         RefreshPools(Data);
 
-        if (!Networked)
+        if (!Networked && (!preserveSelection || restoreOriginalSelection))
         {
-            SelectionController.Select(OriginalObject, addToSelection, true, !inCollection);
+            SelectionController.Select(OriginalObject, preserveSelection || addToSelection, true, !inCollection);
         }
     }
 
@@ -118,6 +125,7 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
     /// </summary>
     public override void Redo(BeatmapActionContainer.BeatmapActionParams param)
     {
+        var restoreEditedSelection = preserveSelection && SelectionController.IsObjectSelected(OriginalObject);
         if (Networked && MergeCount > 0)
         {
             /*
@@ -139,14 +147,14 @@ public class BeatmapObjectUpdatedAction : BeatmapAction, IMergeableAction
         }
 
         SpawnObject(EditedObject, false, !inCollection);
-        if (!addToSelection) SelectionController.DeselectAll();
+        if (!preserveSelection && !addToSelection) SelectionController.DeselectAll();
 
         // Don't think refresh pools is necessary
         // RefreshPools(Data);
 
-        if (!Networked)
+        if (!Networked && (!preserveSelection || restoreEditedSelection))
         {
-            SelectionController.Select(EditedObject, addToSelection, true, !inCollection);
+            SelectionController.Select(EditedObject, preserveSelection || addToSelection, true, !inCollection);
         }
     }
 

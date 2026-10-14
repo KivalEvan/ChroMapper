@@ -12,21 +12,43 @@ public class MapLoader : MonoBehaviour
     [Space] [SerializeField] private Transform containerCollectionsContainer;
 
     private BaseDifficulty map;
+    private CustomEventManager customEventManager;
+
+    private CustomEventManager CustomEvents => customEventManager != null
+        ? customEventManager
+        : customEventManager = FindAnyObjectByType<CustomEventManager>();
+
+    public void ResetAnimationTracks() => manager.ResetAnimationTracks();
+
+    public void DestroyTrackBoundEnvironmentObjects()
+    {
+        manager.DestroyTrackBoundEnvironmentObjects();
+
+        var geometry = BeatmapObjectContainerCollection
+            .GetCollectionForType<GeometryGridContainer, BaseEnvironmentEnhancement>();
+        if (geometry != null)
+        {
+            geometry.ClearSpawnedGeometry();
+        }
+    }
 
     public void UpdateMapData(BaseDifficulty m)
     {
         map = m;
         map.ConvertCustomBpmToOfficial();
+        manager.IsV2Map = map.MajorVersion == 2;
     }
 
     public void HardRefresh()
     {
+        CustomEvents.SuspendForMapChange();
+        manager.ResetAnimationTracks();
         LoadObjects(map.BpmEvents);
 
         if (Settings.Instance.Load_Others)
         {
             LoadObjects(map.CustomEvents);
-            LoadObjects(map.EnvironmentEnhancements);
+            LoadEnvironmentEnhancements(map.EnvironmentEnhancements);
         }
 
         if (Settings.Instance.Load_Notes)
@@ -53,6 +75,8 @@ public class MapLoader : MonoBehaviour
         }
 
         manager.RefreshTracks();
+        if (!Settings.Instance.Load_Others) CustomEvents.LoadEvents(map, Enumerable.Empty<BaseCustomEvent>());
+        CustomEvents.UpdateTime();
     }
 
     // RestoringEditorCursorAfterCloningRingDoesNotUsePreCloneRotationSnapshot requires movement snapshots to observe
@@ -74,10 +98,19 @@ public class MapLoader : MonoBehaviour
 
         if (collection == null) return;
 
-        // We need to force sort our objects when loading externally for Binary Search operations and ordered algorithms to work.
-        objects.Sort();
+        // Use a stable sort so newly authored events with equal keys keep their insertion order.
+        var sorted = objects.OrderBy(it => it, collection.SortComparer).ToList();
+        objects.Clear();
+        objects.AddRange(sorted);
 
         collection.MapObjects = objects;
+
+        // Prepare shared path timelines before visuals spawn, so later pool reuse only binds instance data.
+        if (objects is IReadOnlyList<BaseGrid> grids)
+        {
+            for (var i = 0; i < grids.Count; i++)
+                manager.PathAnimations.Prepare(grids[i], map);
+        }
 
         if (objects is List<BaseEvent> eventsList)
         {
@@ -87,20 +120,30 @@ public class MapLoader : MonoBehaviour
             events.AllBpmEvents = eventsList.FindAll(it => it.IsBpmEvent());
 
             events.LinkAllLightEvents();
+            events.LinkRingEvents();
         }
 
         if (objects is List<BaseCustomEvent> customEventsList)
         {
             var events = collection as CustomEventGridContainer;
+            CustomEvents.LoadEvents(map, customEventsList);
             events.LoadAll();
         }
 
-        if (objects is List<BaseEnvironmentEnhancement>)
-        {
-            if (beatmapRuntimeContext.Descriptor != null)
-                beatmapRuntimeContext.Descriptor.BloomFogParams.ResetToDefaults();
-            beatmapRuntimeContext.NotifyEnvironment();
-        }
+        collection.RefreshPool(true);
+    }
+
+    public void LoadEnvironmentEnhancements(List<BaseEnvironmentEnhancement> instructions)
+    {
+        var collection = BeatmapObjectContainerCollection
+            .GetCollectionForType<GeometryGridContainer, BaseEnvironmentEnhancement>();
+        if (collection == null) return;
+
+        collection.MapObjects = instructions;
+        manager.ClearComponentTargets();
+        if (beatmapRuntimeContext.Descriptor != null)
+            beatmapRuntimeContext.Descriptor.BloomFogParams.ResetToDefaults();
+        beatmapRuntimeContext.NotifyEnvironment();
 
         collection.RefreshPool(true);
     }

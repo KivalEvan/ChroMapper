@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Beatmap.Enums;
+using Beatmap.Helper;
 using Beatmap.V2.Customs;
 using Beatmap.V3.Customs;
 using SimpleJSON;
@@ -20,18 +21,19 @@ namespace Beatmap.Base.Customs
         {
             Color = other.Color;
             Shader = other.Shader;
-            Track = other.Track;
-            ShaderKeywords = other.ShaderKeywords;
+            TrackData = other.TrackData?.Clone();
+            // Clone is important here
+            ShaderKeywords = other.ShaderKeywords == null ? null : new List<string>(other.ShaderKeywords);
         }
 
         public BaseMaterial(JSONNode node)
         {
             Color = (node[KeyColor] is JSONArray color) ? color.ReadColor() : (Color?)null;
             Shader = RetrieveRequiredNode(node, KeyShader);
-            Track = (node[KeyTrack] is JSONString track) ? (string)track : (string)null;
-            ShaderKeywords = new List<string>();
+            TrackData = node.GetValueOrDefault(KeyTrack, null);
             if (node[KeyShaderKeywords] is JSONArray keywords)
             {
+                ShaderKeywords = new List<string>();
                 foreach (var keyword in keywords)
                 {
                     ShaderKeywords.Add(keyword.Value);
@@ -41,8 +43,29 @@ namespace Beatmap.Base.Customs
 
         public Color? Color { get; set; }
         public string Shader { get; set; }
-        public string? Track { get; set; }
-        public List<string> ShaderKeywords { get; set; }
+        private JSONNode trackData;
+        public JSONNode TrackData
+        {
+            get => trackData;
+            set
+            {
+                trackData = value;
+                TrackNames = TrackDataReader.ReadNames(value);
+            }
+        }
+        public IReadOnlyList<string> TrackNames { get; private set; } = Array.Empty<string>();
+        public string? Track
+        {
+            get => TrackData is JSONString name
+                ? name.Value
+                : null;
+            set => TrackData = value == null
+                ? null
+                : new JSONString(value);
+        }
+        // Null when the authored JSON omitted the key. Chroma treats an absent shaderKeywords
+        // differently from an explicit empty array, so empty presence must round-trip.
+        public List<string>? ShaderKeywords { get; set; }
 
         public string KeyColor => Settings.Instance.MapVersion switch
         {

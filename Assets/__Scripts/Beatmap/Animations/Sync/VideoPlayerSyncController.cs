@@ -12,7 +12,7 @@ public class VideoPlayerSyncController : MonoBehaviour, ISync
     private float startTime;
     private VideoPlayer videoPlayer = null!;
 
-    private float SongTime => Atsc.CurrentSongBpmTime - startTime;
+    private float SongTime => Atsc.CurrentSeconds - startTime;
 
     public void SetStartTime(float time) => startTime = time;
 
@@ -37,7 +37,20 @@ public class VideoPlayerSyncController : MonoBehaviour, ISync
         if (Atsc != null) Atsc.OnPlayToggled -= OnStateChange;
     }
 
-    private void OnEnable() => StartCoroutine(Prepare());
+    private void OnEnable()
+    {
+        if (Atsc != null) Atsc.OnPlayToggled += OnStateChange;
+        StartCoroutine(Prepare());
+    }
+
+    private void OnDisable()
+    {
+        if (Atsc != null) Atsc.OnPlayToggled -= OnStateChange;
+        videoPlayer.seekCompleted -= OnSeekCompleted;
+        seeking = false;
+        videoPlayer.Pause();
+        StopAllCoroutines();
+    }
 
     private void OnErrorRecieved(VideoPlayer _, string error) => Debug.LogError(error);
 
@@ -53,7 +66,7 @@ public class VideoPlayerSyncController : MonoBehaviour, ISync
 
     private void OnStateChange()
     {
-        if (!videoPlayer.isPrepared) return;
+        if (!isActiveAndEnabled || !videoPlayer.isPrepared) return;
 
         switch (Atsc.IsPlaying)
         {

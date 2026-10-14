@@ -147,10 +147,21 @@ public sealed class PointDefinitionValueOp : PointDefinitionValueBase
 
     public PointDefinitionValueOp(IPointDefinitionValue pdv, PointOperation[] operations)
     {
-        Px = pdv.X;
-        Py = pdv.Y;
-        Pz = pdv.Z;
-        Pw = pdv.W;
+        // Copy authored components, not the builder's already-modified getters; operations run on evaluation.
+        if (pdv is PointDefinitionValueBase value)
+        {
+            Px = value.Px;
+            Py = value.Py;
+            Pz = value.Pz;
+            Pw = value.Pw;
+        }
+        else
+        {
+            Px = pdv.X;
+            Py = pdv.Y;
+            Pz = pdv.Z;
+            Pw = pdv.W;
+        }
 
         PointOperations = operations;
 
@@ -352,10 +363,43 @@ public sealed class PointDefinitionValueContextualOp : PointDefinitionValueConte
     }
 }
 
+public sealed class PointDefinitionValueQuaternionOp : PointDefinitionValueContextual
+{
+    public override float X { get => Evaluate().x; set => Px = value; }
+    public override float Y { get => Evaluate().y; set => Py = value; }
+    public override float Z { get => Evaluate().z; set => Pz = value; }
+    public Quaternion Quaternion => UnityEngine.Quaternion.Euler(Evaluate());
+
+    public PointDefinitionValueQuaternionOp(IPointDefinitionValue value, bool x, bool y, bool z, bool w,
+        PointOperation[] operations) : base(value, x, y, z, w) => PointOperations = operations;
+
+    private Vector3 Evaluate()
+    {
+        // Heck converts each operand to a quaternion before applying Euler-angle arithmetic.
+        var current = UnityEngine.Quaternion.Euler(GetterX(), GetterY(), GetterZ()).eulerAngles;
+        foreach (var operation in PointOperations)
+        {
+            var modifier = operation.Rhs.Quaternion.eulerAngles;
+            current = operation switch
+            {
+                PointOperationAdd => current + modifier,
+                PointOperationSub => current - modifier,
+                PointOperationMul => Vector3.Scale(current, modifier),
+                PointOperationDiv => new Vector3(current.x / modifier.x, current.y / modifier.y, current.z / modifier.z),
+                _ => current
+            };
+            current = UnityEngine.Quaternion.Euler(current).eulerAngles;
+        }
+        return current;
+    }
+}
+
 public class PointDefinitionValueBuilder : PointDefinitionValueContextual
 {
-    public IPointDefinitionValue Build()
+    public IPointDefinitionValue Build(bool quaternion = false)
     {
+        if (quaternion && PointOperations.Length > 0)
+            return new PointDefinitionValueQuaternionOp(this, HasGetterX, HasGetterY, HasGetterZ, HasGetterW, PointOperations);
         if (HasGetter && PointOperations.Length > 0)
         {
             return new PointDefinitionValueContextualOp(

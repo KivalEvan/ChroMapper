@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Beatmap.Appearances;
 using Beatmap.Base;
 using Beatmap.Containers;
 using Beatmap.Enums;
+using Beatmap.Helper;
 using UnityEngine;
 
 public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstacle>
@@ -16,16 +18,30 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
 
     public override ObjectType ContainerType => ObjectType.Obstacle;
 
-    public BaseObstacle[] SpawnSortedObjects;
+    // OnTimeChanged can run during scene Start before map data reaches this collection. Initialize the sorted
+    // arrays now so RefreshWalls can safely run before the first map load.
+    public BaseObstacle[] SpawnSortedObjects = Array.Empty<BaseObstacle>();
     private int spawnIndex;
 
-    public BaseObstacle[] DespawnSortedObjects;
+    public BaseObstacle[] DespawnSortedObjects = Array.Empty<BaseObstacle>();
     private int despawnIndex;
+    private readonly TransitionIntervalIndex<BaseObstacle> wallLifetimes = new();
+    private readonly HashSet<BaseObstacle> seekWalls = new();
+    private FrozenWallGroup[] frozenWallGroups = Array.Empty<FrozenWallGroup>();
+
+    private sealed class FrozenWallGroup
+    {
+        public string[] TrackNames;
+        public readonly List<BaseObstacle> Walls = new();
+    }
 
     private static readonly int mainAlpha = Shader.PropertyToID("_MainAlpha");
 
     internal override void SubscribeToCallbacks()
     {
+        // Rebuild the paused wall pool before OnTimeChangedEarly pushes held track values. Spawned wall
+        // animators must exist when those values arrive so the seek applies them immediately.
+        BeatmapContext.Atsc.OnTimeFlushPending += PrepareStoppedSeek;
         BeatmapContext.Atsc.OnTimeChanged += OnTimeChanged;
         BeatmapContext.Atsc.OnPlayToggled += HandlePlayToggled;
         UIMode.OnPreviewModeSwitched += OnUIPreviewModeSwitch;
@@ -42,6 +58,7 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
 
     internal override void UnsubscribeToCallbacks()
     {
+        BeatmapContext.Atsc.OnTimeFlushPending -= PrepareStoppedSeek;
         BeatmapContext.Atsc.OnTimeChanged -= OnTimeChanged;
         UIMode.OnPreviewModeSwitched -= OnUIPreviewModeSwitch;
 
@@ -55,15 +72,28 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
         if (UIMode.AnimationMode)
         {
             SpawnSortedObjects = MapObjects
-                .OrderBy(o => o.SongBpmTime - Mathf.Max(o.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats))
+                .OrderBy(GetSpawnTime)
                 .ToArray();
             DespawnSortedObjects = MapObjects
-                .OrderBy(o =>
-                    o.SongBpmTime
-                    + o.DurationSongBpmTime
-                    + Mathf.Max(o.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats))
+                .OrderBy(GetDespawnTime)
                 .ToArray();
-            RefreshWalls();
+            wallLifetimes.Clear();
+            var groups = new Dictionary<string, FrozenWallGroup>();
+            foreach (var wall in SpawnSortedObjects)
+            {
+                wallLifetimes.AddOrReplace(wall, GetSpawnTime(wall), GetDespawnTime(wall));
+                if (wall.CustomTrack == null)
+                    continue;
+                var trackNamesKey = wall.CustomTrack.ToString();
+                if (!groups.TryGetValue(trackNamesKey, out var group))
+                {
+                    group = new FrozenWallGroup { TrackNames = TrackDataReader.ReadNames(wall.CustomTrack) };
+                    groups.Add(trackNamesKey, group);
+                }
+                group.Walls.Add(wall);
+            }
+            frozenWallGroups = groups.Values.ToArray();
+            RefreshWalls(force);
         }
         else
         {
@@ -83,87 +113,124 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
         if (!UIMode.AnimationMode) base.LateUpdate();
     }
 
+    private void PrepareStoppedSeek()
+    {
+        if (!UIMode.AnimationMode)
+            return;
+        RefreshWalls();
+        foreach (ObstacleContainer wall in LoadedContainers.Values)
+            wall.Animator.FlushPendingAnimations();
+    }
+
     private void OnTimeChanged()
     {
-        if (!UIMode.AnimationMode) return;
+        if (!UIMode.AnimationMode)
+            return;
+        if (!BeatmapContext.Atsc.IsPlaying)
+        {
+            foreach (ObstacleContainer wall in LoadedContainers.Values)
+                wall.Animator.ApplyStoppedSeek();
+            return;
+        }
 
         var time = BeatmapContext.Atsc.CurrentSongBpmTime;
-        if (BeatmapContext.Atsc.IsPlaying)
+        while (spawnIndex < SpawnSortedObjects.Length
+            && time + Track.JUMP_TIME >= GetSpawnTime(SpawnSortedObjects[spawnIndex]))
         {
-            while (spawnIndex < SpawnSortedObjects.Length
-                && time + Track.JUMP_TIME
-                >= SpawnSortedObjects[spawnIndex].SongBpmTime
-                - Mathf.Max(SpawnSortedObjects[spawnIndex].HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats))
-            {
-                if (SpawnSortedObjects[spawnIndex].HasMatchingTrack(TrackFilterID))
-                    CreateContainerFromPool(SpawnSortedObjects[spawnIndex]);
-                ++spawnIndex;
-            }
-
-            while (despawnIndex < DespawnSortedObjects.Length
-                && time
-                >= DespawnSortedObjects[despawnIndex].SongBpmTime
-                + DespawnSortedObjects[despawnIndex].DurationSongBpmTime
-                + Mathf.Max(
-                    DespawnSortedObjects[despawnIndex].HalfJumpDuration,
-                    vNjsProvider.MaxHalfJumpDurationInBeats))
-            {
-                var objectData = DespawnSortedObjects[despawnIndex];
-                if (LoadedContainers.ContainsKey(objectData))
-                {
-                    if (!LoadedContainers[objectData].Animator.AnimatedLife)
-                        RecycleContainer(objectData);
-                    else
-                        LoadedContainers[objectData].Animator.ShouldRecycle = true;
-                }
-
-                ++despawnIndex;
-            }
+            if (SpawnSortedObjects[spawnIndex].HasMatchingTrack(TrackFilterID))
+                CreateContainerFromPool(SpawnSortedObjects[spawnIndex]);
+            ++spawnIndex;
         }
-        else
+
+        while (despawnIndex < DespawnSortedObjects.Length
+            && time >= GetDespawnTime(DespawnSortedObjects[despawnIndex]))
         {
-            RefreshWalls();
+            var objectData = DespawnSortedObjects[despawnIndex];
+            if (LoadedContainers.ContainsKey(objectData))
+            {
+                if (!LoadedContainers[objectData].Animator.AnimatedLife)
+                    RecycleContainer(objectData);
+                else
+                    LoadedContainers[objectData].Animator.ShouldRecycle = true;
+            }
+
+            ++despawnIndex;
         }
     }
 
-    private void RefreshWalls()
+    private void RefreshWalls(bool force = false)
     {
         var time = BeatmapContext.Atsc.CurrentSongBpmTime;
-        foreach (var obj in LoadedContainers.Values.ToList())
+        seekWalls.Clear();
+        wallLifetimes.GetSourcesAt(time, seekWalls);
+        // The shared transition index excludes its start and includes its end. Wall lifetimes use
+        // the opposite boundaries, so add exact starts here and filter exact ends below.
+        var firstSpawn = SpawnSortedObjects.AsSpan().LowerBoundBy(time, GetSpawnTime);
+        for (var index = firstSpawn; index < SpawnSortedObjects.Length
+            && GetSpawnTime(SpawnSortedObjects[index]) == time; index++)
+            seekWalls.Add(SpawnSortedObjects[index]);
+
+        seekWalls.RemoveWhere(wall => time >= GetDespawnTime(wall));
+        var jsonTime = BeatmapContext.Atsc.CurrentJsonTime;
+        // Heck uses the first authored track with a time property, even when it does not freeze the wall.
+        foreach (var group in frozenWallGroups)
         {
-            RecycleContainer(obj.ObjectData);
+            foreach (var name in group.TrackNames)
+            {
+                if (!TryGetTimeProperty(name, jsonTime, out var normalTime))
+                    continue;
+                if (normalTime >= 0f && normalTime <= 1f)
+                {
+                    foreach (var wall in group.Walls)
+                    {
+                        if (wall.SongBpmTime <= time)
+                            seekWalls.Add(wall);
+                    }
+                }
+                break;
+            }
+        }
+        // Keep surviving animators and their track attachments. Recreating them on every slider
+        // update reparses paths and repeatedly copies the map's large time-event invocation lists.
+        for (var index = ObjectsWithContainers.Count - 1; index >= 0; index--)
+        {
+            var wall = (BaseObstacle)ObjectsWithContainers[index];
+            if (force || !seekWalls.Contains(wall) || !wall.HasMatchingTrack(TrackFilterID))
+                RecycleContainer(wall, index);
         }
 
-        GetIndexes(
-            time,
-            (i) => SpawnSortedObjects[i].SongBpmTime
-                - Mathf.Max(SpawnSortedObjects[spawnIndex].HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats),
-            SpawnSortedObjects.Length,
-            out spawnIndex,
-            out _
-        );
-        GetIndexes(
-            time,
-            (i) => DespawnSortedObjects[i].SongBpmTime
-                + DespawnSortedObjects[despawnIndex].DurationSongBpmTime
-                + Mathf.Max(
-                    DespawnSortedObjects[despawnIndex].HalfJumpDuration,
-                    vNjsProvider.MaxHalfJumpDurationInBeats),
-            DespawnSortedObjects.Length,
-            out despawnIndex,
-            out _
-        );
-        var toSpawn = SpawnSortedObjects.Where(o =>
-            (o.SongBpmTime - Mathf.Max(o.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats) <= time
-                && time
-                < o.SongBpmTime
-                + o.DurationSongBpmTime
-                + Mathf.Max(o.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats)));
-        foreach (var obj in toSpawn)
+        spawnIndex = Mathf.Max(0, SpawnSortedObjects.AsSpan().LowerBoundBy(time, GetSpawnTime) - 1);
+        despawnIndex = Mathf.Max(0, DespawnSortedObjects.AsSpan().LowerBoundBy(time, GetDespawnTime) - 1);
+        foreach (var obj in seekWalls)
         {
-            if (obj.HasMatchingTrack(TrackFilterID)) CreateContainerFromPool(obj);
+            if (!obj.HasMatchingTrack(TrackFilterID)) continue;
+            var expired = time >= GetDespawnTime(obj);
+            CreateContainerFromPool(obj);
+            // The frozen wall outlived its raw window. Flag it so a later unfrozen animated time can recycle
+            // it through ObjectAnimator's normal lifetime check.
+            ((ObstacleContainer)LoadedContainers[obj]).Animator.ShouldRecycle = expired;
         }
     }
+
+    private bool TryGetTimeProperty(string trackName, float jsonTime, out float normalized)
+    {
+        normalized = float.NaN;
+        if (!tracksManager.TryGetAnimationTrack(trackName, out var animator) || animator == null)
+            return false;
+        foreach (var key in timePropertyKeys)
+        {
+            if (animator.AnimatedProperties.TryGetValue(key, out var property)
+                && property is Beatmap.Animations.AnimateProperty<float> timeProperty
+                && !timeProperty.IsEmpty())
+            {
+                normalized = timeProperty.GetLerpedValue(jsonTime);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static readonly string[] timePropertyKeys = { "_time", "time" };
 
     protected override void HandleObjectSpawned(BaseObject _, bool __ = false) =>
         countersPlus.UpdateStatistic(CountersPlusStatistic.Obstacles);
@@ -194,25 +261,11 @@ public class ObstacleGridContainer : BeatmapObjectContainerCollection<BaseObstac
         obstacleAppearance.SetObstacleAppearance(obstacle);
     }
 
-    // Where is a good global place to dump this? It's much faster than List.BinarySearch
-    private void GetIndexes(float time, Func<int, float> getter, int count, out int prev, out int next)
-    {
-        prev = 0;
-        next = count;
+    // Mixing a probed wall's beat with another wall's duration or jump offset can skip walls after a seek.
+    private float GetSpawnTime(BaseObstacle obstacle) =>
+        obstacle.SongBpmTime - Mathf.Max(obstacle.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats);
 
-        while (prev < next - 1)
-        {
-            int m = (prev + next) / 2;
-            float itemTime = getter(m);
-
-            if (itemTime < time)
-            {
-                prev = m;
-            }
-            else
-            {
-                next = m;
-            }
-        }
-    }
+    private float GetDespawnTime(BaseObstacle obstacle) =>
+        obstacle.SongBpmTime + obstacle.DurationSongBpmTime
+            + Mathf.Max(obstacle.HalfJumpDuration, vNjsProvider.MaxHalfJumpDurationInBeats);
 }

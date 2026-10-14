@@ -70,6 +70,31 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
 
     private Vector2 savedMousePos = Vector2.zero;
 
+    // ResumingPlayingDoesNotRestoreEditingCameraMousePosition regression seam: batch mode cannot apply a
+    // real OS cursor lock or warp, so SetLockState's native cursor calls route through this adapter. The
+    // adapter only mirrors the existing Cursor.lockState/WarpCursorPosition behavior so the test can
+    // record the call sequence - the adapter itself owns no logic; lock ownership is tracked separately
+    // by cursorLockOwner inside SetLockState.
+    internal interface ICursorState
+    {
+        CursorLockMode LockState { get; set; }
+        void Warp(Vector2 position);
+    }
+
+    private sealed class NativeCursorState : ICursorState
+    {
+        public CursorLockMode LockState
+        {
+            get => Cursor.lockState;
+            set => Cursor.lockState = value;
+        }
+        public void Warp(Vector2 position) => Mouse.current.WarpCursorPosition(position);
+    }
+
+    internal static ICursorState CursorState { get; set; } = new NativeCursorState();
+
+    private static CameraController cursorLockOwner;
+
     private bool canMoveCamera;
 
     private bool lockOntoNoteGrid;
@@ -80,6 +105,15 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
     private List<float> playerTrackTimes = new();
     private List<TrackAnimator> playerTracks = new();
     private TrackAnimator currentTrack;
+
+    private Transform playerTrackHomeParent;
+    private Vector3 playerTrackHomePosition;
+    private Quaternion playerTrackHomeRotation;
+    private Vector3 playerTrackHomeScale;
+    private Vector3 playerTrackHomeInnerPosition;
+    private Quaternion playerTrackHomeInnerRotation;
+    private Vector3 playerTrackHomeInnerScale;
+    private bool hasPlayerTrackHome;
 
 
     private bool ignoreInitialMouseMovement = false;
@@ -107,6 +141,9 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
 
     public void ClearPlayerTracks()
     {
+        // A live binding outlives the lists: TrackAnimator.ResetForMapLoad already emptied the track's
+        // Children on map load, so without disconnecting the cameraAnimator stays parented but undriven.
+        DisconnectPlayerTrack();
         playerTrackTimes.Clear();
         playerTracks.Clear();
     }
@@ -117,22 +154,41 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
         UpdateAA(Settings.Instance.CameraAA);
         UpdateRenderScale(Settings.Instance.RenderScale);
         UpdatePlayerCameraOffsetZ(Settings.Instance.PlayerCameraOffsetZ);
+        // In-place map swaps and difficulty switches keep this rig alive, and direct field writes to these
+        // settings bypass the NotifyBySettingName callbacks; re-apply the same Start-time snapshot on every
+        // map load so the camera reads current settings exactly like a fresh scene load would.
+        LoadInitialMap.OnLevelLoaded += HandleMapLoaded;
+        LoadedDifficultySelectController.OnLoadedDifficultyChanged += HandleMapLoaded;
         Settings.NotifyBySettingName(nameof(Settings.CameraAA), UpdateAA);
         Settings.NotifyBySettingName(nameof(Settings.RenderScale), UpdateRenderScale);
         Settings.NotifyBySettingName(nameof(Settings.PlayerCameraOffsetZ), UpdatePlayerCameraOffsetZ);
         if (!playerCamera)
         {
-            instance = this;
             OnLocation(0);
             LockedOntoNoteGrid = true;
         }
         else
+        {
             laneRotationProvider.OnSmoothedPlaybackChanged += HandleRotationChanged;
+        }
     }
 
     private void OnDestroy()
     {
-        if (playerCamera) laneRotationProvider.OnSmoothedPlaybackChanged -= HandleRotationChanged;
+        if (playerCamera)
+        {
+            laneRotationProvider.OnSmoothedPlaybackChanged -= HandleRotationChanged;
+        }
+        LoadInitialMap.OnLevelLoaded -= HandleMapLoaded;
+        LoadedDifficultySelectController.OnLoadedDifficultyChanged -= HandleMapLoaded;
+    }
+
+    private void HandleMapLoaded()
+    {
+        Camera.fieldOfView = playerCamera ? Settings.Instance.PlayerCameraFOV : Settings.Instance.CameraFOV;
+        UpdateAA(Settings.Instance.CameraAA);
+        UpdateRenderScale(Settings.Instance.RenderScale);
+        UpdatePlayerCameraOffsetZ(Settings.Instance.PlayerCameraOffsetZ);
     }
 
     private void Update()
@@ -144,35 +200,7 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
 
         if (playerCamera)
         {
-            if (!UIMode.AnimationMode || (playerTrackTimes?.Count ?? 0) == 0) return;
-
-            // 1 after last point, inverted (probably)
-            var later = playerTrackTimes.BinarySearch(atsc.CurrentJsonTime);
-
-            var current = (later < 0)
-                ? (~later) - 1
-                : later;
-
-            if (current < 0)
-            {
-                DisconnectPlayerTrack();
-                return;
-            }
-
-            if (playerTracks[current] != currentTrack)
-            {
-                DisconnectPlayerTrack();
-                cameraAnimator.ResetData();
-                currentTrack = playerTracks[current];
-                cameraAnimator.transform.SetParent(currentTrack.Track.ObjectParentTransform);
-                cameraAnimator.LocalTarget = cameraAnimator.AnimationThis.transform;
-                cameraAnimator.WorldTarget = cameraAnimator.transform;
-                cameraAnimator.enabled = true;
-                cameraAnimator.TargetType = ObjectAnimator.TargetTypes.Transform;
-
-                currentTrack.Children.Add(cameraAnimator);
-                currentTrack.OnChildrenChanged();
-            }
+            RefreshPlayerTrack();
         }
         else if (canMoveCamera)
         {
@@ -206,7 +234,7 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
             eulerAngles.z = 0;
             transform.eulerAngles = eulerAngles;
         }
-        else
+        else if (!playerCamera)
         {
             z = x = 0;
             SetLockState(false);
@@ -241,21 +269,25 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
 
     public void SetLockState(bool lockMouse)
     {
-        var mouseLocked = Cursor.lockState == CursorLockMode.Locked;
+        var mouseLocked = CursorState.LockState == CursorLockMode.Locked;
         if (lockMouse && !mouseLocked)
         {
-            instance.savedMousePos = Mouse.current.position.ReadValue();
+            savedMousePos = Mouse.current.position.ReadValue();
+            cursorLockOwner = this;
 
             mouseX = 0;
             mouseY = 0;
             // Locked state automatically hides the cursor, so no need to set visibility
-            Cursor.lockState = CursorLockMode.Locked;
+            CursorState.LockState = CursorLockMode.Locked;
         }
-        else if (!lockMouse && mouseLocked)
+        else if (!lockMouse && ReferenceEquals(cursorLockOwner, this))
         {
-            Cursor.lockState = CursorLockMode.None;
-
-            Mouse.current.WarpCursorPosition(instance.savedMousePos);
+            cursorLockOwner = null;
+            if (mouseLocked)
+            {
+                CursorState.LockState = CursorLockMode.None;
+                CursorState.Warp(savedMousePos);
+            }
         }
     }
 
@@ -379,12 +411,18 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
 
     public void OnLocation4(CallbackContext context) => OnLocation(3);
 
+    private void OnEnable()
+    {
+        if (!playerCamera) instance = this;
+    }
+
     private void OnDisable()
     {
+        SetLockState(false);
         Settings.ClearSettingNotifications(nameof(Settings.CameraAA));
         Settings.ClearSettingNotifications(nameof(Settings.RenderScale));
         Settings.ClearSettingNotifications(nameof(Settings.PlayerCameraOffsetZ));
-        instance = null;
+        if (ReferenceEquals(instance, this)) instance = null;
     }
 
     public void OnSecondSetModifier(CallbackContext context) => secondSetOfLocations = context.performed;
@@ -418,15 +456,72 @@ public class CameraController : MonoBehaviour, CMInput.ICameraActions
     private void HandleRotationChanged(float rotation) =>
         cameraAnimator.LocalTarget.localEulerAngles = new Vector3(0, rotation, 0);
 
+    /// <summary>Applies the player assignment at the cursor synchronously, including paused seeks.</summary>
+    public void RefreshPlayerTrack(float? jsonTime = null)
+    {
+        if (!playerCamera || cameraAnimator == null) return;
+        if (!UIMode.AnimationMode || playerTrackTimes.Count == 0)
+        {
+            DisconnectPlayerTrack();
+            return;
+        }
+        var left = 0;
+        var right = playerTrackTimes.Count;
+        while (left < right)
+        {
+            var middle = left + ((right - left) / 2);
+            if (playerTrackTimes[middle] <= (jsonTime ?? atsc.CurrentJsonTime)) left = middle + 1;
+            else right = middle;
+        }
+        var current = left - 1;
+        if (current < 0)
+        {
+            DisconnectPlayerTrack();
+            return;
+        }
+        if (playerTracks[current] == currentTrack) return;
+        DisconnectPlayerTrack();
+        if (!hasPlayerTrackHome)
+        {
+            var target = cameraAnimator.transform;
+            playerTrackHomeParent = target.parent;
+            playerTrackHomePosition = target.localPosition;
+            playerTrackHomeRotation = target.localRotation;
+            playerTrackHomeScale = target.localScale;
+            var inner = cameraAnimator.AnimationThis.transform;
+            playerTrackHomeInnerPosition = inner.localPosition;
+            playerTrackHomeInnerRotation = inner.localRotation;
+            playerTrackHomeInnerScale = inner.localScale;
+            hasPlayerTrackHome = true;
+        }
+        cameraAnimator.ResetData();
+        currentTrack = playerTracks[current];
+        cameraAnimator.transform.SetParent(currentTrack.Track.ObjectParentTransform, false);
+        cameraAnimator.LocalTarget = cameraAnimator.AnimationThis.transform;
+        cameraAnimator.WorldTarget = cameraAnimator.transform;
+        cameraAnimator.TargetType = ObjectAnimator.TargetTypes.Transform;
+        if (BeatSaberSongContainer.Instance.Map.MajorVersion != 2)
+        {
+            cameraAnimator.WorldPosition.Preload(playerTrackHomePosition);
+            cameraAnimator.WorldPosition.HoldUntilFlush = true;
+        }
+        cameraAnimator.enabled = true;
+        currentTrack.AddChild(cameraAnimator);
+    }
+
     private void DisconnectPlayerTrack()
     {
-        if (currentTrack == null) return;
-
-        currentTrack.Children.Remove(cameraAnimator);
-        currentTrack.OnChildrenChanged();
+        if (currentTrack == null || cameraAnimator == null) return;
+        currentTrack.RemoveChild(cameraAnimator);
         currentTrack = null;
-
         cameraAnimator.ResetData();
         cameraAnimator.enabled = false;
+        if (!hasPlayerTrackHome) return;
+        cameraAnimator.transform.SetParent(playerTrackHomeParent, false);
+        cameraAnimator.transform.SetLocalPositionAndRotation(playerTrackHomePosition, playerTrackHomeRotation);
+        cameraAnimator.transform.localScale = playerTrackHomeScale;
+        var inner = cameraAnimator.AnimationThis.transform;
+        inner.SetLocalPositionAndRotation(playerTrackHomeInnerPosition, playerTrackHomeInnerRotation);
+        inner.localScale = playerTrackHomeInnerScale;
     }
 }

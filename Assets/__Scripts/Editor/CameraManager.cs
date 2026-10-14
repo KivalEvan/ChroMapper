@@ -13,6 +13,8 @@ public class CameraManager : MonoBehaviour, IEditorStateProvider
 
     public CameraController SelectedCameraController;
 
+    public CameraController PlayerCameraController => playingCameraController;
+
     public CameraController[] CameraControllers { get; } = new CameraController[2];
 
     // Keep the editing camera transform with the camera manager that owns it.
@@ -70,6 +72,8 @@ public class CameraManager : MonoBehaviour, IEditorStateProvider
 
     public void SelectCamera(CameraType cameraType)
     {
+        // Restore map overrides before the native controllers restore their own camera defaults.
+        postProcessRenderingController.AssignToCamera(null);
         SelectedCameraController.Camera.enabled = false;
         SelectedCameraController = cameraType == CameraType.Editing ? editingCameraController : playingCameraController;
         SelectedCameraController.Camera.enabled = true;

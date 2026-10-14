@@ -1,4 +1,5 @@
 using Beatmap.Animations;
+using Beatmap.Appearances;
 using Beatmap.Base;
 using Beatmap.Base.Customs;
 using Beatmap.Enums;
@@ -24,6 +25,19 @@ namespace Beatmap.Containers
         public BaseEnvironmentEnhancement EnvironmentEnhancement;
         public ObjectAnimator MaterialAnimator;
 
+        internal BaseMaterial MaterialDefinition;
+
+        internal enum GeometryType
+        {
+            Sphere,
+            Capsule,
+            Cylinder,
+            Cube,
+            Plane,
+            Quad,
+            Triangle
+        }
+
         public override void UpdateGridPosition()
         {
         }
@@ -34,17 +48,53 @@ namespace Beatmap.Containers
             BeatmapRuntimeContext context,
             TracksManager tracksManager)
         {
+            Regex lookupRegex = null;
+            if (eh.Geometry == null && eh.LookupMethod == EnvironmentLookupMethod.Regex)
+            {
+                try
+                {
+                    lookupRegex = new Regex(eh.ID,
+                        RegexOptions.CultureInvariant | RegexOptions.ECMAScript | RegexOptions.Compiled);
+                }
+                catch (ArgumentException exception)
+                {
+                    Debug.LogError($"Error processing environment data for: ID [\"{eh.ID}\"] using method [Regex]. "
+                        + $"{BeatmapLogContext.Describe(eh)}\n{exception.Message}");
+                    return null;
+                }
+            }
             var container = Instantiate(prefab).GetComponent<GeometryContainer>();
             if (context.Descriptor != null)
                 SceneManager.MoveGameObjectToScene(container.gameObject, context.Descriptor.gameObject.scene);
             container.Animator.Context = context;
             container.Animator.TracksManager = tracksManager;
+
+            // Material animation needs a separate ObjectAnimator because AttachToMaterial resets state used
+            // by transform animation. Give it a child transform so position properties on a material track
+            // cannot move the geometry itself or access a missing LocalTarget. Keep it disabled until a
+            // material is attached.
+            var materialAnimatorTarget = new GameObject("AnimationTarget");
+            materialAnimatorTarget.layer = container.gameObject.layer;
+            materialAnimatorTarget.transform.SetParent(container.transform, false);
+            var materialAnimator = materialAnimatorTarget.AddComponent<ObjectAnimator>();
+            materialAnimator.LocalTarget = materialAnimatorTarget.transform;
+            materialAnimator.WorldTarget = materialAnimatorTarget.transform;
+            materialAnimator.Context = context;
+            materialAnimator.TracksManager = tracksManager;
+            materialAnimator.enabled = false;
+            container.MaterialAnimator = materialAnimator;
+
             container.EnvironmentEnhancement = eh;
 
             if (eh.Geometry != null)
             {
                 // Continue with geometry generation if the Geometry object is defined
-                GeneratePrimitiveGeometry(container, eh, context, tracksManager);
+                if (!GeneratePrimitiveGeometry(container, eh, context, tracksManager))
+                {
+                    DestroyImmediate(container.gameObject);
+                    return null;
+                }
+
                 // Primitive geometry is owned by this container, so its existing single-target animator remains valid.
                 container.Animator.AttachToGeometry(eh);
             }
@@ -52,53 +102,70 @@ namespace Beatmap.Containers
             {
                 // EnvironmentEnhancementWith*Track* regression tests require OEM hierarchies to remain intact; each
                 // matched object receives a data-only track controller instead of sharing the container transform.
-                GenerateEnvironmentEnhancement(container, eh, context, tracksManager);
+                GenerateEnvironmentEnhancement(container, eh, context, tracksManager, lookupRegex);
                 container.Animator.enabled = false;
             }
 
-            container.gameObject.SetActive(true);
+            container.gameObject.SetActive(eh.Geometry == null || eh.Active == null || eh.Active.AsBool);
             container.UpdateCollisionGroups();
 
             return container;
         }
 
-        private static void GeneratePrimitiveGeometry(
+        private static bool GeneratePrimitiveGeometry(
             GeometryContainer container,
             BaseEnvironmentEnhancement eh,
             BeatmapRuntimeContext ctx,
             TracksManager tracksManager)
         {
-            PrimitiveType type;
-            if (eh.Geometry[eh.GeometryKeyType] == "Triangle")
-                type = PrimitiveType.Quad;
-            else
+            if (!Enum.TryParse(eh.Geometry[eh.GeometryKeyType].Value, out GeometryType geometryType)
+                || !Enum.IsDefined(typeof(GeometryType), geometryType))
             {
-                if (!Enum.TryParse(eh.Geometry[eh.GeometryKeyType], out type))
-                    Debug.LogError($"Invalid geometry type '{(string)eh.Geometry[eh.GeometryKeyType]}'!");
+                Debug.LogError($"Invalid geometry type '{(string)eh.Geometry[eh.GeometryKeyType]}'! {BeatmapLogContext.Describe(eh)}");
+                return false;
             }
 
-            var shape = GameObject.CreatePrimitive(type);
+            container.MaterialDefinition = GeometryAppearanceSO.ResolveMaterial(eh);
+            var shader = GeometryAppearanceSO.ResolveShader(container.MaterialDefinition, eh);
+            var primitiveType = geometryType == GeometryType.Triangle
+                ? PrimitiveType.Quad
+                : (PrimitiveType)geometryType;
+            var shape = GameObject.CreatePrimitive(primitiveType);
             shape.transform.SetParent(container.transform);
             shape.layer = container.gameObject.layer;
             container.MpbController.Renderers = new() { shape.GetComponent<MeshRenderer>() };
 
-            var collider = shape.GetComponentInChildren<Collider>();
-            if (collider != null) DestroyImmediate(collider);
-
-            if (eh.Geometry[eh.GeometryKeyType] == "Triangle")
+            var collider = shape.GetComponent<Collider>();
+            var collisionKey = Settings.Instance.MapVersion == 2
+                ? "_collision"
+                : "collision";
+            var collision = eh.Geometry.GetValueOrDefault(collisionKey, null)?.AsBool ?? false;
+            // Physical colliders shorten preview light beams. Selection uses the container's separate IntersectionCollider.
+            if (!collision && collider != null)
             {
-                if (triangleMesh == null) triangleMesh = CreateTriangleMesh();
-                shape.GetComponent<MeshFilter>().sharedMesh = triangleMesh;
+                DestroyImmediate(collider);
+                collider = null;
             }
 
-            // Handle components if needed
-            var descriptor = ctx.Descriptor;
-            // if (descriptor == null) return;
-
-            if (eh.Components?.HasKey("ILightWithId") ?? false)
+            if (geometryType == GeometryType.Triangle)
             {
-                var controller = shape.AddComponent<ParametricBloomFogLightController>();
+                if (triangleMesh == null)
+                    triangleMesh = CreateTriangleMesh();
 
+                shape.GetComponent<MeshFilter>().sharedMesh = triangleMesh;
+                if (collision && collider is MeshCollider meshCollider)
+                    meshCollider.sharedMesh = triangleMesh;
+
+            }
+
+            var descriptor = ctx.Descriptor;
+            var explicitLight = eh.Components?.HasKey("ILightWithId") ?? false;
+            // Chroma's light presets own their physical and fog light components even without a components payload.
+            ParametricBloomFogLightController controller = null;
+            if (GeometryAppearanceSO.IsLightType(shader) || explicitLight)
+            {
+                shape.SetActive(false);
+                controller = shape.AddComponent<ParametricBloomFogLightController>();
                 var light = shape.AddComponent<ParametricBoxLight>();
                 light.UpdateTransform = false;
                 light.Renderer = container.MpbController.Renderers[0];
@@ -107,34 +174,38 @@ namespace Beatmap.Containers
                 var bf = shape.AddComponent<BloomFogObject>();
                 controller.BloomFog = bf;
 
-                controller.Type = eh.LightType ?? 0;
-                controller.ID = eh.LightID ?? -1;
-                descriptor.Register(controller, false);
+                // Native generated lights keep the unregistered ID -1 until ILightWithId supplies a group.
+                controller.Type = eh.LightType ?? (explicitLight
+                    ? 0
+                    : -1);
+                if (descriptor != null && controller.Type >= 0)
+                    descriptor.Register(controller, eh.LightID);
 
-                if (eh.Track != null)
-                {
-                    tracksManager.TrackToBloomFogLights.TryAdd(eh.Track, new());
-                    tracksManager.TrackToBloomFogLights[eh.Track].Add(controller);
-                }
+                foreach (var name in eh.TrackNames)
+                    tracksManager.RegisterBloomFogLights(name, new[] { controller });
+                shape.SetActive(true);
             }
 
             if (eh.Components?.HasKey("TubeBloomPrePassLight") ?? false)
             {
                 var ppLight = eh.Components["TubeBloomPrePassLight"];
-                var controller = shape.GetComponent<ParametricBloomFogLightController>();
-                if (controller == null) return;
-                if (ppLight["colorAlphaMultiplier"] != null)
-                    controller.ColorAlphaMultiplier = ppLight["colorAlphaMultiplier"];
-                if (ppLight["bloomFogIntensityMultiplier"] != null)
-                    controller.BloomFogIntensityMultiplier = ppLight["bloomFogIntensityMultiplier"];
+                if (controller != null && ppLight["colorAlphaMultiplier"] != null)
+                    controller.SetColorAlphaMultiplier(ppLight["colorAlphaMultiplier"]);
+
+                if (controller != null && ppLight["bloomFogIntensityMultiplier"] != null)
+                    controller.SetBloomFogIntensityMultiplier(ppLight["bloomFogIntensityMultiplier"]);
+
             }
+
+            return true;
         }
 
         private static void GenerateEnvironmentEnhancement(
             GeometryContainer container,
             BaseEnvironmentEnhancement eh,
             BeatmapRuntimeContext ctx,
-            TracksManager tracksManager)
+            TracksManager tracksManager,
+            Regex lookupRegex)
         {
             // Get descriptor of currently loaded environment
             var descriptor = ctx.Descriptor;
@@ -145,7 +216,15 @@ namespace Beatmap.Containers
             // Use the ID / Lookup method to find our target marker
             var chromaIDMarkers = descriptor.ChromaIDMarkers;
             // Yes, all the matching IDs, don't ask me why
-            var targetObjects = chromaIDMarkers.Where(marker => FindMarker(marker, eh)).Select(x => (x, x)).ToList();
+            var targetObjects = chromaIDMarkers.Where(marker => FindMarker(marker, eh, lookupRegex)).Select(x => (x, x)).ToList();
+
+            // Mirror Chroma's lookup warning format so missing enhancements can be compared between the editor
+            // and game.
+            if (targetObjects.Count == 0)
+            {
+                Debug.LogWarning(
+                    $"Environment enhancement ID [\"{eh.ID}\"] using method [{eh.LookupMethod:G}] found nothing. {BeatmapLogContext.Describe(eh)}");
+            }
 
             // We need to handle duplicates if defined!
             if (eh.Duplicate != null)
@@ -155,7 +234,7 @@ namespace Beatmap.Containers
                 if (targetObjects.Count > 100)
                 {
                     Debug.LogError(
-                        "Extreme value reached, you are attempting to duplicate over 100 objects! Environment enhancements stopped");
+                        $"Extreme value reached, you are attempting to duplicate over 100 objects! Environment enhancements stopped. {BeatmapLogContext.Describe(eh)}");
                     return;
                 }
 
@@ -166,42 +245,58 @@ namespace Beatmap.Containers
                 {
                     for (var i = 0; i < duplicates; i++)
                     {
-                        var duplicateObject = Instantiate(original.gameObject, original.transform.parent);
+                        // Instantiate the clone as a root so it can be moved into the original environment
+                        // scene before parenting. Parenting during Instantiate can place it in the mapper
+                        // scene, where it would survive an environment reload.
+                        var duplicateObject = Instantiate(original.gameObject);
+                        SceneManager.MoveGameObjectToScene(duplicateObject, original.gameObject.scene);
+                        duplicateObject.transform.SetParent(original.transform.parent, true);
                         var duplicate = duplicateObject.GetComponent<ChromaIDMarker>();
                         var originalParentId = duplicate.ChromaID;
-                        duplicate.ChromaID = original.ChromaID[..(original.ChromaID.LastIndexOf(']') + 1)]
-                            + duplicate.name;
+                        var nameStart = original.ChromaID.Length - original.name.Length;
+                        var siblingIndexStart = original.ChromaID.LastIndexOf('[', nameStart - 1);
+                        var parentId = original.ChromaID[..siblingIndexStart];
+                        duplicate.ChromaID = parentId + $"[{duplicateObject.transform.GetSiblingIndex()}]" + duplicate.name;
+                        // GetComponentsInChildren includes the root marker, whose final ChromaID was assigned
+                        // above. Rewrite only child IDs to avoid appending a second "(Clone)" to the root.
                         foreach (var childMarker in duplicateObject.GetComponentsInChildren<ChromaIDMarker>())
                         {
-                            childMarker.ChromaID = childMarker.ChromaID.Replace(originalParentId, duplicate.ChromaID);
+                            if (childMarker != duplicate)
+                            {
+                                childMarker.ChromaID =
+                                    childMarker.ChromaID.Replace(originalParentId, duplicate.ChromaID);
+                            }
+
                             descriptor.ChromaIDMarkers.Add(childMarker);
                         }
 
                         newTargetObjects.Add((original, duplicate));
-                        if (duplicateObject.transform.root == duplicateObject.transform)
-                            SceneManager.MoveGameObjectToScene(duplicateObject, ctx.Descriptor.gameObject.scene);
                     }
                 }
 
                 targetObjects = newTargetObjects;
             }
 
-            // lets pretend this is always valid
-            if (eh.Components?.HasKey("BloomFogEnvironment") ?? false)
+            // Apply fog overrides only when the matched objects contain the fog component. Its preview state
+            // lives on the environment descriptor root.
+            var ownsFog = targetObjects.Any(pair =>
+                pair.Item2.transform == descriptor.transform
+                || descriptor.transform.IsChildOf(pair.Item2.transform));
+            if (!ownsFog && (eh.Components?.HasKey("BloomFogEnvironment") ?? false))
+                Debug.LogWarning($"BloomFogEnvironment enhancement ID [{eh.ID}] matched no fog component. {BeatmapLogContext.Describe(eh)}");
+            if (ownsFog && (eh.Components?.HasKey("BloomFogEnvironment") ?? false))
             {
                 var bloomFog = eh.Components["BloomFogEnvironment"];
                 if (bloomFog["attenuation"] != null) descriptor.BloomFogParams.Attenuation = bloomFog["attenuation"];
                 if (bloomFog["offset"] != null) descriptor.BloomFogParams.Offset = bloomFog["offset"];
                 if (bloomFog["startY"] != null) descriptor.BloomFogParams.StartY = bloomFog["startY"];
                 if (bloomFog["height"] != null) descriptor.BloomFogParams.Height = bloomFog["height"];
-                if (bloomFog["autoExposureLimit"] != null)
-                    descriptor.BloomFogParams.AutoExposureLimit = bloomFog["autoExposureLimit"];
-                if (bloomFog["legacyAutoExposure"] != null)
-                    descriptor.BloomFogParams.LegacyAutoExposure = bloomFog["legacyAutoExposure"];
+
+                ctx.NotifyBloomFogParamsChanged();
             }
 
             // Cache the map-version decision once because every matched marker uses the same V2 unit conversion.
-            var v2 = BeatSaberSongContainer.Instance.Map.MajorVersion == 2;
+            var v2 = tracksManager.IsV2Map;
             var adjustScale = v2
                 ? BeatmapConstant.LaneSize
                 : 1f;
@@ -209,6 +304,12 @@ namespace Beatmap.Containers
             foreach (var (original, target) in targetObjects)
             {
                 if (eh.Active != null) target.gameObject.SetActive(eh.Active.AsBool);
+
+                var boxLight = eh.Position != null || eh.LocalPosition != null || eh.Scale != null || eh.TrackNames.Count > 0
+                    ? target.GetComponentInChildren<ParametricBoxLight>(true)
+                    : null;
+                if (boxLight != null)
+                    boxLight.InitIfNeeded();
 
                 // Chroma applies authored enhancement transforms before attaching a track and never reparents the
                 // matched object, which preserves nested BigTrackLaneRing renderers in all four parity cases.
@@ -220,50 +321,66 @@ namespace Beatmap.Containers
                     target.transform.localRotation = Quaternion.Euler(eh.LocalRotation.Value);
                 else if (eh.Rotation != null) target.transform.rotation = Quaternion.Euler(eh.Rotation.Value);
 
+                // Capture the box mesh after applying the enhancement so later light refreshes preserve only
+                // the position and scale overrides.
+                if (boxLight != null)
+                {
+                    if (eh.Position != null || eh.LocalPosition != null)
+                        boxLight.CaptureAuthoredPosition();
+                    if (eh.Scale != null)
+                        boxLight.CaptureAuthoredScale();
+                }
+
                 // A track with no transform property must be inert; a present property is applied directly to each
                 // matched transform by its own animator, matching Chroma without flattening the OEM hierarchy.
-                if (eh.Track != null)
+                if (eh.TrackNames.Count > 0)
                 {
-                    tracksManager.TrackToBloomFogLights.TryAdd(eh.Track, new());
-                    tracksManager
-                        .TrackToBloomFogLights[eh.Track]
-                        .AddRange(target.GetComponentsInChildren<ParametricBloomFogLightController>());
-
-                    var animator = container.gameObject.AddComponent<ObjectAnimator>();
+                    foreach (var name in eh.TrackNames)
+                        tracksManager.RegisterBloomFogLights(name,
+                            target.GetComponentsInChildren<ParametricBloomFogLightController>(true));
+                    var animator = tracksManager.CreateEnvironmentAnimator(container.gameObject, target.transform);
                     animator.Context = ctx;
                     animator.TracksManager = tracksManager;
                     animator.AttachToEnvironmentObject(
                         target.transform,
-                        eh.Track,
-                        v2);
+                        eh.TrackNames,
+                        v2,
+                        boxLight);
+                    if (target.transform == descriptor.transform
+                        || descriptor.transform.IsChildOf(target.transform))
+                    {
+                        foreach (var name in eh.TrackNames)
+                        {
+                            tracksManager.BindFogComponentTarget(name);
+                        }
+                    }
                 }
 
                 if (eh.Duplicate != null) HandleDuplicateComponents(original.transform, target.transform);
 
                 foreach (var controller in target.GetComponentsInChildren<LightController>(true))
                 {
-                    if (eh.Duplicate == null) descriptor.Unregister(controller);
-                    if (controller.Kind == LightController.LightKind.Basic)
+                    var customized = eh.LightType.HasValue || eh.LightID.HasValue;
+                    if (eh.Duplicate != null || customized)
                     {
-                        controller.Type = eh.LightType ?? controller.Type;
-                        controller.ID = eh.LightID ?? controller.ID;
-                    }
+                        if (eh.Duplicate == null) descriptor.Unregister(controller);
+                        if (controller.Kind == LightController.LightKind.Basic)
+                            controller.Type = eh.LightType ?? controller.Type;
 
-                    descriptor.Register(controller, false);
+                        descriptor.Register(controller, eh.LightID);
+                    }
 
                     if (eh.Components?.HasKey("TubeBloomPrePassLight") ?? false)
                     {
                         var ppLight = eh.Components["TubeBloomPrePassLight"];
                         if (controller is not ParametricBloomFogLightController pbflc) continue;
                         if (ppLight["colorAlphaMultiplier"] != null)
-                            pbflc.ColorAlphaMultiplier = ppLight["colorAlphaMultiplier"];
+                            pbflc.SetColorAlphaMultiplier(ppLight["colorAlphaMultiplier"]);
                         if (ppLight["bloomFogIntensityMultiplier"] != null)
-                            pbflc.BloomFogIntensityMultiplier = ppLight["bloomFogIntensityMultiplier"];
+                            pbflc.SetBloomFogIntensityMultiplier(ppLight["bloomFogIntensityMultiplier"]);
                     }
                 }
 
-                foreach (var pbl in target.GetComponentsInChildren<ParametricBoxLight>(true))
-                    pbl.UpdateTransform = false;
             }
 
             return;
@@ -304,14 +421,14 @@ namespace Beatmap.Containers
             }
         }
 
-        private static bool FindMarker(ChromaIDMarker marker, BaseEnvironmentEnhancement eh) =>
+        private static bool FindMarker(ChromaIDMarker marker, BaseEnvironmentEnhancement eh, Regex lookupRegex) =>
             eh.LookupMethod switch
             {
                 EnvironmentLookupMethod.Exact => marker.ChromaID == eh.ID,
                 EnvironmentLookupMethod.StartsWith => marker.ChromaID.StartsWith(eh.ID),
                 EnvironmentLookupMethod.EndsWith => marker.ChromaID.EndsWith(eh.ID),
                 EnvironmentLookupMethod.Contains => marker.ChromaID.Contains(eh.ID),
-                EnvironmentLookupMethod.Regex => Regex.IsMatch(marker.ChromaID, eh.ID),
+                EnvironmentLookupMethod.Regex => lookupRegex.IsMatch(marker.ChromaID),
                 _ => throw new ArgumentException($"Unknown lookup method {eh.LookupMethod}"),
             };
 

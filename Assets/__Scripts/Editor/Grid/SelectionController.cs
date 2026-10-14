@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using ZLinq;
@@ -103,7 +103,11 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
 
     private void OnDestroy() => editModeContext.OnEditModeChanged -= HandleEditModeChanged;
 
-    private void HandleEditModeChanged(EditingMode mode) => DeselectAll();
+    private void HandleEditModeChanged(EditingMode mode)
+    {
+        if (!editModeContext.IsTemporaryModeChange)
+            DeselectAll();
+    }
 
     public void OnPaste(InputAction.CallbackContext context)
     {
@@ -968,7 +972,7 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
                     lcebg.Boxes[boxIndex].Events =
                         lcebg
                             .Boxes[boxIndex]
-                            .Events.Where(x => x.CompareTo(obj) != 0)
+                            .Events.Where(x => !x.HasSameContent(obj))
                             .Append(obj as BaseLightColorBase)
                             .OrderBy(x => x.RelativeJsonTime)
                             .ToArray();
@@ -978,7 +982,7 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
                     lrebg.Boxes[boxIndex].Events =
                         lrebg
                             .Boxes[boxIndex]
-                            .Events.Where(x => x.CompareTo(obj) != 0)
+                            .Events.Where(x => !x.HasSameContent(obj))
                             .Append(obj as BaseLightRotationBase)
                             .OrderBy(x => x.RelativeJsonTime)
                             .ToArray();
@@ -988,7 +992,7 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
                     ltebg.Boxes[boxIndex].Events =
                         ltebg
                             .Boxes[boxIndex]
-                            .Events.Where(x => x.CompareTo(obj) != 0)
+                            .Events.Where(x => !x.HasSameContent(obj))
                             .Append(obj as BaseLightTranslationBase)
                             .OrderBy(x => x.RelativeJsonTime)
                             .ToArray();
@@ -999,7 +1003,7 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
                     ffebg.Boxes[boxIndex].Events =
                         ffebg
                             .Boxes[boxIndex]
-                            .Events.Where(x => x.CompareTo(obj) != 0)
+                            .Events.Where(x => !x.HasSameContent(obj))
                             .Append(obj as BaseFxEventFloat)
                             .OrderBy(x => x.RelativeJsonTime)
                             .ToArray();
@@ -1206,7 +1210,7 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
                                 .Count
                             - 1;
 
-                        var curLane = e.CustomLightID != null
+                        var curLane = e.CustomLightID is { Length: > 0 }
                             ? labels.LightIDToLane(e.Type, e.CustomLightID[0])
                             : -1;
                         var newLane = Math.Min(curLane + leftRight, max);
@@ -1251,13 +1255,12 @@ public class SelectionController : MonoBehaviour, CMInput.ISelectingActions, CMI
 
                         e.Type = labels.LaneIdToEventType(modified);
 
-                        if (e.CustomLightID != null)
+                        if (e.CustomLightID is { Length: > 0 })
                         {
                             var editorID = labels.LightIDToLane(oldType, e.CustomLightID[0]);
                             e.CustomLightID = new[] { labels.LaneToLightID(e.Type, editorID) };
                         }
 
-                        if (e.CustomLightID is { Length: 0 }) e.CustomLightID = null;
                     }
 
                     if (original.CustomData?.Count <= 0) original.CustomData = null;
