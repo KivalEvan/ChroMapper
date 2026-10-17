@@ -10,6 +10,12 @@ using UnityEngine;
 public class Settings
 {
 #if UNITY_EDITOR
+    // macOS cannot create /root/bs, and concurrent runners must not share generated song folders.
+    public static readonly string TestRunnerInstallationDirectory = PathUtils.Combine(
+        Path.GetTempPath(),
+        "ChroMapper Tests",
+        Guid.NewGuid().ToString("N"));
+
     // Local settings object used when running tests
     public static bool TestMode = false;
     public static Settings TestRunnerSettings = new()
@@ -17,7 +23,7 @@ public class Settings
         InstantLoadingTransitions = true, // Run the tests faster
         Reminder_SettingsFailed = false,
         Reminder_Loading360Levels = false,
-        BeatSaberInstallation = "/root/bs",
+        BeatSaberInstallation = TestRunnerInstallationDirectory,
     };
 #endif
 
@@ -78,7 +84,6 @@ public class Settings
     public float PastNotesGridScale = 0.5f;
     public float SongSpeedChangeAmount = 2;
     // SongSpeed is a non-persistent setting
-    // NoteLanes is a non-persistent setting
 
     public CountersPlusSettings CountersPlus = new CountersPlusSettings();
 

@@ -154,7 +154,7 @@ namespace Tests.Editor
             InitializeVirtualInput(includeKeyboard: false);
             playbackClock = clock;
             previousClockEnabled = clock.enabled;
-            StartDeterministicPlaybackAtSongBpmTime(clock, 280f);
+            TestUtils.StartDeterministicPlaybackAtSongBpmTime(clock, 280f);
             clock.enabled = false;
             foreach (var beat in new[] { 280f, 282f, 284.4f, 288f })
             {
@@ -209,7 +209,7 @@ namespace Tests.Editor
             if (playbackClock != null)
             {
                 if (playbackClock.IsPlaying)
-                    PauseDeterministicPlayback(playbackClock);
+                    TestUtils.PauseDeterministicPlayback(playbackClock);
 
                 playbackClock.enabled = previousClockEnabled;
                 playbackClock = null;
