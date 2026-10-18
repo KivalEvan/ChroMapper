@@ -8,14 +8,6 @@ public class ContinuousFireEffect : FireEffect
     public AnimationCurve FlipbookSustainCurve = AnimationCurve.Linear(0f, 1f, 1f, 1f);
     public AnimationCurve BloomSustainCurve = AnimationCurve.Linear(0f, 1f, 1f, 1f);
 
-    protected override void Initialize()
-    {
-        // Exported keys omit the source fire curves' looping wrap modes.
-        FlipbookSustainCurve.preWrapMode = FlipbookSustainCurve.postWrapMode = WrapMode.Loop;
-        BloomSustainCurve.preWrapMode = BloomSustainCurve.postWrapMode = WrapMode.Loop;
-        base.Initialize();
-    }
-
     internal override (float flipbookAlpha, float bloomAlpha) EvaluateEffect(float elapsedSeconds, float durationSeconds)
     {
         var fadeInDuration = Mathf.Min(FadeInDuration, durationSeconds);

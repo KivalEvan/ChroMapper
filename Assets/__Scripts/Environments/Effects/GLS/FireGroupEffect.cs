@@ -69,6 +69,11 @@ public class FireGroupEffect : LightColorGroupEffect
                 .AsValueEnumerable()
                 .Where(other => other != target && target.Effect.SharesPointLightWith(other.Effect))
                 .ToArray();
+            // Track the actual last writer across groups sharing this property block.
+            var pointLightOwner = allTargets.First(other =>
+                other == target || target.Effect.SharesPointLightWith(other.Effect));
+            target.PointLight = pointLightOwner.PointLight;
+            target.PointLight.HasApplied = false;
         }
 
         // Shared point lights can read fires from other groups. Advance each source element
@@ -103,7 +108,7 @@ public class FireGroupEffect : LightColorGroupEffect
             {
                 var visible = target.Evaluate(songSeconds, out var interval, out var flipbookAlpha, out var bloomAlpha);
                 var fire = target.Effect;
-                fire.Apply(interval.StartTime, visible, flipbookAlpha, bloomAlpha);
+                target.ApplyIfChanged(interval.StartTime, visible, flipbookAlpha, bloomAlpha);
 
                 var pointLightColor = fire.PointLightColor * bloomAlpha;
                 foreach (var other in target.Shared)
@@ -114,10 +119,15 @@ public class FireGroupEffect : LightColorGroupEffect
                     pointLightColor = other.Effect.PointLightColor * sharedAlpha;
                 }
 
-                fire.ApplyPointLightColor(pointLightColor);
+                if (!target.PointLight.HasApplied || !target.PointLight.Color.Equals(pointLightColor))
+                {
+                    fire.ApplyPointLightColor(pointLightColor);
+                    target.PointLight.Color = pointLightColor;
+                    target.PointLight.HasApplied = true;
+                }
 
                 if (!fire.ContributeCustomLightColor) continue;
-                foreach (var light in element.Container.Lights) light.SetColor(fire.ContributionColor);
+                element.ApplyContributionIfChanged(fire.ContributionColor);
             }
         }
     }
@@ -127,6 +137,8 @@ public class FireGroupEffect : LightColorGroupEffect
         public readonly LightColorGroupContainer Container;
         public readonly FireTarget[] Targets;
         private FirePlayback[] playbacks = Array.Empty<FirePlayback>();
+        private bool hasAppliedContribution;
+        private Color appliedContribution;
 
         public FireElement(LightColorGroupContainer container, IEnumerable<FireEffect> effects)
         {
@@ -139,6 +151,8 @@ public class FireGroupEffect : LightColorGroupEffect
 
         public void RebuildStates(float secondsPerBeat, float songEndTime)
         {
+            hasAppliedContribution = false;
+            foreach (var target in Targets) target.InvalidateAppliedState();
             var events = Container
                 .EventContainer.Collection
                 .AsValueEnumerable()
@@ -163,6 +177,20 @@ public class FireGroupEffect : LightColorGroupEffect
             playbacks = nextPlaybacks.ToArray();
         }
 
+        public void ApplyContributionIfChanged(Color color)
+        {
+            if (hasAppliedContribution && appliedContribution.Equals(color)) return;
+            var allInitialized = true;
+            foreach (var light in Container.Lights)
+            {
+                light.SetColor(color);
+                allInitialized &= light.HasInitialized;
+            }
+            appliedContribution = color;
+            // A callback before LightController.Start may not have applied its color yet.
+            hasAppliedContribution = allInitialized;
+        }
+
         public void UpdateState(bool isPlaying, float time)
         {
             if (playbacks.Length == 0) return;
@@ -172,18 +200,48 @@ public class FireGroupEffect : LightColorGroupEffect
         }
     }
 
+    private sealed class PointLightState
+    {
+        public bool HasApplied;
+        public Color Color;
+    }
+
     private sealed class FireTarget
     {
         public readonly FireEffect Effect;
         public readonly FireElement Element;
         public FirePlayback Playback;
         public FireTarget[] Shared = Array.Empty<FireTarget>();
+        public PointLightState PointLight = new();
+        private bool hasAppliedState;
+        private (float startTime, bool visible, float flipbookAlpha, float bloomAlpha, Color contribution) appliedState;
 
         public FireTarget(FireEffect effect, FireElement element)
         {
             Effect = effect;
             Element = element;
             Effect.EnsureInitialized();
+        }
+
+        public void InvalidateAppliedState()
+        {
+            hasAppliedState = false;
+            PointLight.HasApplied = false;
+        }
+
+        public void ApplyIfChanged(float startTime, bool visible, float flipbookAlpha, float bloomAlpha)
+        {
+            var state = (
+                visible ? startTime : -1000f,
+                visible,
+                flipbookAlpha,
+                bloomAlpha * Effect.BloomIntensityMultiplier,
+                Effect.CustomLightColor.WithAlpha(bloomAlpha));
+            if (hasAppliedState && appliedState.Equals(state)) return;
+
+            Effect.Apply(startTime, visible, flipbookAlpha, bloomAlpha);
+            appliedState = state;
+            hasAppliedState = true;
         }
 
         public bool Evaluate(
