@@ -27,10 +27,6 @@ public abstract class FireEffect : MonoBehaviour
 
     private bool hasInitialized;
 
-    private MaterialPropertyBlockController LightPropertyBlockController => UseEmissionColor
-        ? EmissionTextureColorPropertyBlockController
-        : PrivatePointLightPropertyBlockController;
-
     private void Start() => EnsureInitialized();
 
     internal void EnsureInitialized()
@@ -42,26 +38,25 @@ public abstract class FireEffect : MonoBehaviour
 
     protected virtual void Initialize()
     {
+        var (flipbookAlpha, bloomAlpha) = InitialAlphas;
         FlipBookPropertyBlockController.Mpb.SetFloat(EffectStartSongTimeId, -1000f);
-        UpdateRenderers(0f, 0f);
-        ApplyPointLightColor(PointLightColor * 0f);
+        UpdateRenderers(flipbookAlpha, bloomAlpha);
+        ApplyPointLightColor(PointLightColor * bloomAlpha);
+        ContributionColor = CustomLightColor.WithAlpha(0f);
         SetRenderersEnabled(false);
     }
 
-    internal void Apply(float startSongTime, bool visible, float flipbookAlpha, float bloomAlpha)
+    internal virtual (float flipbookAlpha, float bloomAlpha) InitialAlphas => (0f, 0f);
+
+    internal void Apply(float startSongTime, bool visible, float flipbookAlpha, float bloomAlpha,
+        float contributionAlpha)
     {
         EnsureInitialized();
-        FlipBookPropertyBlockController.Mpb.SetFloat(EffectStartSongTimeId, visible ? startSongTime : -1000f);
+        FlipBookPropertyBlockController.Mpb.SetFloat(EffectStartSongTimeId, startSongTime);
         SetRenderersEnabled(visible);
         UpdateRenderers(flipbookAlpha, bloomAlpha);
-        ContributionColor = CustomLightColor.WithAlpha(bloomAlpha);
+        ContributionColor = CustomLightColor.WithAlpha(contributionAlpha);
     }
-
-    internal bool SharesPointLightWith(FireEffect other) =>
-        UseEmissionColor == other.UseEmissionColor &&
-        LightPropertyBlockController == other.LightPropertyBlockController;
-
-    internal abstract (float flipbookAlpha, float bloomAlpha) EvaluateEffect(float elapsedSeconds, float durationSeconds);
 
     protected void SetRenderersEnabled(bool enabled)
     {

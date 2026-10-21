@@ -91,6 +91,7 @@ public partial class EnvironmentSceneCreator
         {
             var effect = container.Descriptor.LightColorGroupEffectManager.Register<FireGroupEffect>(
                 group.Key, group.Max(route => route.ElementId) + 1);
+            effect.EffectManager = container.Descriptor.LightColorGroupEffectManager;
             foreach (var route in group) effect.Register(route.ElementId, route.Effect);
         }
 

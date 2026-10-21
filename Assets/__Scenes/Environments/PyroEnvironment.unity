@@ -137755,6 +137755,7 @@ MonoBehaviour:
   - {fileID: 1435522749}
   - {fileID: 1572412662}
   - {fileID: 1435522748}
+  EffectManager: {fileID: 1245127968}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 887871297}
@@ -137814,6 +137815,7 @@ MonoBehaviour:
   - {fileID: 962977042}
   - {fileID: 433484001}
   - {fileID: 962977041}
+  EffectManager: {fileID: 1245127968}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 1026824502}

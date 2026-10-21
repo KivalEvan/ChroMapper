@@ -6,9 +6,6 @@ public class BurstFireEffect : FireEffect
     public AnimationCurve FlipbookFadeOutCurve = AnimationCurve.Linear(0f, 1f, 1f, 0f);
     public AnimationCurve BloomFadeOutCurve = AnimationCurve.Linear(0f, 0f, 1f, 0f);
 
-    internal override (float flipbookAlpha, float bloomAlpha) EvaluateEffect(float elapsedSeconds, float durationSeconds)
-    {
-        var progress = elapsedSeconds / durationSeconds;
-        return (FlipbookFadeOutCurve.Evaluate(progress), BloomFadeOutCurve.Evaluate(progress));
-    }
+    internal override (float flipbookAlpha, float bloomAlpha) InitialAlphas =>
+        (FlipbookFadeOutCurve.Evaluate(1f), BloomFadeOutCurve.Evaluate(1f));
 }

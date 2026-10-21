@@ -174342,6 +174342,7 @@ MonoBehaviour:
   ColorBoostEffect: {fileID: 2070242231}
   ColorSchemeProvider: {fileID: 552834883}
   lightEntries: []
+  EffectManager: {fileID: 1375626220}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 1706686752}
@@ -174369,6 +174370,7 @@ MonoBehaviour:
   ColorBoostEffect: {fileID: 2070242231}
   ColorSchemeProvider: {fileID: 552834883}
   lightEntries: []
+  EffectManager: {fileID: 1375626220}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 183745696}
@@ -174396,6 +174398,7 @@ MonoBehaviour:
   ColorBoostEffect: {fileID: 2070242231}
   ColorSchemeProvider: {fileID: 552834883}
   lightEntries: []
+  EffectManager: {fileID: 1375626220}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 1768522256}
@@ -174423,6 +174426,7 @@ MonoBehaviour:
   ColorBoostEffect: {fileID: 2070242231}
   ColorSchemeProvider: {fileID: 552834883}
   lightEntries: []
+  EffectManager: {fileID: 1375626220}
   fireEntries:
   - ElementId: 0
     Effect: {fileID: 83360375}
