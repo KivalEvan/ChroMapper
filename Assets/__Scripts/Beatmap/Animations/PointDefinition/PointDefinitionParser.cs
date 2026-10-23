@@ -21,7 +21,10 @@ public static class PointDefinitionParser
     private static readonly Dictionary<(JSONNode Node, int Dimension, bool Quaternion), (string Content, PointDefinitionInterpolator Curve)> typedCurves =
         new(TypedCurveIdentityComparer.Instance);
     private static BaseDifficulty cacheMap;
-    private static readonly HashSet<JSONNode> retainedNodes = new(NodeIdentityComparer.Instance);
+    private static readonly Dictionary<JSONNode, HashSet<JSONNode>> rootNodes = new(NodeIdentityComparer.Instance);
+    private static readonly Dictionary<JSONNode, int> nodeOwners = new(NodeIdentityComparer.Instance);
+    private static readonly HashSet<JSONNode> currentRoots = new(NodeIdentityComparer.Instance);
+    private static readonly List<JSONNode> staleRoots = new();
     private static readonly List<JSONNode> staleNodes = new();
     private static readonly List<string> staleNames = new();
     private static readonly List<(JSONNode Node, int Dimension, bool Quaternion)> staleTypedCurves = new();
@@ -37,6 +40,8 @@ public static class PointDefinitionParser
         namedContent.Clear();
         nodeContent.Clear();
         registrationContent.Clear();
+        rootNodes.Clear();
+        nodeOwners.Clear();
         BaseProviderManager.ResetForMapLoad();
         var map = BeatSaberSongContainer.Instance != null ? BeatSaberSongContainer.Instance.Map : null;
         if (!preserveInvalidDefinitions || map == null || !ReferenceEquals(cacheMap, map))
@@ -58,18 +63,32 @@ public static class PointDefinitionParser
     /// <summary>Releases cached definitions no longer present in the current authored animation data.</summary>
     /// <param name="definitions">The current map's named definitions.</param>
     /// <param name="animationRoots">Current event data and object animation roots whose cached curves should be retained.</param>
+    /// <param name="inspectAll">Rescan all roots after untracked changes; false reuses unchanged roots' node membership.</param>
+    /// <param name="changedRoots">Roots mutated in place during a tracked edit, including named definitions.</param>
     /// <remarks>
     /// Call after registering edited definitions. Removed cache entries do not invalidate existing wrappers;
     /// their curves and live provider getters remain valid until those wrappers are rebound or released.
     /// Provider sampling and smoothing state are preserved. Changed names must still be registered with Get.
     /// </remarks>
     internal static void RetainDefinitions(IReadOnlyDictionary<string, JSONArray> definitions,
-        IEnumerable<JSONNode> animationRoots)
+        IEnumerable<JSONNode> animationRoots, bool inspectAll = true, IEnumerable<JSONNode> changedRoots = null)
     {
         try
         {
-            foreach (var definition in definitions.Values) RetainDefinitionNodes(definition);
-            foreach (var root in animationRoots) RetainDefinitionNodes(root);
+            if (inspectAll)
+            {
+                rootNodes.Clear();
+                nodeOwners.Clear();
+            }
+            else if (changedRoots != null)
+                foreach (var root in changedRoots)
+                    if (root != null) RemoveRoot(root);
+
+            foreach (var definition in definitions.Values) RetainRoot(definition);
+            foreach (var root in animationRoots) RetainRoot(root);
+            foreach (var root in rootNodes.Keys)
+                if (!currentRoots.Contains(root)) staleRoots.Add(root);
+            foreach (var root in staleRoots) RemoveRoot(root);
 
             foreach (var name in NameCacheParsedInterpolators.Keys)
                 if (!definitions.ContainsKey(name)) staleNames.Add(name);
@@ -80,7 +99,7 @@ public static class PointDefinitionParser
             }
 
             foreach (var node in NodeCacheParsedInterpolators.Keys)
-                if (!retainedNodes.Contains(node)) staleNodes.Add(node);
+                if (!nodeOwners.ContainsKey(node)) staleNodes.Add(node);
             foreach (var node in staleNodes)
             {
                 NodeCacheParsedInterpolators.Remove(node);
@@ -88,22 +107,42 @@ public static class PointDefinitionParser
             }
 
             foreach (var key in typedCurves.Keys)
-                if (!retainedNodes.Contains(key.Node)) staleTypedCurves.Add(key);
+                if (!nodeOwners.ContainsKey(key.Node)) staleTypedCurves.Add(key);
             foreach (var key in staleTypedCurves) typedCurves.Remove(key);
         }
         finally
         {
-            retainedNodes.Clear();
+            currentRoots.Clear();
+            staleRoots.Clear();
             staleNodes.Clear();
             staleNames.Clear();
             staleTypedCurves.Clear();
         }
     }
 
-    private static void RetainDefinitionNodes(JSONNode node)
+    private static void RetainRoot(JSONNode root)
     {
-        if (node == null || !retainedNodes.Add(node)) return;
-        foreach (var child in node.Values) RetainDefinitionNodes(child);
+        if (root == null || !currentRoots.Add(root) || rootNodes.ContainsKey(root)) return;
+        var nodes = new HashSet<JSONNode>(NodeIdentityComparer.Instance);
+        CollectNodes(root, nodes);
+        rootNodes.Add(root, nodes);
+        foreach (var node in nodes) nodeOwners[node] = nodeOwners.GetValueOrDefault(node) + 1;
+    }
+
+    private static void RemoveRoot(JSONNode root)
+    {
+        if (!rootNodes.Remove(root, out var nodes)) return;
+        foreach (var node in nodes)
+        {
+            if (nodeOwners[node] == 1) nodeOwners.Remove(node);
+            else nodeOwners[node]--;
+        }
+    }
+
+    private static void CollectNodes(JSONNode node, HashSet<JSONNode> nodes)
+    {
+        if (node == null || !nodes.Add(node)) return;
+        foreach (var child in node.Values) CollectNodes(child, nodes);
     }
 
     // Numeric JSON nodes are mutable and hash by value. Cache ownership follows the authored

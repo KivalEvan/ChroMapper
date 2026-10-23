@@ -92,7 +92,7 @@ public class VideoPlayerSyncController : MonoBehaviour, ISync
         if (seeking) return;
 
         seeking = true;
-        videoPlayer.playbackSpeed = Atsc.SongSpeed;
+        videoPlayer.playbackSpeed = Atsc.SongSpeed / 10f;
         videoPlayer.seekCompleted += OnSeekCompleted;
         videoPlayer.time = SongTime;
     }

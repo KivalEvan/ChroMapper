@@ -11,11 +11,23 @@ public class InstantiateObjectPrefabManager
     private readonly Dictionary<string, Stack<VivifyObject>> prefabPool = new();
     private readonly Dictionary<CustomEventStateData, VivifyObject> ownerToObject = new();
     private readonly Dictionary<string, List<CustomEventStateData>> idToOwner = new();
-    private readonly Dictionary<string, List<VivifyObject>> idToObjects = new();
-    private readonly Dictionary<CustomEventStateData, List<CustomEventStateData>> deletedObjectToRevert = new();
-    private readonly List<VivifyObject> emptyObjects = new();
+    private readonly Dictionary<CustomEventStateData, VivifyObject> retainedObjects = new();
+    private bool replaying;
 
-    public List<VivifyObject> GetObjectById(string id) => idToObjects.GetValueOrDefault(id, emptyObjects);
+    /// <summary>Enumerates live instances of an ID, optionally restricted to those spawned before an event.</summary>
+    /// <param name="id">Authored prefab ID.</param>
+    /// <param name="atEvent">Event whose start beat and sequence bound the instance lifetime; null selects all live instances.</param>
+    public IEnumerable<VivifyObject> GetObjectById(string id, CustomEventStateData atEvent = null)
+    {
+        if (!idToOwner.TryGetValue(id, out var owners)) yield break;
+        foreach (var owner in owners)
+        {
+            if (atEvent != null && (owner.StartTime > atEvent.StartTime
+                || (owner.StartTime == atEvent.StartTime && owner.Sequence > atEvent.Sequence))) continue;
+            var instance = ResolveObject(owner);
+            if (instance != null) yield return instance;
+        }
+    }
 
     private VivifyObject GetOrCreateObject(string prefabName)
     {
@@ -46,6 +58,9 @@ public class InstantiateObjectPrefabManager
         foreach (var vivifyObject in ownerToObject.Values)
             DestroyOwnedObject(vivifyObject, ownedObjects);
 
+        foreach (var vivifyObject in retainedObjects.Values)
+            DestroyOwnedObject(vivifyObject, ownedObjects);
+
         foreach (var pool in prefabPool.Values)
         {
             foreach (var vivifyObject in pool)
@@ -68,20 +83,57 @@ public class InstantiateObjectPrefabManager
     {
         ownerToObject.Clear();
         idToOwner.Clear();
-        idToObjects.Clear();
-        deletedObjectToRevert.Clear();
         prefabPool.Clear();
+        retainedObjects.Clear();
+        replaying = false;
+    }
+
+    /// <summary>Rebuilds same-map lifetimes without destroying pooled or surviving instances.</summary>
+    internal void BeginReplay()
+    {
+        foreach (var pair in ownerToObject) retainedObjects.Add(pair.Key, pair.Value);
+        ownerToObject.Clear();
+        idToOwner.Clear();
+        replaying = true;
+    }
+
+    /// <summary>Releases obsolete instances and materializes the surviving prefab lifetimes.</summary>
+    internal void CompleteReplay()
+    {
+        if (!replaying) return;
+        foreach (var pair in retainedObjects)
+            if (!ownerToObject.ContainsKey(pair.Key) && pair.Value != null) RemoveObject(pair.Value);
+        var owners = new List<CustomEventStateData>(ownerToObject.Keys);
+        foreach (var owner in owners) ResolveObject(owner);
+        retainedObjects.Clear();
+        replaying = false;
     }
 
     public void InstantiateVivifyObject(CustomEventStateData state)
     {
+        // Historical lifetimes need no native object unless another event targets them. Resolving
+        // survivors after replay avoids activating objects only to destroy them in this same sample.
+        ownerToObject.Add(state, null);
+        if (!replaying) ResolveObject(state);
+
         var data = state.Base.Data;
-        var prefabName = data["asset"];
-        var vivifyObject = GetOrCreateObject(prefabName);
-        if (vivifyObject == null) return;
+        if (!data.HasKey("id")) return;
+        var id = data["id"];
+        idToOwner.TryAdd(id, new());
+        idToOwner[id].Add(state);
+    }
+
+    private VivifyObject ResolveObject(CustomEventStateData state)
+    {
+        if (ownerToObject[state] != null) return ownerToObject[state];
+        var data = state.Base.Data;
+        if (!retainedObjects.Remove(state, out var vivifyObject) || vivifyObject == null)
+            vivifyObject = GetOrCreateObject(data["asset"]);
+        if (vivifyObject == null) return null;
 
         vivifyObject.transform.SetParent(null, false);
         vivifyObject.Initialize();
+        vivifyObject.Activate();
 
         if (data["scale"] != null) vivifyObject.transform.localScale = data["scale"].ReadVector3(Vector3.one);
 
@@ -94,81 +146,40 @@ public class InstantiateObjectPrefabManager
         else if (data["rotation"] != null)
             vivifyObject.transform.eulerAngles = data["rotation"].ReadVector3(Vector3.zero);
 
-        vivifyObject.Activate();
         vivifyObject.SongSynchronize(state.StartSecondTime);
         
         if (data["track"] != null)
             vivifyObject.Animator.AttachToVivify(vivifyObject, data["track"]);
 
-        ownerToObject.Add(state, vivifyObject);
-
-        if (!data.HasKey("id")) return;
-        var id = data["id"];
-        idToOwner.TryAdd(id, new());
-        idToOwner[id].Add(state);
-
-        idToObjects.TryAdd(id, new());
-        idToObjects[id].Add(vivifyObject);
-    }
-
-    public void ReinstantiateVivifyObject(CustomEventStateData state)
-    {
-        if (!deletedObjectToRevert.TryGetValue(state, out var p)) return;
-        foreach (var s in p) InstantiateVivifyObject(s);
-        deletedObjectToRevert.Remove(state);
-    }
-
-    public void RemoveVivifyObjectByState(CustomEventStateData state)
-    {
-        if (!ownerToObject.TryGetValue(state, out var val)) return;
-
-        RemoveObject(val);
-        ownerToObject.Remove(state);
-
-        if (!state.Base.Data.HasKey("id")) return;
-        var id = state.Base.Data["id"];
-        if (idToOwner.TryGetValue(id, out var v))
-        {
-            v.Remove(state);
-            if (v.Count == 0) idToOwner.Remove(id);
-        }
-
-        if (idToObjects.TryGetValue(id, out var l))
-        {
-            l.Remove(val);
-            if (l.Count == 0) idToObjects.Remove(id);
-        }
+        ownerToObject[state] = vivifyObject;
+        return vivifyObject;
     }
 
     public void RemoveVivifyObjectById(CustomEventStateData state, Func<string, bool> destroyRenderResource = null)
     {
         if (!state.Base.Data.HasKey("id")) return;
-        deletedObjectToRevert.Add(state, new());
 
         if (state.Base.Data["id"].IsString && destroyRenderResource?.Invoke(state.Base.Data["id"]) != true
             && idToOwner.TryGetValue(state.Base.Data["id"], out var l1))
         {
-            foreach (var s in l1) RemoveVivifyObject(s, state);
+            foreach (var s in l1) RemoveVivifyObject(s);
             idToOwner.Remove(state.Base.Data["id"]);
-            idToObjects.Remove(state.Base.Data["id"]);
         }
         else if (state.Base.Data["id"].IsArray)
         {
             foreach (var (_, id) in state.Base.Data["id"].AsArray)
             {
                 if (!id.IsString || destroyRenderResource?.Invoke(id) == true || !idToOwner.TryGetValue(id, out var l2)) continue;
-                foreach (var s in l2) RemoveVivifyObject(s, state);
+                foreach (var s in l2) RemoveVivifyObject(s);
                 idToOwner.Remove(id);
-                idToObjects.Remove(id);
             }
         }
     }
 
-    private void RemoveVivifyObject(CustomEventStateData state, CustomEventStateData removeState)
+    private void RemoveVivifyObject(CustomEventStateData state)
     {
-        if (!ownerToObject.TryGetValue(state, out var o)) return;
-        RemoveObject(o);
-        ownerToObject.Remove(state);
-        deletedObjectToRevert[removeState].Add(state);
+        if (!ownerToObject.Remove(state, out var instance)) return;
+        if (instance == null) retainedObjects.Remove(state, out instance);
+        if (instance != null) RemoveObject(instance);
     }
 }

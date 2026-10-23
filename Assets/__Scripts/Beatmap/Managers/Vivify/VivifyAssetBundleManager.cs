@@ -53,6 +53,7 @@ public class VivifyAssetBundleManager : MonoBehaviour
                 switch (asset)
                 {
                     case Material material:
+                        VivifyTextMeshProCompatibility.PrepareMaterial(material);
                         AssetPathToMaterial.Add(assetPath, material);
                         continue;
                     case Texture texture:
@@ -72,18 +73,18 @@ public class VivifyAssetBundleManager : MonoBehaviour
                     {
                         switch (c)
                         {
-                            // Older TMP bundles serialize "material", while Unity 6 players read "m_Material"
-                            // (UUM-114451). Restore the font's link before activation from its authored text material.
-                            case TMP_Text text when text.font != null && text.font.material == null
-                                && text.fontSharedMaterial != null:
-                                text.font.material = text.fontSharedMaterial;
+                            case TMP_Text text:
+                                VivifyTextMeshProCompatibility.Prepare(text);
                                 break;
                             case Animator:
                                 var asc = c.gameObject.AddComponent<AnimatorSyncController>();
                                 asc.Atsc = atsc;
                                 asc.SetStartTime(0f);
                                 break;
-                            case ParticleSystem:
+                            case ParticleSystem particleSystem:
+                                // Initialize the clock rate before playback; synchronization advances time directly.
+                                var particleMain = particleSystem.main;
+                                particleMain.simulationSpeed = 1f;
                                 var pssc = c.gameObject.AddComponent<ParticleSystemSyncController>();
                                 pssc.Atsc = atsc;
                                 pssc.SetStartTime(0f);
@@ -108,8 +109,9 @@ public class VivifyAssetBundleManager : MonoBehaviour
                 vivifyObject.SetDefault();
                 vivifyObject.SongSynchronize(0);
 
-                // TODO: ok genuinely i have no idea how this work
+                // Replacement models use their note container's animator. Enable this controller only on track attachment.
                 var objectAnimator = go.AddComponent<ObjectAnimator>();
+                objectAnimator.enabled = false;
                 vivifyObject.Animator = objectAnimator;
                 objectAnimator.AnimationThis = go;
                 objectAnimator.LocalTarget = go.transform;
@@ -142,8 +144,11 @@ public class VivifyAssetBundleManager : MonoBehaviour
         }
     }
 
+    /// <summary>Detaches bundle render targets and releases this manager's models, prefabs and loaded assets.</summary>
     public void UnloadAssetBundle()
     {
+        DetachBundleRenderTargets();
+
         foreach (var (key, model) in assetPathToVisualModel)
         {
             if (VisualRepository != null
@@ -167,5 +172,27 @@ public class VivifyAssetBundleManager : MonoBehaviour
         var bundle = Bundle;
         Bundle = null;
         if (bundle != null) AssetBundleUtils.Unload(bundle);
+    }
+
+    private void DetachBundleRenderTargets()
+    {
+        var renderTextures = new HashSet<RenderTexture>();
+        foreach (var texture in AssetPathToTexture.Values)
+            if (texture is RenderTexture renderTexture) renderTextures.Add(renderTexture);
+
+        foreach (var asset in AssetPathToObject.Values)
+        {
+            if (asset is not GameObject prefab) continue;
+            foreach (var camera in prefab.GetComponentsInChildren<Camera>(true))
+                if (camera.targetTexture != null) renderTextures.Add(camera.targetTexture);
+        }
+
+        if (renderTextures.Count == 0) return;
+
+        // Include prefab assets, inactive caches and instances queued for deferred destruction.
+        // Unload(true) releases their shared textures before those cameras are destroyed.
+        foreach (var camera in Resources.FindObjectsOfTypeAll<Camera>())
+            if (camera.targetTexture != null && renderTextures.Contains(camera.targetTexture))
+                camera.targetTexture = null;
     }
 }

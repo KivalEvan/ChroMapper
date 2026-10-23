@@ -10,12 +10,14 @@ public sealed class PostProcessRenderingController : MonoBehaviour
     private const CameraEvent postProcessCameraEvent = CameraEvent.BeforeImageEffects;
 
     private static readonly int sourceTextureId = Shader.PropertyToID("_ChroMapperPostProcessSource");
+    private static readonly int mainEffectSourceId = Shader.PropertyToID("_ChroMapperMainEffectSource");
     private static readonly int postBloomOutputId = Shader.PropertyToID("_ChroMapperPostBloomOutput");
 
     private Camera activeCamera;
     private CommandBuffer commandBuffer;
     private bool active;
     private bool commandBufferAttached;
+    private bool vivifyBlitsEnabled;
     private VivifyRenderingManager vivify;
 
     public void AttachVivify(VivifyRenderingManager rendering)
@@ -25,7 +27,7 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         if (vivify != null)
         {
             vivify.Cameras.RenderMainEffect = RenderCaptureMainEffect;
-            vivify.AssignToCamera(activeCamera);
+            vivify.AssignToCamera(activeCamera, vivifyBlitsEnabled);
         }
         var cameraSetup = FindFirstObjectByType<PerCameraShaderSetupController>();
         if (cameraSetup != null) cameraSetup.VivifyCameras = vivify?.Cameras;
@@ -41,12 +43,16 @@ public sealed class PostProcessRenderingController : MonoBehaviour
             };
     }
 
-    public void AssignToCamera(CameraController cameraController)
+    /// <summary>Moves post-processing and camera captures to the selected camera, enabling map blits only for the player camera.</summary>
+    /// <param name="cameraController">Selected camera, or null to detach rendering.</param>
+    /// <param name="enableVivifyBlits">Whether the selected camera is the player camera.</param>
+    public void AssignToCamera(CameraController cameraController, bool enableVivifyBlits = false)
     {
         DetachCommandBuffer();
         activeCamera = cameraController == null ? null : cameraController.Camera;
+        vivifyBlitsEnabled = enableVivifyBlits;
         AttachCommandBuffer();
-        vivify?.AssignToCamera(activeCamera);
+        vivify?.AssignToCamera(activeCamera, vivifyBlitsEnabled);
     }
 
     private void OnEnable() => Activate();
@@ -100,8 +106,8 @@ public sealed class PostProcessRenderingController : MonoBehaviour
     {
         if (renderingCamera != activeCamera || commandBuffer == null) return;
         commandBuffer.Clear();
-        var before = vivify?.HasBlits(VivifyRenderOrder.BeforeMainEffect) == true;
-        var after = vivify?.HasBlits(VivifyRenderOrder.AfterMainEffect) == true;
+        var before = vivifyBlitsEnabled && vivify?.HasBlits(VivifyRenderOrder.BeforeMainEffect) == true;
+        var after = vivifyBlitsEnabled && vivify?.HasBlits(VivifyRenderOrder.AfterMainEffect) == true;
         var mainEffect = vivify == null || vivify.Cameras.MainEffectEnabled(renderingCamera);
         if (!before && !after && (!mainEffect || !HasMainEffect)) return;
         var cameraTarget = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
@@ -137,6 +143,14 @@ public sealed class PostProcessRenderingController : MonoBehaviour
         var bloom = pyramidBloomController != null && pyramidBloomController.IsReady;
         var chromaticAberration = chromaticAberrationRenderer != null && chromaticAberrationRenderer.IsReady;
         var fade = pyramidBloomController != null && pyramidBloomController.IsFadeReady;
+        var normalizeBloomSource = bloom && descriptor.graphicsFormat != GraphicsFormat.R16G16B16A16_UNorm;
+        if (normalizeBloomSource)
+        {
+            // Match the normal bloom input contract without clamping Vivify's preceding blits or captures.
+            command.GetTemporaryRT(mainEffectSourceId, GetCopyDescriptor(descriptor), FilterMode.Bilinear);
+            command.Blit(source, mainEffectSourceId);
+            source = new RenderTargetIdentifier(mainEffectSourceId);
+        }
         if (bloom && chromaticAberration)
         {
             command.GetTemporaryRT(postBloomOutputId, descriptor, FilterMode.Bilinear);
@@ -153,6 +167,7 @@ public sealed class PostProcessRenderingController : MonoBehaviour
             else command.Blit(source, destination);
             if (fade) pyramidBloomController.RecordFade(command, destination);
         }
+        if (normalizeBloomSource) command.ReleaseTemporaryRT(mainEffectSourceId);
     }
 
     private void RenderCaptureMainEffect(RenderTexture source, RenderTexture destination)

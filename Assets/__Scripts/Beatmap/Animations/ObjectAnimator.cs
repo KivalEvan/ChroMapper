@@ -544,9 +544,10 @@ namespace Beatmap.Animations
             BindPreparedPathDefinitions(preparation.ObjectDefinitions, true);
             var bug = preparation.HasDefinitePosition;
 
-            if (bug
-                && (obj.CustomData["_disableNoteGravity"]?.AsBool
-                    ?? obj.CustomData["disableNoteGravity"]?.AsBool ?? false))
+            // Reading AsBool on a missing SimpleJSON node inserts a default and invalidates the object snapshot.
+            var gravityFlag = obj.CustomData?["_disableNoteGravity"];
+            if (gravityFlag == null) gravityFlag = obj.CustomData?["disableNoteGravity"];
+            if (bug && gravityFlag != null && gravityFlag.AsBool)
             {
                 Debug.LogError($"disableNoteGravity is bugged when combined with definitePosition, please remove it! {BeatmapLogContext.Describe(obj)}");
                 var position = AnimationTrack.ObjectParentTransform.localPosition;
@@ -1788,6 +1789,8 @@ namespace Beatmap.Animations
         // and box lights must recapture that pose before their controller refreshes.
         private void RestoreDirectEnvironmentSpawnPose()
         {
+            // Environment transforms can be destroyed before their track controllers during scene teardown.
+            if (LocalTarget == null) return;
             if (directEnvironmentTargetIsTrackLaneRing && directEnvironmentTrackLaneRing != null)
             {
                 var localPosition = LocalTarget.parent != null

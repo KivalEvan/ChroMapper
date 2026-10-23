@@ -36,7 +36,7 @@ public sealed class VivifyTextureBindings
             binding.Owners.RemoveAt(i);
             break;
         }
-        // A separate shader-property event may currently own the global; preserve that assignment.
+        // Preserve assignments made outside this registry.
         if (Shader.GetGlobalTexture(name) == previous)
         {
             var texture = binding.Owners.Count > 0 ? binding.Owners[binding.Owners.Count - 1].Texture : binding.Previous;

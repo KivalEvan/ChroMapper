@@ -87,28 +87,26 @@ public class AssignObjectPrefabManager
         if (!cachedResult.AdditiveModels.Contains(model)) cachedResult.AdditiveModels.Add(model);
     }
 
-    public void Assign(CustomEventStateData state, int index) => Apply(state, index, false);
+    public void Assign(CustomEventStateData state, int index) => Apply(state, index);
 
-    public void Remove(CustomEventStateData state) => Apply(state, 0, true);
-
-    private void Apply(CustomEventStateData state, int index, bool remove)
+    private void Apply(CustomEventStateData state, int index)
     {
         var data = state.Base.Data;
         var additive = data["loadMode"] == "Additive";
-        ApplyGroup(data["colorNotes"], TrackModelState.Kind.DirectionalNote, index, additive, remove);
-        ApplyGroup(data["bombNotes"], TrackModelState.Kind.Bomb, index, additive, remove);
-        ApplyGroup(data["burstSliders"], TrackModelState.Kind.BurstSlider, index, additive, remove);
-        ApplyGroup(data["burstSliderElements"], TrackModelState.Kind.BurstSliderElement, index, additive, remove);
+        ApplyGroup(data["colorNotes"], TrackModelState.Kind.DirectionalNote, index, additive);
+        ApplyGroup(data["bombNotes"], TrackModelState.Kind.Bomb, index, additive);
+        ApplyGroup(data["burstSliders"], TrackModelState.Kind.BurstSlider, index, additive);
+        ApplyGroup(data["burstSliderElements"], TrackModelState.Kind.BurstSliderElement, index, additive);
     }
 
-    private void ApplyGroup(JSONNode data, TrackModelState.Kind kind, int index, bool additive, bool remove)
+    private void ApplyGroup(JSONNode data, TrackModelState.Kind kind, int index, bool additive)
     {
         if (data == null) return;
         foreach (var track in GetTracks(data["track"]))
         {
-            ApplyModel(index, track, kind, data, "asset", additive, remove);
+            ApplyModel(index, track, kind, data, "asset", additive);
             if (kind == TrackModelState.Kind.DirectionalNote)
-                ApplyModel(index, track, TrackModelState.Kind.AnyNote, data, "anyDirectionAsset", additive, remove);
+                ApplyModel(index, track, TrackModelState.Kind.AnyNote, data, "anyDirectionAsset", additive);
         }
     }
 
@@ -136,8 +134,7 @@ public class AssignObjectPrefabManager
         TrackModelState.Kind kind,
         JSONNode json,
         string target,
-        bool additive,
-        bool remove)
+        bool additive)
     {
         if (!json.HasKey(target)) return;
         var value = json[target];
@@ -152,23 +149,12 @@ public class AssignObjectPrefabManager
             }
         }
 
-        if (remove)
-        {
-            if (!trackToTrackModelState.TryGetValue(track, out var trackModel)) return;
-            if (additive)
-                trackModel.RemoveModel(kind, asset);
-            else
-                trackModel.UnsetModel(kind);
-        }
+        if (!trackToTrackModelState.TryGetValue(track, out var trackModel))
+            trackToTrackModelState[track] = trackModel = new TrackModelState();
+        if (additive)
+            trackModel.AddModel(kind, asset, index);
         else
-        {
-            if (!trackToTrackModelState.TryGetValue(track, out var trackModel))
-                trackToTrackModelState[track] = trackModel = new TrackModelState();
-            if (additive)
-                trackModel.AddModel(kind, asset, index);
-            else
-                trackModel.SetModel(kind, asset, index);
-        }
+            trackModel.SetModel(kind, asset, index);
 
         TracksManager.QueueModelUpdate(track);
     }

@@ -14,8 +14,6 @@ public class TrackModelState
 
     public class ModelContainer
     {
-        private readonly Stack<ModelContainer> histories = new();
-
         public struct PriorityModel
         {
             public VisualModelSO Model;
@@ -28,7 +26,6 @@ public class TrackModelState
 
         public void Set(VisualModelSO model, int priority)
         {
-            histories.Push(new() { HasSet = HasSet, Model = Model, Models = new(Models) });
             HasSet = true;
             Model = new PriorityModel { Model = model, Priority = priority };
             Models.Clear();
@@ -37,24 +34,8 @@ public class TrackModelState
         public void Add(VisualModelSO model, int priority) =>
             Models.Add(new PriorityModel { Model = model, Priority = priority });
 
-        public void Remove(VisualModelSO model)
-        {
-            var index = Models.FindLastIndex(x => x.Model == model);
-            if (index != -1) Models.RemoveAt(index);
-        }
-
-        public void Unset()
-        {
-            if (!histories.TryPop(out var history)) return;
-            HasSet = history.HasSet;
-            Model = history.Model;
-            Models.Clear();
-            Models.AddRange(history.Models);
-        }
-
         public void Reset()
         {
-            histories.Clear();
             HasSet = false;
             Model = default;
             Models.Clear();
@@ -69,50 +50,12 @@ public class TrackModelState
 
     public void SetModel(Kind kind, VisualModelSO model, int priority)
     {
-        switch (kind)
-        {
-            case Kind.DirectionalNote:
-                DirectionalNote.Set(model, priority);
-                break;
-            case Kind.AnyNote:
-                AnyNote.Set(model, priority);
-                break;
-            case Kind.Bomb:
-                Bomb.Set(model, priority);
-                break;
-            case Kind.BurstSlider:
-                BurstSlider.Set(model, priority);
-                break;
-            case Kind.BurstSliderElement:
-                BurstSliderElement.Set(model, priority);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
-        }
+        GetModel(kind).Set(model, priority);
     }
 
     public void AddModel(Kind kind, VisualModelSO model, int priority)
     {
-        switch (kind)
-        {
-            case Kind.DirectionalNote:
-                DirectionalNote.Add(model, priority);
-                break;
-            case Kind.AnyNote:
-                AnyNote.Add(model, priority);
-                break;
-            case Kind.Bomb:
-                Bomb.Add(model, priority);
-                break;
-            case Kind.BurstSlider:
-                BurstSlider.Add(model, priority);
-                break;
-            case Kind.BurstSliderElement:
-                BurstSliderElement.Add(model, priority);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
-        }
+        GetModel(kind).Add(model, priority);
     }
 
     public ModelContainer GetModel(Kind kind)
@@ -126,54 +69,6 @@ public class TrackModelState
             Kind.BurstSliderElement => BurstSliderElement,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         };
-    }
-
-    public void RemoveModel(Kind kind, VisualModelSO model)
-    {
-        switch (kind)
-        {
-            case Kind.DirectionalNote:
-                DirectionalNote.Remove(model);
-                break;
-            case Kind.AnyNote:
-                AnyNote.Remove(model);
-                break;
-            case Kind.Bomb:
-                Bomb.Remove(model);
-                break;
-            case Kind.BurstSlider:
-                BurstSlider.Remove(model);
-                break;
-            case Kind.BurstSliderElement:
-                BurstSliderElement.Remove(model);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
-        }
-    }
-
-    public void UnsetModel(Kind kind)
-    {
-        switch (kind)
-        {
-            case Kind.DirectionalNote:
-                DirectionalNote.Unset();
-                break;
-            case Kind.AnyNote:
-                AnyNote.Unset();
-                break;
-            case Kind.Bomb:
-                Bomb.Unset();
-                break;
-            case Kind.BurstSlider:
-                BurstSlider.Unset();
-                break;
-            case Kind.BurstSliderElement:
-                BurstSliderElement.Unset();
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
-        }
     }
 
     public void Reset()

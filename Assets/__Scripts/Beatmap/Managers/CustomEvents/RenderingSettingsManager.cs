@@ -13,12 +13,44 @@ public sealed class RenderingSettingsManager
     public InstantiateObjectPrefabManager InstantiateObjectPrefabManager;
     public Action<bool> SetSkyboxOverride;
 
+    private static readonly int lightShadowBiasId = Shader.PropertyToID("unity_LightShadowBias");
+    private int? previousPixelLightCount;
+    private Vector4? previousLightShadowBias;
+
+    /// <summary>Captures lighting state and applies Beat Saber's Vivify light budget after outgoing event properties have been reset.</summary>
+    /// <param name="vivify">Whether the selected difficulty requires Vivify; other difficulties keep the editor defaults.</param>
+    public void ApplyDefaults(bool vivify)
+    {
+        RestoreDefaults();
+        if (!vivify) return;
+
+        previousPixelLightCount = QualitySettings.pixelLightCount;
+        previousLightShadowBias = Shader.GetGlobalVector(lightShadowBiasId);
+        // Beat Saber uses 0; Unity still renders the main directional light in the base pass.
+        QualitySettings.pixelLightCount = 0;
+    }
+
+    /// <summary>Restores light shader state and, unless rebuilding the same map, the editor's light budget.</summary>
+    /// <param name="preserveMapDefaults">Keep the Vivify light budget and captured defaults while rebuilding the same map.</param>
+    public void RestoreDefaults(bool preserveMapDefaults = false)
+    {
+        // Unity leaves this uniform set after shadow-casting bundle lights are removed.
+        // Unlit outline passes can still read it even when the next map has no such light.
+        if (previousLightShadowBias.HasValue)
+            Shader.SetGlobalVector(lightShadowBiasId, previousLightShadowBias.Value);
+        if (preserveMapDefaults) return;
+        previousLightShadowBias = null;
+        if (!previousPixelLightCount.HasValue) return;
+        QualitySettings.pixelLightCount = previousPixelLightCount.Value;
+        previousPixelLightCount = null;
+    }
+
     public void Assign(CustomEventStateData state)
     {
         if (state?.Base?.Data == null) return;
 
         var data = state.Base.Data;
-        var easing = data["easing"].IsString ? Easing.Named(data["easing"]) : Easing.Linear;
+        var easing = CustomEventValueParser.GetEasing(data);
         AssignRenderSettings(state, data["renderSettings"], easing);
         AssignQualitySettings(state, data["qualitySettings"], easing);
         AssignXrSettings(state, data["xrSettings"], easing);
@@ -225,7 +257,7 @@ public sealed class RenderingSettingsManager
         Light sun = null;
         if (InstantiateObjectPrefabManager != null)
         {
-            foreach (var instance in InstantiateObjectPrefabManager.GetObjectById(value.Value))
+            foreach (var instance in InstantiateObjectPrefabManager.GetObjectById(value.Value, state))
             {
                 if (instance == null) continue;
                 var lights = instance.GetComponentsInChildren<Light>(true);
@@ -252,9 +284,8 @@ public sealed class RenderingSettingsManager
     private void RegisterFloat(CustomEventStateData state, string property, JSONNode value,
         Func<float> read, Action<float> write, Func<float, float> easing, bool updateEnvironment = false)
     {
-        if (value.IsNumber || value.IsBoolean)
+        if (CustomEventValueParser.TryReadFloat(value, out var number, allowBoolean: true))
         {
-            var number = value.IsBoolean ? (value.AsBool ? 1f : 0f) : value.AsFloat;
             Register(state, GetPropertyKey(property), read, write, _ => number, null, updateEnvironment);
             return;
         }
@@ -267,9 +298,8 @@ public sealed class RenderingSettingsManager
     private void RegisterInt(CustomEventStateData state, string property, JSONNode value,
         Func<int> read, Action<int> write, Func<float, float> easing, bool updateEnvironment = false)
     {
-        if (value.IsNumber || value.IsBoolean)
+        if (CustomEventValueParser.TryReadFloat(value, out var number, allowBoolean: true))
         {
-            var number = value.IsBoolean ? (value.AsBool ? 1f : 0f) : value.AsFloat;
             Register(state, GetPropertyKey(property), read, write, _ => Convert.ToInt32(number), null, updateEnvironment);
             return;
         }
@@ -283,9 +313,9 @@ public sealed class RenderingSettingsManager
     private void RegisterBool(CustomEventStateData state, string property, JSONNode value,
         Func<bool> read, Action<bool> write, Func<float, float> easing, bool updateEnvironment = false)
     {
-        if (value.IsBoolean || value.IsNumber)
+        if (CustomEventValueParser.TryReadFloat(value, out var number, allowBoolean: true))
         {
-            var boolean = value.IsBoolean ? value.AsBool : value.AsFloat != 0f;
+            var boolean = number != 0f;
             Register(state, GetPropertyKey(property), read, write, _ => boolean, null, updateEnvironment);
             return;
         }
@@ -300,9 +330,8 @@ public sealed class RenderingSettingsManager
         Func<TEnum> read, Action<TEnum> write, Func<float, float> easing)
         where TEnum : struct, Enum
     {
-        if (value.IsNumber || value.IsBoolean)
+        if (CustomEventValueParser.TryReadFloat(value, out var number, allowBoolean: true))
         {
-            var number = value.IsBoolean ? (value.AsBool ? 1f : 0f) : value.AsFloat;
             Register(state, GetPropertyKey(property), read, write,
                 _ => (TEnum)Enum.ToObject(typeof(TEnum), (int)number), null, updateEnvironment: false);
             return;
@@ -317,7 +346,7 @@ public sealed class RenderingSettingsManager
     private void RegisterColor(CustomEventStateData state, string property, JSONNode value,
         Func<Color> read, Action<Color> write, Func<float, float> easing, bool updateEnvironment = false)
     {
-        if (TryReadColor(value, out var color))
+        if (CustomEventValueParser.TryReadColor(value, out var color))
         {
             Register(state, GetPropertyKey(property), read, write, _ => color, null, updateEnvironment);
             return;
@@ -340,30 +369,6 @@ public sealed class RenderingSettingsManager
         };
 
         PropertyTimeline.Register(state, null, property, read, apply, sample, easing);
-    }
-
-    private static bool TryReadColor(JSONNode value, out Color color)
-    {
-        if (value.IsArray && (value.Count == 3 || value.Count == 4))
-        {
-            var components = new float[value.Count];
-            for (var i = 0; i < value.Count; i++)
-            {
-                if (!value[i].IsNumber)
-                {
-                    color = default;
-                    return false;
-                }
-
-                components[i] = value[i].AsFloat;
-            }
-
-            color = new Color(components[0], components[1], components[2], components.Length == 4 ? components[3] : 1f);
-            return true;
-        }
-
-        color = default;
-        return false;
     }
 
     private static string GetPropertyKey(string property) =>

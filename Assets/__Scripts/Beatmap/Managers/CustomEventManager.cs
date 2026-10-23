@@ -49,6 +49,7 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
 
     protected override void OnDestroy()
     {
+        MapGraphicsSettings.Reset();
         base.OnDestroy();
         LoadInitialMap.OnLevelLoaded -= UpdateTime;
         LoadedDifficultySelectController.OnLoadedDifficultyChanged -= UpdateTime;
@@ -67,6 +68,7 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
     public void SuspendForMapChange()
     {
         ready = false;
+        MapGraphicsSettings.Reset();
         manager.ResetComponentEvents();
         manager.ResetRuntime();
         trackEvents?.Reset();
@@ -79,6 +81,7 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
         ready = false;
         manager.ResetComponentEvents();
         manager.ResetRuntime();
+        MapGraphicsSettings.Apply(BeatSaberSongContainer.Instance.MapDifficultyInfo);
         if (trackEvents == null)
         {
             var grid = BeatmapObjectContainerCollection.GetCollectionForType<CustomEventGridContainer>(
@@ -120,6 +123,7 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
         {
             PointDefinitionParser.EndRegistration();
         }
+        PointDefinitionParser.RetainDefinitions(map.PointDefinitions, AnimationRoots(map, ordered));
         CaptureSources(map, ordered);
         loadedVersion = map.MajorVersion;
         loadedOthers = Settings.Instance.Load_Others;
@@ -273,7 +277,8 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
                     if (pathObjects.Contains(animator)) animator.RefreshTrackAnimation();
                     else animator.RefreshTrackContributions();
                 }
-                PointDefinitionParser.RetainDefinitions(map.PointDefinitions, AnimationRoots(map, ordered));
+                PointDefinitionParser.RetainDefinitions(map.PointDefinitions, AnimationRoots(map, ordered),
+                    inspectAll, ChangedAnimationRoots());
             }
             finally
             {
@@ -292,7 +297,15 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
                 }
                 playerChanged |= snapshot.Type == "AssignPlayerToTrack";
                 fogAssignmentChanged |= snapshot.Type == "AssignFogTrack";
-                replay |= IsStructural(snapshot.Type) && snapshot.SongTime <= Context.Atsc.CurrentSongBpmTime;
+                replay |= snapshot.RequiresReplay && snapshot.SongTime <= Context.Atsc.CurrentSongBpmTime;
+            }
+
+            IEnumerable<JSONNode> ChangedAnimationRoots()
+            {
+                foreach (var evt in changed)
+                    if (current.ContainsKey(evt)) yield return evt.Data;
+                foreach (var name in changedNames)
+                    if (map.PointDefinitions.TryGetValue(name, out var definition)) yield return definition;
             }
         }
         eventSnapshots.Clear();
@@ -307,9 +320,8 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
         pendingEvents.Clear();
     }
 
-    private static bool IsStructural(string type) => type is "AssignTrackParent" or "SetMaterialProperty"
-        or "SetGlobalProperty" or "SetAnimatorProperty" or "InstantiatePrefab" or "DestroyObject" or "Blit"
-        or "CreateScreenTexture" or "CreateCamera" or "SetCameraProperty" or "SetRenderingSettings" or "AssignObjectPrefab";
+    private static bool IsStructural(string type) => type is "AssignTrackParent" or "InstantiatePrefab"
+        or "DestroyObject" or "Blit" or "CreateScreenTexture" or "CreateCamera" or "SetCameraProperty" or "AssignObjectPrefab";
 
     private static bool ReferencesDefinitions(JSONNode node, ISet<string> names)
     {
@@ -352,11 +364,12 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
         internal readonly string Type;
         internal readonly float Time;
         internal readonly float SongTime;
-        internal readonly string Content;
+        private readonly JSONNode content;
         internal readonly string[] Tracks;
-        private readonly string trackContent;
-        private readonly string parentContent;
-        private readonly string childrenContent;
+        internal readonly bool RequiresReplay;
+        private readonly JSONNode trackContent;
+        private readonly JSONNode parentContent;
+        private readonly JSONNode childrenContent;
         private readonly float? duration;
         private readonly string easing;
         private readonly int? repeat;
@@ -366,12 +379,15 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
         internal EventSnapshot(BaseCustomEvent evt, int order)
         {
             Type = evt.Type;
+            // Trigger edits can change Animator transitions, so replay their state-machine effects.
+            RequiresReplay = IsStructural(Type) || (Type == "SetAnimatorProperty"
+                && evt.Data != null && evt.Data["properties"].Children.Any(property => property["type"] == "Trigger"));
             Time = evt.JsonTime;
             SongTime = evt.SongBpmTime;
-            Content = evt.Data?.ToString();
-            trackContent = evt.CustomTrack?.ToString();
-            parentContent = evt.DataParentTrack?.ToString();
-            childrenContent = evt.DataChildrenTracks?.ToString();
+            content = evt.Data?.Clone();
+            trackContent = evt.CustomTrack?.Clone();
+            parentContent = evt.DataParentTrack?.Clone();
+            childrenContent = evt.DataChildrenTracks?.Clone();
             duration = evt.DataDuration;
             easing = evt.DataEasing;
             repeat = evt.DataRepeat;
@@ -399,16 +415,39 @@ public class CustomEventManager : BeatmapObjectManager<BaseCustomEvent>
             if (after == null) return before.poseContent.Length > 0;
             if (before.poseContent.Length == 0 && after.poseContent.Length == 0) return false;
             return before.poseContent != after.poseContent || before.Time != after.Time
-                || before.trackContent != after.trackContent || before.duration != after.duration
+                || !MatchesJson(before.trackContent, after.trackContent) || before.duration != after.duration
                 || before.easing != after.easing || before.repeat != after.repeat
                 || before.poseDefinitions.Overlaps(names) || after.poseDefinitions.Overlaps(names);
         }
 
         internal bool Matches(BaseCustomEvent evt) => Type == evt.Type && Time == evt.JsonTime
-            && SongTime == evt.SongBpmTime && Content == evt.Data?.ToString()
+            && SongTime == evt.SongBpmTime && MatchesJson(content, evt.Data)
             && duration == evt.DataDuration && easing == evt.DataEasing && repeat == evt.DataRepeat
-            && worldPositionStays == evt.DataWorldPositionStays && trackContent == evt.CustomTrack?.ToString()
-            && parentContent == evt.DataParentTrack?.ToString() && childrenContent == evt.DataChildrenTracks?.ToString();
+            && worldPositionStays == evt.DataWorldPositionStays && MatchesJson(trackContent, evt.CustomTrack)
+            && MatchesJson(parentContent, evt.DataParentTrack) && MatchesJson(childrenContent, evt.DataChildrenTracks);
+
+        // Snapshots own their nodes so in-place edits remain visible without formatting every number
+        // and allocating serialized JSON on every broad refresh. Array order still controls precedence.
+        private static bool MatchesJson(JSONNode before, JSONNode after)
+        {
+            if (ReferenceEquals(before, after)) return true;
+            if (ReferenceEquals(before, null) || ReferenceEquals(after, null)
+                || before.Tag != after.Tag || before.Count != after.Count) return false;
+            if (before is JSONArray)
+            {
+                for (var i = 0; i < before.Count; i++)
+                    if (!MatchesJson(before[i], after[i])) return false;
+                return true;
+            }
+            if (before is JSONObject)
+            {
+                foreach (var pair in before)
+                    if (!after.HasKey(pair.Key) || !MatchesJson(pair.Value, after[pair.Key])) return false;
+                return true;
+            }
+            return before.IsNumber ? before.AsDouble.Equals(after.AsDouble)
+                : before.Value == after.Value;
+        }
     }
 
     public override void UpdateTime() => UpdateTime(Context.Atsc.IsPlaying, Context.Atsc.CurrentSongBpmTime);

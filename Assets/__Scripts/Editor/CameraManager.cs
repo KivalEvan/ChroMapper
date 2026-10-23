@@ -27,7 +27,8 @@ public class CameraManager : MonoBehaviour, IEditorStateProvider
         cameraDepthRenderingController.AssignToCamera(SelectedCameraController);
         screenDisplacementRenderingController.AssignToCamera(SelectedCameraController);
         bloomfogRenderingController.AssignToCamera(SelectedCameraController);
-        postProcessRenderingController.AssignToCamera(SelectedCameraController);
+        postProcessRenderingController.AssignToCamera(
+            SelectedCameraController, SelectedCameraController == playingCameraController);
         CameraControllers[0] = editingCameraController;
         CameraControllers[1] = playingCameraController;
         EditorStateService.Register(this);
@@ -81,7 +82,8 @@ public class CameraManager : MonoBehaviour, IEditorStateProvider
         cameraDepthRenderingController.AssignToCamera(SelectedCameraController);
         screenDisplacementRenderingController.AssignToCamera(SelectedCameraController);
         bloomfogRenderingController.AssignToCamera(SelectedCameraController);
-        postProcessRenderingController.AssignToCamera(SelectedCameraController);
+        postProcessRenderingController.AssignToCamera(
+            SelectedCameraController, SelectedCameraController == playingCameraController);
     }
 }
 

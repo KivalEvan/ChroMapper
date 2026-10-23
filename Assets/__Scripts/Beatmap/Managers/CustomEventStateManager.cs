@@ -27,6 +27,8 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     public override void Initialize()
     {
         ResetRuntime();
+        var song = BeatSaberSongContainer.Instance;
+        renderingSettings.ApplyDefaults(song != null && song.MapDifficultyInfo?.CustomRequirements.Contains("Vivify") == true);
         states.Clear();
         dirty = false;
         animateComponentManager.Context = Context;
@@ -72,30 +74,44 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
     internal void RefreshEvents(IReadOnlyList<BaseCustomEvent> events, ISet<BaseCustomEvent> changed,
         bool replayRuntime)
     {
+        replayRuntime |= dirty;
         var retained = new Dictionary<BaseCustomEvent, CustomEventStateData>();
-        foreach (var state in states) retained[state.Base] = state;
+        foreach (var state in states)
+        {
+            retained[state.Base] = state;
+            if (!replayRuntime && changed.Contains(state.Base)) objectPropertyManager.RemoveEvent(state);
+        }
         states.Clear();
+        var updatedProperties = new List<CustomEventStateData>();
         foreach (var evt in events)
         {
             if (changed.Contains(evt) || !retained.TryGetValue(evt, out var state))
+            {
                 state = BuildState(evt);
+                if (IsPropertyEvent(evt.Type) && state.StartTime <= previousTime) updatedProperties.Add(state);
+            }
             state.Sequence = states.Count;
             states.Add(state);
         }
         if (replayRuntime) dirty = true;
         else
         {
+            foreach (var state in updatedProperties) FireEvent(state);
             nextEvent = 0;
             while (nextEvent < states.Count && states[nextEvent].StartTime <= previousTime) nextEvent++;
         }
     }
 
+    private static bool IsPropertyEvent(string type) => type is "SetMaterialProperty" or "SetGlobalProperty"
+        or "SetAnimatorProperty" or "SetRenderingSettings";
+
     /// <summary>Restores owned properties before releasing their targets and structural event state.</summary>
-    /// <param name="preserveBlitTextures">Retain the last playback captures when rebuilding the current map's event state.</param>
+    /// <param name="preserveBlitTextures">Retain map defaults, playback captures, and reusable prefabs when rebuilding the current map's event state.</param>
     public void ResetRuntime(bool preserveBlitTextures = false)
     {
         objectPropertyManager.Reset();
         properties.Reset();
+        renderingSettings.RestoreDefaults(preserveBlitTextures);
         HashSet<string> textureIds = null;
         HashSet<string> cameraIds = null;
         if (preserveBlitTextures)
@@ -110,7 +126,8 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
         }
         Rendering?.Reset(preserveBlitTextures, textureIds, cameraIds);
         AssignObjectPrefabManager.Reset();
-        instantiateObjectPrefabManager.Reset();
+        if (preserveBlitTextures) instantiateObjectPrefabManager.BeginReplay();
+        else instantiateObjectPrefabManager.Reset();
         TrackEvents?.ResetParenting();
         nextEvent = 0;
         previousTime = float.NegativeInfinity;
@@ -139,7 +156,7 @@ public class CustomEventStateManager : StateManager<CustomEventStateData, BaseCu
         while (nextEvent < states.Count && states[nextEvent].StartTime <= time)
             FireEvent(states[nextEvent++]);
 
-        objectPropertyManager.RefreshTargets();
+        instantiateObjectPrefabManager.CompleteReplay();
         properties.Sample(time);
         TrackEvents?.Sample(BeatSaberSongContainer.Instance.Map.SongBpmTimeToJsonTime(time) ?? time);
         animateComponentManager.Sample(BeatSaberSongContainer.Instance.Map.SongBpmTimeToJsonTime(time) ?? time);

@@ -5,7 +5,7 @@ public abstract class SyncController : MonoBehaviour, ISync
     public AudioTimeSyncController Atsc;
 
     protected float StartTime { get; private set; }
-    protected float SongTime { get; private set; }
+    protected float SongTime { get; set; }
 
     public void SetStartTime(float time)
     {

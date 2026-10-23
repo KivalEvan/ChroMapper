@@ -20,6 +20,7 @@ public class AnimatorSyncController : SyncController
     {
         animator = GetComponent<Animator>();
         animator.updateMode = AnimatorUpdateMode.Normal;
-        animator.Update(SongTime);
+        // The first sync advances from the spawn offset; Awake only initializes the animator.
+        animator.Update(0f);
     }
 }

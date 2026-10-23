@@ -32,6 +32,7 @@ public sealed class VivifyRenderingManager : IDisposable
     private readonly List<Blit> blits = new();
     private readonly CommandBuffer[] earlyPasses = new CommandBuffer[cameraEvents.Length];
     private Camera camera;
+    private bool blitsEnabled;
     private float beat;
     private bool isPlaying;
     public Camera ActiveCamera => camera;
@@ -41,7 +42,7 @@ public sealed class VivifyRenderingManager : IDisposable
     {
         this.assets = assets;
         this.properties = properties;
-        Cameras = new VivifyCameraManager(tracks);
+        Cameras = new VivifyCameraManager(tracks, properties.TextureBindings);
         for (var i = 0; i < earlyPasses.Length; i++)
             earlyPasses[i] = new CommandBuffer { name = "Vivify " + (VivifyRenderOrder)i };
         Camera.onPreCull += OnPreCull;
@@ -49,15 +50,19 @@ public sealed class VivifyRenderingManager : IDisposable
         Camera.onPostRender += OnPostRender;
     }
 
-    /// <summary>Moves all map rendering to the currently selected editor/preview camera.</summary>
-    public void AssignToCamera(Camera target)
+    /// <summary>Moves camera captures to the selected camera and optionally attaches map blit passes.</summary>
+    /// <param name="target">Selected camera, or null to detach rendering.</param>
+    /// <param name="enableBlits">Whether this camera may run map blits.</param>
+    public void AssignToCamera(Camera target, bool enableBlits = true)
     {
-        if (camera == target) return;
+        if (camera == target && blitsEnabled == enableBlits) return;
         if (camera != null)
             for (var i = 0; i < earlyPasses.Length; i++) camera.RemoveCommandBuffer(cameraEvents[i], earlyPasses[i]);
+        foreach (var command in earlyPasses) command.Clear();
         Cameras.SetMainCamera(target);
         camera = target;
-        if (camera != null)
+        blitsEnabled = enableBlits;
+        if (camera != null && blitsEnabled)
             for (var i = 0; i < earlyPasses.Length; i++) camera.AddCommandBuffer(cameraEvents[i], earlyPasses[i]);
     }
 
@@ -140,11 +145,13 @@ public sealed class VivifyRenderingManager : IDisposable
         if (destinations.Count == 0) destinations.Add(mainTarget);
 
         if (material != null && data["properties"].IsArray) properties.AssignMaterial(state);
-        if ((state.Base.DataDuration ?? 0) < 0) return;
+        var duration = state.Base.DataDuration ?? 0;
+        if (duration < 0 || (duration > 0 && state.EndTimeAnimation <= beat)) return;
         var blit = new Blit(state, material, data["source"].IsString ? (string)data["source"] : mainTarget,
             destinations.ToArray(), pass, order, data.HasKey("priority") ? data["priority"].AsInt : 0);
         // A paused seek must not schedule snapshots from crossed event boundaries for the next playback frame.
         blit.Consumed = !isPlaying && blit.OneFrame && state.StartTime < beat;
+        if (blit.Consumed) return;
         blits.Add(blit);
         // Upstream executes higher priorities first, then later registrations at equal priority.
         blits.Sort((a, b) => a.Priority != b.Priority
@@ -170,6 +177,9 @@ public sealed class VivifyRenderingManager : IDisposable
                 if (blit.OneFrame && blit.State.StartTime < songBpmBeat) blit.Consumed = true;
         beat = songBpmBeat;
         isPlaying = playing;
+        for (var i = blits.Count - 1; i >= 0; i--)
+            if (blits[i].Consumed || (!blits[i].OneFrame && songBpmBeat >= blits[i].State.EndTimeAnimation))
+                blits.RemoveAt(i);
     }
 
     public bool HasBlits(VivifyRenderOrder order)
@@ -246,7 +256,7 @@ public sealed class VivifyRenderingManager : IDisposable
 
     private void OnPreRender(Camera renderingCamera)
     {
-        if (renderingCamera != camera) return;
+        if (renderingCamera != camera || !blitsEnabled) return;
         var descriptor = GetDescriptor(camera);
         var target = new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget);
         for (var i = 0; i < earlyPasses.Length; i++)
@@ -260,8 +270,11 @@ public sealed class VivifyRenderingManager : IDisposable
     {
         if (renderingCamera != camera) return;
         Cameras.EndCull(camera);
-        foreach (var blit in blits)
-            if (blit.Recorded && blit.OneFrame && (isPlaying || !blit.WritesTexture)) blit.Consumed = true;
+        for (var i = blits.Count - 1; i >= 0; i--)
+        {
+            var blit = blits[i];
+            if (blit.Recorded && blit.OneFrame && (isPlaying || !blit.WritesTexture)) blits.RemoveAt(i);
+        }
         foreach (var command in earlyPasses) command.Clear();
     }
 

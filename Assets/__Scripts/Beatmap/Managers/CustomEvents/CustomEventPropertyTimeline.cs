@@ -20,18 +20,23 @@ public sealed class CustomEventPropertyTimeline
     /// <param name="owner">Event with canonical sequence and start/end times in song BPM beats.</param>
     /// <param name="target">Object whose lifetime owns the property, or null for a global property.</param>
     /// <param name="property">Native property key shared by registrations addressing the same value.</param>
-    /// <param name="read">Reads the original value when the channel is first registered.</param>
+    /// <param name="read">Reads the original value when first registered; may be null when restore is supplied.</param>
     /// <param name="write">Applies sampled values and restores the original value.</param>
     /// <param name="sample">Evaluates a value at normalized event progress.</param>
     /// <param name="easing">Optional easing applied to normalized event progress.</param>
+    /// <param name="restore">Optional ownership cleanup replacing baseline capture and restoration.</param>
     public void Register<T>(CustomEventStateData owner, UnityEngine.Object target, string property,
-        Func<T> read, Action<T> write, Func<float, T> sample, Func<float, float> easing = null)
+        Func<T> read, Action<T> write, Func<float, T> sample, Func<float, float> easing = null, Action restore = null)
     {
         var key = new ChannelKey(target, property);
         if (!channelsByKey.TryGetValue(key, out var channel))
         {
-            var baseline = read();
-            channel = new Channel(key, () => write(baseline));
+            if (restore == null)
+            {
+                var baseline = read();
+                restore = () => write(baseline);
+            }
+            channel = new Channel(key, restore);
             channelsByKey.Add(key, channel);
             channels.Add(channel);
         }

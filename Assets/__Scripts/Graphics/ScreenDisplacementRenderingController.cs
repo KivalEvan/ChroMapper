@@ -57,6 +57,7 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
         if (!settingsCallbackSubscribed)
         {
             Settings.NotifyBySettingName(nameof(Settings.ScreenDisplacement), UpdateScreenDisplacement);
+            MapGraphicsSettings.Changed += HandleMapGraphicsChanged;
             settingsCallbackSubscribed = true;
         }
         if (screenDisplacementEnabled) Activate();
@@ -68,6 +69,7 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
         {
             Settings.StopNotifyingBySettingName(
                 nameof(Settings.ScreenDisplacement), UpdateScreenDisplacement);
+            MapGraphicsSettings.Changed -= HandleMapGraphicsChanged;
             settingsCallbackSubscribed = false;
         }
         Deactivate();
@@ -346,9 +348,11 @@ public sealed class ScreenDisplacementRenderingController : MonoBehaviour
         });
     }
 
+    private void HandleMapGraphicsChanged() => UpdateScreenDisplacement(Settings.Instance.ScreenDisplacement);
+
     private void UpdateScreenDisplacement(object value)
     {
-        screenDisplacementEnabled = System.Convert.ToBoolean(value);
+        screenDisplacementEnabled = MapGraphicsSettings.ScreenDisplacement ?? System.Convert.ToBoolean(value);
         if (screenDisplacementEnabled)
         {
             ScreenDisplacementRenderer.SetEnabled(true);
